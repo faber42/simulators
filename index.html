@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulatoren</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        background: #1a1d23;
+        color: #e8eaed;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 3rem 1.5rem;
+    }
+    h1 {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+    }
+    p.subtitle {
+        color: #9aa0a6;
+        margin-bottom: 2.5rem;
+    }
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 1.5rem;
+        width: 100%;
+        max-width: 960px;
+    }
+    a.card {
+        display: block;
+        background: #23262e;
+        border: 1px solid #33373f;
+        border-radius: 12px;
+        padding: 1.5rem;
+        text-decoration: none;
+        color: inherit;
+        transition: transform 0.15s, border-color 0.15s;
+    }
+    a.card:hover {
+        transform: translateY(-3px);
+        border-color: #5b8def;
+    }
+    .card .icon {
+        font-size: 2.2rem;
+        margin-bottom: 0.8rem;
+    }
+    .card h2 {
+        font-size: 1.2rem;
+        margin-bottom: 0.5rem;
+    }
+    .card p {
+        color: #9aa0a6;
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+</style>
+</head>
+<body>
+    <h1>Simulatoren</h1>
+    <p class="subtitle">HTML-basierte Simulationsprojekte</p>
+    <div class="grid">
+        <a class="card" href="elevsim/">
+            <div class="icon">🛗</div>
+            <h2>Aufzug-Simulator</h2>
+            <p>Simulation einer Aufzuganlage mit Etagenrufen und Kabinensteuerung.</p>
+        </a>
+        <a class="card" href="netsim/">
+            <div class="icon">🌐</div>
+            <h2>NetSim &ndash; Netzwerk-Simulator</h2>
+            <p>Visualisierung von Netzwerkgeräten, Links, Frames und Protokollen.</p>
+        </a>
+        <a class="card" href="trafficsim/">
+            <div class="icon">🚦</div>
+            <h2>Kreuzungssimulation</h2>
+            <p>Große Verkehrskreuzung mit mehrstufiger Ampelanlage, Abbiegern und Fußgängerfurten.</p>
+        </a>
+    </div>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "simulators",
+  "version": "1.0.0",
+  "description": "Sammlung HTML-basierter Simulatoren",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
