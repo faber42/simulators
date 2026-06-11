@@ -866,9 +866,22 @@ speedSlider.addEventListener('input', () => {
 });
 
 // ---- Hauptschleife -----------------------------------------------------
-function loop() {
+// Feste Physikschritte (60 Hz Simulationszeit), getaktet über die real
+// verstrichene Zeit – unabhängig von der Bildwiederholrate des Displays.
+const STEP = 1 / 60;
+let lastTime = 0;
+let stepAcc = 0;
+
+function loop(now) {
     const speed = parseInt(speedSlider.value, 10);
-    for (let i = 0; i < speed; i++) step(1 / 60);
+    if (lastTime) stepAcc += Math.min((now - lastTime) / 1000, 0.1) * speed;
+    lastTime = now;
+    let n = 0;
+    while (stepAcc >= STEP && n < 12) {
+        stepAcc -= STEP;
+        step(STEP);
+        n++;
+    }
     draw();
     updateUI();
     requestAnimationFrame(loop);
