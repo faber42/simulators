@@ -83,6 +83,7 @@ function resetState() {
         temp: 20,
         wetness: 0,
         dirt: 1,               // 1 = fleckig, 0 = sauber; sinkt nur mit Schaum
+        spinLock: null,        // Wäsche beim Schleudern an die Trommelwand geheftet
         airT: 0,               // Animationszeit Luftpfeile
         fanAngle: 0,
         pumpAngle: 0,
@@ -157,6 +158,54 @@ function setPaddlesSolid(solid) {
     for (const p of paddles) p.collisionFilter.mask = solid ? -1 : 0;
 }
 
+// ---- Schleuder-Haftung -------------------------------------------------
+// Ab hoher Drehzahl presst die Fliehkraft die Wäsche an die Wand und sie
+// rotiert mit der Trommel mit. Das wird kinematisch nachgebildet: Winkel-
+// versatz zur Trommel einfrieren und mitführen.
+function angNorm(a) {
+    while (a > Math.PI) a -= 2 * Math.PI;
+    while (a < -Math.PI) a += 2 * Math.PI;
+    return a;
+}
+
+function captureSpinLock() {
+    const locks = laundry.map(l => {
+        const dx = l.body.position.x - CX, dy = l.body.position.y - CY;
+        return { offset: angNorm(Math.atan2(dy, dx) - state.drumAngle), radius: Math.hypot(dx, dy) };
+    });
+    // Überlappungen auflösen: Abstand zu den Mitnehmern und untereinander
+    const PADDLE_OFFS = [0, 2 * Math.PI / 3, 4 * Math.PI / 3];
+    const WALL = INNER - 30;
+    for (let iter = 0; iter < 25; iter++) {
+        for (let i = 0; i < locks.length; i++) {
+            for (const po of PADDLE_OFFS) {
+                const d = angNorm(locks[i].offset - po);
+                if (Math.abs(d) < 0.34) locks[i].offset += (d >= 0 ? 1 : -1) * (0.34 - Math.abs(d));
+            }
+            for (let j = i + 1; j < locks.length; j++) {
+                const d = angNorm(locks[j].offset - locks[i].offset);
+                const min = (laundry[i].r + laundry[j].r) / WALL + 0.06;
+                if (Math.abs(d) < min) {
+                    const push = (min - Math.abs(d)) / 2, s = d >= 0 ? 1 : -1;
+                    locks[i].offset = angNorm(locks[i].offset - s * push);
+                    locks[j].offset = angNorm(locks[j].offset + s * push);
+                }
+            }
+        }
+    }
+    state.spinLock = locks;
+}
+
+function releaseSpinLock() {
+    if (!state.spinLock) return;
+    laundry.forEach((l, i) => {
+        const a = state.drumAngle + state.spinLock[i].offset;
+        const v = (state.drumOmega * state.spinLock[i].radius) / 60;
+        Body.setVelocity(l.body, { x: -Math.sin(a) * v, y: Math.cos(a) * v });
+    });
+    state.spinLock = null;
+}
+
 // ---- Partikel --------------------------------------------------------------
 function addParticle(kind, x, y, vx, vy) {
     const r = kind === 'foam' ? 5 + Math.random() * 2 : kind === 'powder' ? 4 : 6;
@@ -209,6 +258,7 @@ function step(dt) {
     if (ph && state.t >= ph.dur) {
         state.t = 0;
         state.phaseIdx++;
+        releaseSpinLock();
         const next = currentPhase();
         setPaddlesSolid(!next || next.id !== 'spin');
         if (!next) state.running = false;
@@ -319,14 +369,31 @@ function step(dt) {
                 });
             };
             for (const p of particles) push(p.body, 0.002, 0.0007);
-            for (const l of laundry) push(l.body, 0.0045, 0.0012);
+        }
+        if (w > 6) {
+            if (!state.spinLock) captureSpinLock();
+            laundry.forEach((l, i) => {
+                const lock = state.spinLock[i];
+                lock.radius = Math.min(INNER - l.r - 2, lock.radius + 80 * dt);
+                const a = state.drumAngle + lock.offset;
+                Body.setPosition(l.body, { x: CX + Math.cos(a) * lock.radius, y: CY + Math.sin(a) * lock.radius });
+                const v = (state.drumOmega * lock.radius) / 60;
+                Body.setVelocity(l.body, { x: -Math.sin(a) * v, y: Math.cos(a) * v });
+                Body.setAngle(l.body, l.body.angle + state.drumOmega * dt);
+            });
+        } else if (state.spinLock) {
+            releaseSpinLock();
         }
         if (state.t > 1.5 && state.t < ph.dur - 5 && state.wetness > 0.3) {
             state.extractAcc += 9 * dt * (w / 16);
             while (state.extractAcc >= 1) {
                 state.extractAcc--;
-                const l = laundry[(Math.random() * laundry.length) | 0].body;
-                addParticle('water', l.position.x, l.position.y, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3);
+                const li = laundry[(Math.random() * laundry.length) | 0];
+                const dx = li.body.position.x - CX, dy = li.body.position.y - CY;
+                const d = Math.hypot(dx, dy) || 1;
+                addParticle('water',
+                    li.body.position.x - (dx / d) * li.r, li.body.position.y - (dy / d) * li.r,
+                    (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3);
             }
         }
         for (let i = particles.length - 1; i >= 0; i--) {
@@ -376,7 +443,7 @@ function step(dt) {
     Engine.update(engine, dt * 1000);
 
     // Sicherheit: Partikel in der Trommel halten, Geschwindigkeiten begrenzen
-    const contain = (body, r) => {
+    const contain = (body, r, noClamp) => {
         const dx = body.position.x - CX, dy = body.position.y - CY;
         const d = Math.hypot(dx, dy);
         const maxD = INNER - r;
@@ -384,13 +451,13 @@ function step(dt) {
             Body.setPosition(body, { x: CX + (dx / d) * maxD, y: CY + (dy / d) * maxD });
             Body.setVelocity(body, { x: body.velocity.x * 0.3, y: body.velocity.y * 0.3 });
         }
-        if (body.speed > 18) {
+        if (!noClamp && body.speed > 18) {
             const f = 18 / body.speed;
             Body.setVelocity(body, { x: body.velocity.x * f, y: body.velocity.y * f });
         }
     };
     for (const p of particles) contain(p.body, p.r);
-    for (const l of laundry) contain(l.body, l.r);
+    for (const l of laundry) contain(l.body, l.r, !!state.spinLock);
 }
 
 // ---- Zeichnen ----------------------------------------------------------
@@ -921,6 +988,7 @@ window.__washJump = (idx, opts = {}) => {
     state.phaseIdx = idx;
     state.t = 0;
     state.running = true;
+    releaseSpinLock();
     const p = currentPhase();
     setPaddlesSolid(!p || p.id !== 'spin');
     if (opts.wetness !== undefined) state.wetness = opts.wetness;
