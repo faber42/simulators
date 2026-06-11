@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aufzug-Simulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <h1>Aufzug-Simulator</h1>
+        <div id="main">
+            <canvas id="canvas"></canvas>
+            <div id="sidebar">
+                <div id="controls">
+                    <h3>Steuerung</h3>
+                    <div class="control-group">
+                        <label>Geschwindigkeit: <span id="speedVal">1x</span></label>
+                        <input type="range" id="speedSlider" min="1" max="10" value="2" step="1">
+                    </div>
+                    <div class="control-group">
+                        <label>Passagierrate: <span id="spawnVal">3</span>/10s</label>
+                        <input type="range" id="spawnSlider" min="0" max="10" value="3" step="1">
+                    </div>
+                    <div class="button-row">
+                        <button id="pauseBtn">Pause</button>
+                        <button id="resetBtn">Reset</button>
+                    </div>
+                    <button id="spawnBtn" class="wide-btn">+ Passagier</button>
+                </div>
+                <div id="stats">
+                    <h3>Statistik</h3>
+                    <div class="stat-row"><span>Gesamt:</span><span id="statTotal">0</span></div>
+                    <div class="stat-row"><span>Wartend:</span><span id="statWaiting">0</span></div>
+                    <div class="stat-row"><span>Fahrend:</span><span id="statRiding">0</span></div>
+                    <div class="stat-row"><span>Fertig:</span><span id="statDone">0</span></div>
+                    <div class="stat-row"><span>&empty; Wartezeit:</span><span id="statAvgWait">0s</span></div>
+                    <div class="stat-row"><span>&empty; Gesamtzeit:</span><span id="statAvgTotal">0s</span></div>
+                </div>
+                <div id="elevator-status">
+                    <h3>Aufz&uuml;ge</h3>
+                    <div id="elevStatus"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

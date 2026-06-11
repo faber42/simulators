@@ -1,0 +1,10 @@
+{
+  "name": "netsim-demo",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "npx serve -l 3456 ."
+  },
+  "dependencies": {
+    "serve": "^14.2.6"
+  }
+}

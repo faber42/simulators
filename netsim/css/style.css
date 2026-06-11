@@ -1,0 +1,339 @@
+/* ============================================================
+   style.css - NetSim Styles
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: #0a0a1a;
+  color: #e0e0e0;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Header ---- */
+header {
+  background: linear-gradient(135deg, #12122a 0%, #16213e 100%);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid #2a2a4a;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.logo {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.logo h1 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  background: linear-gradient(90deg, #00d2ff, #7b2ff7);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.logo .version {
+  font-size: 0.65rem;
+  color: #555;
+}
+
+/* ---- Toolbar ---- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.toolbar .separator {
+  width: 1px;
+  height: 24px;
+  background: #2a2a4a;
+  margin: 0 6px;
+}
+
+.toolbar button {
+  background: #1a1a2e;
+  color: #bbb;
+  border: 1px solid #2a2a3a;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: all 0.15s;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbar button:hover {
+  background: #2a2a3e;
+  border-color: #4a4a6a;
+  color: #fff;
+}
+
+.toolbar button.active {
+  background: #7b2ff7;
+  border-color: #9b5ff7;
+  color: #fff;
+}
+
+.toolbar button .icon {
+  font-size: 0.9rem;
+}
+
+/* ---- Speed Control ---- */
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: #888;
+}
+
+.speed-control input[type="range"] {
+  width: 80px;
+  accent-color: #7b2ff7;
+  height: 4px;
+}
+
+/* ---- Main Layout ---- */
+.main-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+#canvas-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+#canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- Status Bar ---- */
+#status-bar {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(18, 18, 42, 0.9);
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-size: 0.75rem;
+  color: #aaa;
+  backdrop-filter: blur(8px);
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* ---- Sidebar ---- */
+.sidebar {
+  width: 280px;
+  background: #0f0f22;
+  border-left: 1px solid #2a2a4a;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.sidebar-section {
+  border-bottom: 1px solid #1a1a2e;
+  padding: 10px 12px;
+}
+
+.sidebar-section h3 {
+  font-size: 0.75rem;
+  color: #7b2ff7;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ---- Scenario Menu ---- */
+#scenario-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scenario-btn {
+  background: #1a1a2e;
+  border: 1px solid #2a2a3a;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+  color: #ccc;
+}
+
+.scenario-btn:hover {
+  background: #2a2a3e;
+  border-color: #7b2ff7;
+}
+
+.scenario-btn strong {
+  display: block;
+  font-size: 0.8rem;
+  margin-bottom: 2px;
+}
+
+.scenario-btn span {
+  font-size: 0.65rem;
+  color: #666;
+}
+
+/* ---- Stats ---- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-size: 0.75rem;
+}
+
+.stat-label {
+  color: #666;
+}
+
+.stat-value {
+  color: #00d2ff;
+  font-weight: 600;
+  font-family: monospace;
+}
+
+/* ---- Device Info ---- */
+#device-info {
+  display: none;
+}
+
+#device-info h4 {
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+
+#device-info h5 {
+  font-size: 0.7rem;
+  color: #888;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  padding: 2px 0;
+  border-bottom: 1px solid #141428;
+}
+
+.info-row span:first-child {
+  color: #666;
+}
+
+.info-row span:last-child {
+  color: #ccc;
+  font-family: monospace;
+  font-size: 0.68rem;
+}
+
+/* ---- Packet Log ---- */
+.log-container {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#packet-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+#packet-log::-webkit-scrollbar {
+  width: 4px;
+}
+
+#packet-log::-webkit-scrollbar-thumb {
+  background: #2a2a4a;
+  border-radius: 2px;
+}
+
+.log-entry {
+  padding: 3px 12px;
+  font-size: 0.68rem;
+  font-family: monospace;
+  border-bottom: 1px solid #0d0d1f;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.log-entry:hover {
+  background: #1a1a2e;
+}
+
+.log-time {
+  color: #444;
+  flex-shrink: 0;
+}
+
+.log-label {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.log-detail {
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Legend ---- */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem;
+  color: #888;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}

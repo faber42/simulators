@@ -1,0 +1,111 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: #20242a;
+  color: #e8ebef;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+#wrap {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 14px;
+  height: 100%;
+}
+
+#cv {
+  background: #48714a;
+  border-radius: 10px;
+  box-shadow: 0 6px 30px rgba(0,0,0,.45);
+  max-height: calc(100vh - 28px);
+  max-width: calc(100vw - 340px);
+  aspect-ratio: 1 / 1;
+  height: auto;
+  width: auto;
+  flex: 0 1 auto;
+}
+
+#panel {
+  width: 300px;
+  flex: 0 0 300px;
+  background: #2a2f37;
+  border-radius: 10px;
+  padding: 18px;
+  box-shadow: 0 6px 30px rgba(0,0,0,.45);
+}
+
+#panel h1 {
+  font-size: 1.25rem;
+  margin-bottom: 14px;
+  letter-spacing: .02em;
+}
+
+.grp { margin-bottom: 16px; }
+
+.grp label {
+  display: flex;
+  justify-content: space-between;
+  font-size: .85rem;
+  color: #aeb6c2;
+  margin-bottom: 6px;
+}
+
+.grp label span { color: #fff; font-variant-numeric: tabular-nums; }
+
+input[type=range] {
+  width: 100%;
+  accent-color: #4da3ff;
+}
+
+.btns { display: flex; gap: 8px; }
+
+button {
+  flex: 1;
+  background: #3a414c;
+  color: #e8ebef;
+  border: 1px solid #4a5260;
+  border-radius: 8px;
+  padding: 9px 6px;
+  font-size: .85rem;
+  cursor: pointer;
+  transition: background .15s;
+}
+
+button:hover { background: #475061; }
+
+button.active {
+  background: #8d2f2f;
+  border-color: #c14848;
+}
+
+#status {
+  background: #232830;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: .85rem;
+}
+
+#status .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+}
+
+#status .row span { color: #aeb6c2; }
+#status .row b { text-align: right; font-variant-numeric: tabular-nums; }
+
+.hint {
+  font-size: .78rem;
+  line-height: 1.45;
+  color: #97a0ad;
+}
+
+@media (max-width: 900px) {
+  #wrap { flex-direction: column; align-items: center; }
+  #cv { max-width: calc(100vw - 28px); max-height: none; }
+  #panel { width: 100%; flex: none; }
+}

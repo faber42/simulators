@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NetSim - Netzwerk-Simulator</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Header + Toolbar -->
+  <header>
+    <div class="logo">
+      <h1>NetSim</h1>
+      <span class="version">v1.0</span>
+    </div>
+
+    <div class="toolbar">
+      <!-- Select -->
+      <button id="btn-select" class="active"><span class="icon">↖</span> Auswahl</button>
+
+      <div class="separator"></div>
+
+      <!-- Place devices -->
+      <button id="btn-workstation"><span class="icon">🖥</span> Workstation</button>
+      <button id="btn-server"><span class="icon">🗄</span> Server</button>
+      <button id="btn-hub"><span class="icon">◎</span> Hub</button>
+      <button id="btn-switch"><span class="icon">⬡</span> Switch</button>
+      <button id="btn-router"><span class="icon">🌐</span> Router</button>
+
+      <div class="separator"></div>
+
+      <!-- Connect -->
+      <button id="btn-connect-eth"><span class="icon">—</span> Ethernet</button>
+      <button id="btn-connect-bus"><span class="icon">═</span> Koax-Bus</button>
+
+      <div class="separator"></div>
+
+      <!-- Actions -->
+      <button id="btn-http"><span class="icon">↹</span> HTTP-Abruf</button>
+      <button id="btn-ping"><span class="icon">⟳</span> Ping</button>
+      <button id="btn-reset"><span class="icon">↺</span> Reset Sim</button>
+      <button id="btn-clear"><span class="icon">✕</span> Alles löschen</button>
+    </div>
+
+    <!-- Speed -->
+    <div class="speed-control">
+      <span>Geschwindigkeit:</span>
+      <input type="range" id="speed-slider" min="0.1" max="3" step="0.1" value="1">
+      <span id="speed-value">1.0x</span>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <div class="main-layout">
+
+    <!-- Canvas -->
+    <div id="canvas-container">
+      <canvas id="canvas"></canvas>
+      <div id="status-bar">Szenario laden oder Geräte platzieren</div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+
+      <!-- Scenarios -->
+      <div class="sidebar-section">
+        <h3>Szenarien</h3>
+        <div id="scenario-menu"></div>
+      </div>
+
+      <!-- Stats -->
+      <div class="sidebar-section">
+        <h3>Statistik</h3>
+        <div class="stat-grid">
+          <div class="stat-item"><span class="stat-label">Geräte</span><span class="stat-value" id="stat-nodes">0</span></div>
+          <div class="stat-item"><span class="stat-label">Verbindungen</span><span class="stat-value" id="stat-links">0</span></div>
+          <div class="stat-item"><span class="stat-label">Signale</span><span class="stat-value" id="stat-signals">0</span></div>
+          <div class="stat-item"><span class="stat-label">Sim-Zeit</span><span class="stat-value" id="stat-time">0.0s</span></div>
+        </div>
+      </div>
+
+      <!-- Device Info -->
+      <div class="sidebar-section">
+        <h3>Geräte-Info</h3>
+        <div id="device-info"></div>
+      </div>
+
+      <!-- Legend -->
+      <div class="sidebar-section">
+        <h3>Legende</h3>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#00d2ff"></div>TCP SYN</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#6bcb77"></div>TCP ACK</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ffd93d"></div>TLS</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b6b"></div>HTTP Req</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ee5a24"></div>HTTP Res</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#00cec9"></div>ICMP</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff9f43"></div>ARP</div>
+        </div>
+      </div>
+
+      <!-- Packet Log -->
+      <div class="sidebar-section log-container">
+        <h3>Paket-Log</h3>
+        <div id="packet-log"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

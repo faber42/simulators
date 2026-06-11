@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kreuzungssimulation</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv" width="1040" height="1040"></canvas>
+  <aside id="panel">
+    <h1>🚦 Kreuzungs&shy;simulation</h1>
+
+    <div class="grp">
+      <label>Verkehrsdichte <span id="densVal">45&nbsp;%</span></label>
+      <input type="range" id="density" min="0" max="100" value="45">
+    </div>
+
+    <div class="grp">
+      <label>Ampel-Tempo <span id="tempoVal">100&nbsp;%</span></label>
+      <input type="range" id="tempo" min="40" max="220" value="100">
+    </div>
+
+    <div class="grp btns">
+      <button id="btnRed">🔴 Alle Ampeln rot</button>
+      <button id="btnPause">⏸ Pause</button>
+    </div>
+
+    <div class="grp" id="status">
+      <div class="row"><span>Phase</span><b id="phase">–</b></div>
+      <div class="row"><span>Restzeit</span><b id="phaseT">–</b></div>
+      <div class="row"><span>Fahrzeuge</span><b id="nCars">0</b></div>
+      <div class="row"><span>Fußgänger</span><b id="nPeds">0</b></div>
+    </div>
+
+    <p class="hint">
+      Linksabbieger fahren bei Grün zunächst bis zur vorgezogenen Haltelinie
+      an der Mittelinsel vor und kreuzen den Gegenverkehr erst, wenn die
+      innere Ampel Grün zeigt – wie vier zusammengeschaltete Ampelanlagen.
+      Fußgänger queren in zwei Etappen über die Mittelinseln.
+    </p>
+  </aside>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
