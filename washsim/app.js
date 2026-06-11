@@ -82,6 +82,7 @@ function resetState() {
         drumOmega: 0,
         temp: 20,
         wetness: 0,
+        dirt: 1,               // 1 = fleckig, 0 = sauber; sinkt nur mit Schaum
         airT: 0,               // Animationszeit Luftpfeile
         fanAngle: 0,
         pumpAngle: 0,
@@ -126,7 +127,18 @@ function buildWorld() {
             friction: 0.7, frictionAir: 0.012, restitution: 0.05, density: 0.0008,
         });
         Composite.add(world, body);
-        return { body, ...d };
+        // Schmutzflecken in lokalen Koordinaten, drehen sich mit dem Körper
+        const spots = Array.from({ length: 4 }, () => {
+            const a = Math.random() * Math.PI * 2;
+            const dist = Math.random() * d.r * 0.6;
+            return {
+                x: Math.cos(a) * dist, y: Math.sin(a) * dist,
+                r: d.r * (0.18 + Math.random() * 0.18),
+                sx: 0.7 + Math.random() * 0.6,
+                rot: Math.random() * Math.PI,
+            };
+        });
+        return { body, spots, ...d };
     });
 
     particles = [];
@@ -260,6 +272,8 @@ function step(dt) {
                 addParticle('foam', w.position.x, w.position.y - 8, (Math.random() - 0.5) * 2, -1.5);
             }
         }
+        // Flecken lösen sich nur durch Schaum + Trommelbewegung
+        state.dirt = Math.max(0, state.dirt - 0.1 * dt * state.sudsLevel * Math.min(1, Math.abs(state.drumOmega) / 1.3));
         if (heatOnWash && Math.random() < 0.25) {
             fx.push({ type: 'bubble', x: WASH_HEATER.x1 + Math.random() * (WASH_HEATER.x2 - WASH_HEATER.x1), y: WASH_HEATER.y - 4, age: 0, max: 0.9 });
         }
@@ -554,6 +568,18 @@ function draw() {
         ctx.rotate(b.angle);
         ctx.beginPath(); ctx.arc(0, 0, l.r, 0, Math.PI * 2);
         ctx.fillStyle = col; ctx.fill();
+        if (state.dirt > 0.02) {
+            ctx.save();
+            ctx.clip();
+            ctx.fillStyle = `rgba(62,46,28,${(state.dirt * 0.75).toFixed(3)})`;
+            for (const s of l.spots) {
+                ctx.beginPath();
+                ctx.ellipse(s.x, s.y, s.r * s.sx, s.r, s.rot, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+        ctx.beginPath(); ctx.arc(0, 0, l.r, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 2; ctx.stroke();
         ctx.beginPath(); ctx.arc(-l.r * 0.15, l.r * 0.1, l.r * 0.55, 0.4, 2.2);
         ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 3; ctx.stroke();
@@ -819,7 +845,9 @@ function updateUI() {
         [...phaseList.children].forEach((li, i) => {
             li.className = i < state.phaseIdx ? 'done' : i === state.phaseIdx ? 'active' : '';
         });
-        phaseDesc.textContent = done ? DONE_DESC : ph ? ph.desc : IDLE_DESC;
+        phaseDesc.textContent = done
+            ? DONE_DESC + (state.dirt > 0.4 ? ' Allerdings: Ohne Waschmittel hat sich kein Schaum gebildet – die Flecken sind noch drin!' : '')
+            : ph ? ph.desc : IDLE_DESC;
     }
 
     document.getElementById('statPhase').textContent = done ? 'Fertig ✓' : ph ? ph.name : 'Bereit';
@@ -835,8 +863,9 @@ function updateUI() {
     document.getElementById('statTemp').textContent = Math.round(state.temp) + ' °C' + (dryPhase ? ' (Luft)' : '');
     const liters = (countKind('water') + countKind('powder')) * 0.045;
     document.getElementById('statWater').textContent = liters.toFixed(1).replace('.', ',') + ' l';
-    document.getElementById('statLaundry').textContent =
-        state.wetness > 0.7 ? 'nass' : state.wetness > 0.2 ? 'feucht' : 'trocken';
+    const wetTxt = state.wetness > 0.7 ? 'nass' : state.wetness > 0.2 ? 'feucht' : 'trocken';
+    const dirtTxt = state.dirt > 0.6 ? 'schmutzig' : state.dirt > 0.2 ? 'fleckig' : 'sauber';
+    document.getElementById('statLaundry').textContent = wetTxt + ' · ' + dirtTxt;
 }
 
 powderBtn.addEventListener('click', () => {
