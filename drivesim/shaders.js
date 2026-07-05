@@ -86,12 +86,42 @@ void main(){
                    + smoothstep(lw * 1.5, lw * 0.55, abs(wx + 5.55)) * 0.55;
         lit += vec3(0.80, 0.83, 0.72) * mark * (pool * 0.55 + 0.012);
 
+        // Bankett und Wiese statt Wüste neben der Fahrbahn
+        float verge = smoothstep(6.5, 10.5, abs(wx));
+        lit = mix(lit, vec3(0.0045, 0.0065, 0.0040) * (pool * 2.0 + 0.35), verge);
+
         // Gischt/Nebel frisst die Ferne, nasser Glanz unterm Horizont
         float fogF = 1.0 - exp(-z / uVis);
         col = mix(lit, uGlow * 0.30 + vec3(0.003, 0.0035, 0.006), fogF);
         col += uGlow * exp(-tt * 13.0) * 0.6;
     } else {
         col = sky;
+        // Dunkle Waldwände parallel zur Autobahn, von Lichtungen unterbrochen.
+        // Rückprojektion: fester seitlicher Abstand -> Tiefe aus der Bildspalte;
+        // zur Bildmitte hin rückt der Wald in die Ferne und versinkt im Nebel.
+        float so = (uv.x - 0.5) * uAspect;
+        if (abs(so) > 2e-3){
+            for (int li = 0; li < 2; li++){
+                float X = (li == 0) ? 48.0 : 22.0;      // erst ferne, dann nahe Wand
+                float sideSeed = (so < 0.0) ? 3.7 : 9.1;
+                float zw = 0.85 * (((so < 0.0) ? -X : X) - uCamX) / so;
+                if (zw < 2.5 || zw > 450.0) continue;
+                float zz2 = zw + uOdo;
+                float section = smoothstep(0.30, 0.52,
+                    vnoise(vec2(zz2 * 0.004, sideSeed + float(li) * 11.0)));
+                float h = (6.5 + 4.5 * fbm(vec2(zz2 * 0.018, sideSeed * 2.0 + float(li)))
+                         + 1.8 * vnoise(vec2(zz2 * 0.11, sideSeed))) * section
+                         * ((li == 0) ? 1.25 : 1.0);
+                if (h < 0.4) continue;
+                float yTop = yH + 0.85 * (h - 1.25) / zw;
+                float m = smoothstep(0.0, 0.0035, yTop - uv.y);
+                if (m <= 0.0) continue;
+                float fogW = 1.0 - exp(-zw / (uVis * 1.15));
+                vec3 forest = mix(vec3(0.0030, 0.0045, 0.0032),
+                                  uGlow * 0.30 + vec3(0.003, 0.0035, 0.006), fogW);
+                col = mix(col, forest, m * (1.0 - fogW * 0.30));
+            }
+        }
     }
 
     // Regen in der Luft: nur sichtbar, wo Licht ihn anstrahlt

@@ -172,7 +172,7 @@ const world = {
     oncoming: [],         // Gegenverkehr
     tails: [],            // Vorausfahrende
     nextStreetZ: 0, streetLit: true, streetRemain: 700,
-    nextPostZ: 0, nextSignZ: 400,
+    nextPostZ: 0, nextSignZ: 400, nextHouseZ: 500,
     spawnOncoming: 2, spawnLeft: 4,
     t: 0,
 };
@@ -236,6 +236,13 @@ function updateWorld(dt){
             ? { type: 'sign', wz: w.nextSignZ, x: 0,   y: 6.6, hw: 6.0, hh: 1.35, seed: Math.random() }
             : { type: 'sign', wz: w.nextSignZ, x: 8.6, y: 3.1, hw: 1.9, hh: 1.5,  seed: Math.random() });
         w.nextSignZ = ahead + rnd(300, 1400);
+    }
+    // Einsame Gebäude am Waldrand: warmes Türlicht oder kühle Hoflampe
+    if (w.nextHouseZ < ahead){
+        const side = Math.random() < 0.5 ? -1 : 1;
+        w.statics.push({ type: 'house', wz: w.nextHouseZ, x: side * rnd(14, 21),
+                         y: 0, seed: Math.random(), cool: Math.random() < 0.4 });
+        w.nextHouseZ = ahead + rnd(250, 1200);
     }
     w.statics = w.statics.filter(s => s.wz - w.odo > -10);
 
@@ -369,6 +376,18 @@ function buildSprites(){
             // Leitpfosten-Reflektor: leuchtet nur im eigenen Scheinwerferlicht
             const retro = 3.2 * Math.exp(-z / 42);
             pushLight(w, s.x, s.y, z, 0.14, retro * (s.x > 0 ? 1 : 0.55), [1, 1, 0.85], 0, s.seed, false);
+        } else if (s.type === 'house' && z > 3){
+            // Einsames Gebäude: Punktlicht + weicher Schein an der Fassade.
+            // Das Gebäude selbst bleibt Silhouette — nachts trägt nur sein Licht.
+            if (s.cool){
+                pushLight(w, s.x, 4.2, z, 0.30, 2.4, [0.75, 0.85, 1.0], 0.15, s.seed, false, 8);
+                pushLight(w, s.x, 2.6, z, 1.7, 0.32, [0.50, 0.58, 0.68], 0, s.seed + 2, false, 0.8);
+            } else {
+                pushLight(w, s.x, 1.15, z, 0.22, 1.4, [1.0, 0.55, 0.20], 0.1, s.seed, false, 4.5);
+                pushLight(w, s.x, 1.7, z, 1.9, 0.30, [0.85, 0.48, 0.20], 0, s.seed + 2, false, 0.6);
+                if (s.seed > 0.45)
+                    pushLight(w, s.x + (s.seed - 0.7) * 6, 1.8, z, 0.16, 0.8, [1.0, 0.68, 0.32], 0, s.seed + 4, false, 2.5);
+            }
         } else if (s.type === 'sign' && z > 4 && z < 500){
             const retro = Math.min(5, 2800 / (z * z + 90)) + 0.25;
             const sy = w.horizon + F * (s.y - CAMH) / z;

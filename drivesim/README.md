@@ -48,6 +48,9 @@ JS-Tropfen löscht der überstrichene Winkelbereich direkt.
   Scheibe werfen. Dazu Gegenverkehr jenseits des Mittelstreifens,
   Bremslichter und Gischtfahnen im eigenen Scheinwerferlicht.
 - **Scheibenwischer**: Automatik (folgt dem Regen) oder feste Stufen.
+- **Landschaft**: dunkle Waldsilhouetten mit Lichtungen beidseits der
+  Autobahn, dazwischen vereinzelt ein einsames Gebäude mit warmem
+  Türlicht oder kühler Hoflampe.
 - `?debug` in der URL zeigt FPS und das Wischfeld als Heatmap.
 
 ## Starten
