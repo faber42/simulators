@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nachtfahrt-Simulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="gl"></canvas>
+    <div id="title">
+        <h1>Nachtfahrt</h1>
+        <p>Beifahrerblick, Autobahn, starker Regen</p>
+    </div>
+    <div id="panel">
+        <div class="control-group">
+            <label>Regen <span id="rainVal">80 %</span></label>
+            <input type="range" id="rainSlider" min="15" max="100" value="80">
+        </div>
+        <div class="control-group">
+            <label>Tempo <span id="speedVal">110 km/h</span></label>
+            <input type="range" id="speedSlider" min="50" max="160" value="110" step="5">
+        </div>
+        <div class="control-group">
+            <label>Verkehr <span id="trafficVal">60 %</span></label>
+            <input type="range" id="trafficSlider" min="10" max="100" value="60">
+        </div>
+        <div class="control-group">
+            <label>Scheibenwischer</label>
+            <select id="wiperSel">
+                <option value="auto" selected>Automatik</option>
+                <option value="slow">Langsam</option>
+                <option value="normal">Normal</option>
+                <option value="fast">Schnell</option>
+            </select>
+        </div>
+        <div class="row">
+            <button id="fsBtn">Vollbild</button>
+            <a href="../">← Übersicht</a>
+        </div>
+    </div>
+    <div id="fps"></div>
+    <div id="err"></div>
+    <script src="shaders.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
