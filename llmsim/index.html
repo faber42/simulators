@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Transformer-Simulator – Wort für Wort</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>🤖 Transformer <small>– wie ein Sprachmodell schreibt</small></h1>
+  <div class="controls">
+    <button id="btnStep" title="Einen Teilschritt weiter">⏭ Schritt</button>
+    <button id="btnWord" title="Ein ganzes Wort erzeugen">⏩ Wort</button>
+    <button id="btnAuto" title="Automatisch durchlaufen">▶ Auto</button>
+    <label class="tempo">Tempo
+      <input type="range" id="tempo" min="40" max="300" value="100">
+      <span id="tempoVal">×1,0</span>
+    </label>
+    <label class="switch" title="Zwischenergebnisse speichern statt neu zu rechnen">
+      <input type="checkbox" id="kv">
+      <span class="knob"></span>
+      KV-Cache
+    </label>
+    <button id="btnReset" title="Von vorn beginnen">↺ Neustart</button>
+  </div>
+  <div id="status">–</div>
+</header>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<footer id="cap">
+  <div id="capMain"></div>
+  <div id="capSub"></div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
