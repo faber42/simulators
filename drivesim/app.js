@@ -178,6 +178,10 @@ const world = {
 };
 
 function rnd(a, b){ return a + Math.random() * (b - a); }
+function sstep(a, b, x){
+    x = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return x * x * (3 - 2 * x);
+}
 
 function updateWorld(dt){
     const w = world;
@@ -385,7 +389,8 @@ function buildSprites(){
         if (v.truck){
             for (let i = -1; i <= 1; i++)
                 pushLight(w, v.x + i * 1.05, 3.1, z, 0.16, 0.9, [1, 0.55, 0.15], 0, v.seed + i, false);
-            pushLight(w, v.x, 0.9, z - 6, 2.6, 2.6 * Math.exp(-z / 90), [0.72, 0.75, 0.82], 0, v.seed + 7, false, 2.0);
+            pushLight(w, v.x, 0.9, z - 6, 2.6, 2.6 * Math.exp(-z / 90) * sstep(2.5, 9, z - 6),
+                      [0.72, 0.75, 0.82], 0, v.seed + 7, false, 2.0);
         }
     }
 
@@ -405,11 +410,17 @@ function buildSprites(){
             for (let i = -1; i <= 1; i++)
                 pushLight(w, v.x + i * 0.8, 2.9, z, 0.15, 0.55 * fadeIn, [1, 0.5, 0.12], 0, v.seed + 13 + i, false, 2.5);
         }
-        // Gischtfahne, vom eigenen Scheinwerfer angestrahlt — hell, aber nie blendend
-        const spray = (v.truck ? 1.1 : 0.7) * Math.exp(-z / 45) * Math.min(1, v.v / 20) * fadeIn;
+        // Gischtfahne: fern schwach grau (eigene Scheinwerfer), nah rötlich
+        // (Streulicht der Rücklichter). Unter ~10 m steckt man selbst in der
+        // Fahne und sieht keine Wolke mehr -> ausblenden statt aufblähen.
+        const redMix = Math.min(1, 14 / (z + 2)) * (v.brake > 0 ? 1 : 0.55);
+        const spray = (v.truck ? 0.8 : 0.45) * (v.brake > 0 ? 1.35 : 1)
+                    * Math.exp(-z / 45) * Math.min(1, v.v / 20)
+                    * sstep(3, 11, z) * fadeIn;
         if (spray > 0.02){
-            pushLight(w, v.x - 1.0, 0.38, z + 1.5, 1.2, spray, [0.58, 0.57, 0.55], 0, v.seed + 9, false, 0.75);
-            pushLight(w, v.x + 1.0, 0.38, z + 1.5, 1.2, spray, [0.58, 0.57, 0.55], 0, v.seed + 11, false, 0.75);
+            const scol = [0.55 + 0.10 * redMix, 0.50 - 0.30 * redMix, 0.47 - 0.32 * redMix];
+            pushLight(w, v.x - 1.0, 0.38, z + 1.5, 1.0, spray, scol, 0, v.seed + 9, false, 0.6);
+            pushLight(w, v.x + 1.0, 0.38, z + 1.5, 1.0, spray, scol, 0, v.seed + 11, false, 0.6);
         }
     }
 
