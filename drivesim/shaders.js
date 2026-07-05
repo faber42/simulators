@@ -81,8 +81,9 @@ void main(){
         float dash  = smoothstep(0.52, 0.44, fract(zz / 12.0));
         float dash3 = smoothstep(0.52, 0.44, fract(zz / 12.0 + 0.37));
         float mark = smoothstep(lw, lw * 0.35, abs(wx + 1.85)) * dash
-                   + smoothstep(lw * 1.5, lw * 0.55, abs(wx - 1.95)) * 0.8
-                   + smoothstep(lw, lw * 0.35, abs(wx + 5.55)) * dash3;
+                   + smoothstep(lw, lw * 0.35, abs(wx - 1.85)) * dash3
+                   + smoothstep(lw * 1.5, lw * 0.55, abs(wx - 5.55)) * 0.8
+                   + smoothstep(lw * 1.5, lw * 0.55, abs(wx + 5.55)) * 0.55;
         lit += vec3(0.80, 0.83, 0.72) * mark * (pool * 0.55 + 0.012);
 
         // Gischt/Nebel frisst die Ferne, nasser Glanz unterm Horizont

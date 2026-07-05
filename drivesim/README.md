@@ -42,8 +42,11 @@ JS-Tropfen löscht der überstrichene Winkelbereich direkt.
   um den eingestellten Wert – Regenbänder).
 - **Tempo**: Fahrgeschwindigkeit; ab ca. 80 km/h drückt der Fahrtwind die
   Tropfen nach oben/außen statt nach unten.
-- **Verkehr**: Dichte von Gegenverkehr und Vorausfahrenden (mit
-  Bremslichtern und Gischtfahnen; LKWs mit Positionsleuchten).
+- **Verkehr**: Dichte auf drei Richtungsfahrspuren — rechts Langsamere
+  (oft LKW), die wir überholen, in der Mitte ein Vorausfahrender, links
+  Schnellere, die uns überholen und dabei einen Gischtschwall auf die
+  Scheibe werfen. Dazu Gegenverkehr jenseits des Mittelstreifens,
+  Bremslichter und Gischtfahnen im eigenen Scheinwerferlicht.
 - **Scheibenwischer**: Automatik (folgt dem Regen) oder feste Stufen.
 - `?debug` in der URL zeigt FPS und das Wischfeld als Heatmap.
 

@@ -173,7 +173,7 @@ const world = {
     tails: [],            // Vorausfahrende
     nextStreetZ: 0, streetLit: true, streetRemain: 700,
     nextPostZ: 0, nextSignZ: 400,
-    spawnOncoming: 2,
+    spawnOncoming: 2, spawnLeft: 4,
     t: 0,
 };
 
@@ -209,7 +209,7 @@ function updateWorld(dt){
     // Laternen: beleuchtete Abschnitte wechseln mit dunklen
     while (w.nextStreetZ < ahead){
         if (w.streetLit){
-            const side = (Math.round(w.nextStreetZ / 45) % 2) ? -12 : 12;
+            const side = (Math.round(w.nextStreetZ / 45) % 2) ? -13.5 : 12;
             w.statics.push({ type: 'street', wz: w.nextStreetZ, x: side, y: 9.5, seed: Math.random() });
         }
         w.streetRemain -= 45;
@@ -221,8 +221,8 @@ function updateWorld(dt){
     }
     // Leitpfosten alle 50 m beidseitig
     while (w.nextPostZ < ahead){
-        w.statics.push({ type: 'post', wz: w.nextPostZ, x: 9.8, y: 0.8, seed: Math.random() });
-        w.statics.push({ type: 'post', wz: w.nextPostZ + 25, x: -9.8, y: 0.8, seed: Math.random() });
+        w.statics.push({ type: 'post', wz: w.nextPostZ, x: 8.2, y: 0.8, seed: Math.random() });
+        w.statics.push({ type: 'post', wz: w.nextPostZ + 25, x: -7.4, y: 0.8, seed: Math.random() });
         w.nextPostZ += 50;
     }
     // Schilder / Schilderbrücken
@@ -235,41 +235,70 @@ function updateWorld(dt){
     }
     w.statics = w.statics.filter(s => s.wz - w.odo > -10);
 
-    // Gegenverkehr (linke Fahrbahn, kommt uns entgegen)
+    // Gegenverkehr (jenseits des Mittelstreifens, kommt uns entgegen)
     w.spawnOncoming -= dt;
     if (w.spawnOncoming <= 0){
         w.spawnOncoming = rnd(1.2, 8) / (0.15 + w.traffic);
         const truck = Math.random() < 0.22;
         w.oncoming.push({
             wz: w.odo + 700, v: truck ? rnd(21, 25) : rnd(26, 39),
-            x: -7.3 - (Math.random() < 0.4 ? 3.6 : 0), truck, seed: Math.random(),
+            x: -11.2 - (Math.random() < 0.4 ? 3.6 : 0), truck, seed: Math.random(),
         });
     }
     w.oncoming.forEach(v => { v.wz -= v.v * dt; });
     w.oncoming = w.oncoming.filter(v => v.wz - w.odo > -12);
 
-    // Vorausfahrende: Rücklichter, halten grob unser Tempo
-    const wantTails = Math.round(1 + w.traffic * 2.4);
-    if (w.tails.length < wantTails){
+    // Eigene Richtung, drei Spuren: rechts wird überholt, links überholt uns
+    const nRight = w.tails.reduce((n, v) => n + (v.lane === 1), 0);
+    if (nRight < Math.round(w.traffic * 2.2)){
+        const truck = Math.random() < 0.45;
         w.tails.push({
-            wz: w.odo + rnd(60, 450), v: w.speed + rnd(-5, 5),
-            x: Math.random() < 0.6 ? 0 : -3.7, seed: Math.random(),
-            brake: 0, brakeT: rnd(4, 18),
+            lane: 1, x: 3.7, wz: w.odo + rnd(70, 480),
+            v: w.targetSpeed * rnd(0.70, 0.86) * (truck ? 0.92 : 1), truck,
+            seed: Math.random(), brake: 0, brakeT: rnd(6, 20), passed: true,
         });
+    }
+    if (!w.tails.some(v => v.lane === 0) && w.traffic > 0.3 && Math.random() < dt * 0.12){
+        w.tails.push({
+            lane: 0, x: 0, wz: w.odo + rnd(120, 300), v: w.speed + rnd(-4, 3),
+            truck: false, seed: Math.random(), brake: 0, brakeT: rnd(4, 18), passed: true,
+        });
+    }
+    w.spawnLeft -= dt;
+    if (w.spawnLeft <= 0){
+        if (w.tails.some(v => v.lane === -1 && v.wz - w.odo < 60)){
+            w.spawnLeft = 2;   // Lücke zum vorherigen Überholer lassen
+        } else {
+            w.spawnLeft = rnd(3, 12) / (0.25 + w.traffic);
+            w.tails.push({
+                lane: -1, x: -3.7, wz: w.odo - 15, v: w.speed + rnd(3.5, 11),
+                truck: false, seed: Math.random(), brake: 0, brakeT: rnd(25, 70), passed: false,
+            });
+        }
     }
     w.tails.forEach(v => {
         v.brakeT -= dt;
         if (v.brakeT <= 0){
             v.brake = v.brake > 0 ? 0 : rnd(0.8, 2.6);
-            v.brakeT = v.brake > 0 ? v.brake : rnd(5, 22);
+            v.brakeT = v.brake > 0 ? v.brake : (v.lane === -1 ? rnd(25, 70) : rnd(5, 22));
         }
         if (v.brake > 0){ v.brake -= dt; v.v -= 2.2 * dt; }
-        else if (v.v < w.targetSpeed - 6) v.v += 0.8 * dt;
         const z = v.wz - w.odo;
-        if (z < 26 && v.v < w.speed) v.v = w.speed + 0.5;   // nicht auffahren
+        if (v.lane === 0){
+            if (z < 26 && v.v < w.speed) v.v = w.speed + 0.5;                 // nicht auffahren
+            else if (z > 150 && v.v > w.targetSpeed - 1) v.v = w.targetSpeed - 1;  // nicht davonziehen
+            else if (v.brake === 0 && v.v < w.targetSpeed - 6) v.v += 0.8 * dt;
+        }
+        if (v.lane === -1 && !v.passed && z > 1){
+            v.passed = true;
+            drops.burst(12, 0, aspect * 0.6);   // Gischtschwall des Überholers auf die Scheibe
+        }
         v.wz += v.v * dt;
     });
-    w.tails = w.tails.filter(v => { const z = v.wz - w.odo; return z > -10 && z < 620; });
+    w.tails = w.tails.filter(v => {
+        const z = v.wz - w.odo;
+        return z > -30 && z < 640 && (v.lane !== 1 || z > 0.4);
+    });
 
     // Strecke gelegentlich zurücksetzen (Float-Präzision auf langen Fahrten)
     if (w.odo > 40000){
@@ -300,12 +329,14 @@ function pushSprite(sx, sy, hw, hh, r, g, b, kind, flare, seed){
     spriteCount++;
 }
 
-// Punktlicht mit optionaler Spiegelung auf der nassen Fahrbahn
-function pushLight(w, x, y, z, size, I, col, flare, seed, reflect){
+// Punktlicht mit optionaler Spiegelung auf der nassen Fahrbahn.
+// cap begrenzt die Nahfeld-Helligkeit pro Lichttyp: Rücklichter blenden nie,
+// sonst kippt ihr Farbton nach dem Tonemapping ins Weiße.
+function pushLight(w, x, y, z, size, I, col, flare, seed, reflect, cap = 18){
     if (z < 0.7 || z > 750) return;
     const fogT = Math.exp(-z / w.vis) * 0.45 + Math.exp(-z / (w.vis * 2.6)) * 0.55;
     const atten = 1 / (1 + z * 0.02 + z * z * 0.00045);
-    const I2 = Math.min(I * fogT * (0.2 + 5 * atten), 18);
+    const I2 = Math.min(I * fogT * (0.2 + 5 * atten), cap);
     if (I2 < 0.004) return;
     const sy = w.horizon + F * (y - CAMH) / z;
     const sx = 0.5 + F * (x - w.camX) / z / aspect;
@@ -354,21 +385,31 @@ function buildSprites(){
         if (v.truck){
             for (let i = -1; i <= 1; i++)
                 pushLight(w, v.x + i * 1.05, 3.1, z, 0.16, 0.9, [1, 0.55, 0.15], 0, v.seed + i, false);
-            pushLight(w, v.x, 0.9, z - 6, 2.6, 2.6 * Math.exp(-z / 90), [0.72, 0.75, 0.82], 0, v.seed + 7, false);
+            pushLight(w, v.x, 0.9, z - 6, 2.6, 2.6 * Math.exp(-z / 90), [0.72, 0.75, 0.82], 0, v.seed + 7, false, 2.0);
         }
     }
 
     for (const v of w.tails){
         const z = v.wz - w.odo;
+        // Überholer tauchen weich neben uns auf statt schlagartig
+        const fadeIn = v.lane === -1 ? Math.min(1, Math.max(0, (z - 0.8) / 3)) : 1;
+        if (fadeIn <= 0) continue;
         const bright = v.brake > 0 ? 5.5 : 1.0;
-        pushLight(w, v.x - 0.72, 0.78, z, 0.34, 2.3 * bright, [1, 0.05, 0.015], 0.3, v.seed, true);
-        pushLight(w, v.x + 0.72, 0.78, z, 0.34, 2.3 * bright, [1, 0.05, 0.015], 0.3, v.seed + 3, true);
-        if (v.brake > 0) pushLight(w, v.x, 1.24, z, 0.3, 3.2, [1, 0.08, 0.02], 0, v.seed + 5, false);
-        // Gischtfahne, vom eigenen Scheinwerfer angestrahlt
-        const spray = 2.1 * Math.exp(-z / 42) * Math.min(1, v.v / 20);
+        const cap = v.brake > 0 ? 7.5 : 3.4;
+        const dx = v.truck ? 0.95 : 0.72;
+        const y = v.truck ? 0.95 : 0.78;
+        pushLight(w, v.x - dx, y, z, 0.34, 2.3 * bright * fadeIn, [1, 0.03, 0.008], 0.3, v.seed, true, cap);
+        pushLight(w, v.x + dx, y, z, 0.34, 2.3 * bright * fadeIn, [1, 0.03, 0.008], 0.3, v.seed + 3, true, cap);
+        if (v.brake > 0) pushLight(w, v.x, 1.24, z, 0.3, 3.2 * fadeIn, [1, 0.04, 0.01], 0, v.seed + 5, false, 6);
+        if (v.truck){
+            for (let i = -1; i <= 1; i++)
+                pushLight(w, v.x + i * 0.8, 2.9, z, 0.15, 0.55 * fadeIn, [1, 0.5, 0.12], 0, v.seed + 13 + i, false, 2.5);
+        }
+        // Gischtfahne, vom eigenen Scheinwerfer angestrahlt — hell, aber nie blendend
+        const spray = (v.truck ? 1.1 : 0.7) * Math.exp(-z / 45) * Math.min(1, v.v / 20) * fadeIn;
         if (spray > 0.02){
-            pushLight(w, v.x - 0.9, 0.42, z + 1.5, 1.5, spray, [0.62, 0.66, 0.74], 0, v.seed + 9, false);
-            pushLight(w, v.x + 0.9, 0.42, z + 1.5, 1.5, spray, [0.62, 0.66, 0.74], 0, v.seed + 11, false);
+            pushLight(w, v.x - 1.0, 0.38, z + 1.5, 1.2, spray, [0.58, 0.57, 0.55], 0, v.seed + 9, false, 0.75);
+            pushLight(w, v.x + 1.0, 0.38, z + 1.5, 1.2, spray, [0.58, 0.57, 0.55], 0, v.seed + 11, false, 0.75);
         }
     }
 
@@ -439,6 +480,16 @@ const drops = {
         if (this.list.length >= MAX_DROPS) return;
         this.list.push({ x, y, r, vx: 0, vy: 0, sliding: false, isStatic: true,
                          age: 0, life: rnd(5, 11), seed: Math.random(), dist: 0 });
+    },
+
+    // Gischtschwall (z. B. von einem Überholer): viele Tropfen auf einmal
+    burst(n, x0, x1){
+        for (let k = 0; k < n && this.list.length < MAX_DROPS - 4; k++){
+            const r = 0.005 + Math.pow(Math.random(), 2) * 0.011;
+            this.list.push({ x: rnd(x0, x1), y: Math.random(), r,
+                             vx: 0, vy: 0, sliding: Math.random() < 0.5, isStatic: false,
+                             age: 0, life: 1e9, seed: Math.random(), dist: 0 });
+        }
     },
 
     wipe(px, py, r0, r1, lo, hi){
@@ -759,5 +810,6 @@ function tick(now){
 }
 resize();
 if (DEBUG) $('fps').style.display = 'block';
+window.drive = { world, drops, wiper };   // Konsolen-Zugriff zum Experimentieren
 requestAnimationFrame(tick);
 })();
