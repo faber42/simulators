@@ -1,0 +1,218 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: 'Cascadia Mono', Consolas, 'Courier New', monospace;
+}
+
+#stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+#gl {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* ---- CCTV-Optik ---------------------------------------------------------- */
+
+#fx-scanlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.00) 0px,
+        rgba(0, 0, 0, 0.00) 2px,
+        rgba(0, 0, 0, 0.14) 3px,
+        rgba(0, 0, 0, 0.00) 4px
+    );
+    mix-blend-mode: multiply;
+    opacity: 0.55;
+}
+
+#fx-vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center,
+        rgba(0, 0, 0, 0) 55%,
+        rgba(0, 0, 0, 0.38) 100%);
+}
+
+/* ---- HUD ------------------------------------------------------------------ */
+
+#hud {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    color: #b9e4c1;
+    text-shadow: 0 0 6px rgba(80, 220, 120, 0.35), 0 1px 2px #000;
+    font-size: 14px;
+    user-select: none;
+}
+
+#camlabel {
+    position: absolute;
+    top: 14px;
+    left: 18px;
+    letter-spacing: 0.12em;
+    font-size: 15px;
+}
+
+#recbox {
+    position: absolute;
+    top: 38px;
+    left: 18px;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    color: #e8b0a8;
+}
+
+#recdot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    margin-right: 7px;
+    border-radius: 50%;
+    background: #ff4436;
+    box-shadow: 0 0 8px #ff4436;
+    animation: blink 1.6s steps(1) infinite;
+}
+
+@keyframes blink { 50% { opacity: 0.15; } }
+
+#clock {
+    position: absolute;
+    top: 14px;
+    right: 18px;
+    letter-spacing: 0.1em;
+    font-size: 15px;
+}
+
+#status {
+    position: absolute;
+    top: 72px;
+    left: 18px;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.55;
+    letter-spacing: 0.06em;
+    white-space: pre;
+}
+
+#status .dim { color: #6f8f77; }
+#status .warn { color: #ffce6b; }
+
+#flash {
+    position: absolute;
+    top: 30%;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 54px;
+    font-weight: bold;
+    letter-spacing: 0.18em;
+    color: #ffe9a8;
+    text-shadow: 0 0 24px rgba(255, 200, 80, 0.55), 0 2px 4px #000;
+    opacity: 0;
+    transition: opacity 0.4s;
+}
+
+#flash.show { opacity: 1; }
+
+#toast {
+    position: absolute;
+    bottom: 118px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 15px;
+    color: #ffce6b;
+    opacity: 0;
+    transition: opacity 0.4s;
+}
+
+#toast.show { opacity: 1; }
+
+/* ---- Bedienleiste ---------------------------------------------------------- */
+
+#controls {
+    position: absolute;
+    bottom: 40px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    flex-wrap: wrap;
+    pointer-events: auto;
+}
+
+.btngroup {
+    display: flex;
+    gap: 6px;
+    background: rgba(8, 14, 10, 0.55);
+    border: 1px solid rgba(120, 180, 130, 0.25);
+    border-radius: 8px;
+    padding: 6px;
+    backdrop-filter: blur(3px);
+}
+
+#controls button {
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    color: #b9e4c1;
+    background: rgba(30, 44, 34, 0.7);
+    border: 1px solid rgba(120, 180, 130, 0.3);
+    border-radius: 5px;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+#controls button:hover { background: rgba(55, 80, 60, 0.85); }
+
+#controls button.on {
+    background: rgba(80, 150, 95, 0.85);
+    color: #0c130e;
+    font-weight: bold;
+}
+
+#hint {
+    position: absolute;
+    bottom: 12px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 11px;
+    color: #5d7a64;
+    letter-spacing: 0.06em;
+}
+
+/* ---- Lader / Fehler --------------------------------------------------------- */
+
+#loader {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    color: #b9e4c1;
+    font-size: 16px;
+    letter-spacing: 0.2em;
+    z-index: 10;
+}
+
+#loader.error { color: #ff7a6b; letter-spacing: 0.06em; padding: 2rem; text-align: center; }
+
+#loader.hidden { display: none; }

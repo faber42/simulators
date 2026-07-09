@@ -20,6 +20,7 @@ Dann <http://localhost:3000> öffnen. Die Startseite verlinkt auf alle Projekte.
 | [washsim](washsim/) | Waschtrockner-Simulator mit Wasser- und Schaumpartikeln |
 | [drivesim](drivesim/) | Nachtfahrt auf regennasser Autobahn (WebGL-Shader) |
 | [llmsim](llmsim/) | Transformer-Simulator: Texterzeugung Wort für Wort, Attention, Wissens-Ebenen und KV-Cache als Symbole statt Mathematik |
+| [pinsim](pinsim/) | Pinsetter-Simulator: Blick ins Innere eines Bowling-Automaten mit 3D-Physik (three.js + Rapier), Kehrwerk, Greifertisch, Pin-Aufzug und Karussell-Magazin |
 
 ## Neues Projekt hinzufügen
 

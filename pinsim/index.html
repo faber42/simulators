@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pinsetter-Simulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="stage">
+        <canvas id="gl"></canvas>
+        <div id="fx-scanlines"></div>
+        <div id="fx-vignette"></div>
+
+        <div id="hud">
+            <div id="camlabel">KAM 1 &middot; PINDECK LINKS</div>
+            <div id="recbox"><span id="recdot"></span>REC</div>
+            <div id="clock">--.--.---- --:--:--</div>
+            <pre id="status"></pre>
+            <div id="flash"></div>
+            <div id="toast"></div>
+
+            <div id="controls">
+                <div class="btngroup" id="camButtons"></div>
+                <div class="btngroup">
+                    <button data-throw="pocket"  title="Kugel in die Tasche zwischen Pin 1 und 3">Strike-Wurf</button>
+                    <button data-throw="headon"  title="Frontal auf den Kopf-Pin &ndash; Split-Kandidat">Split-Wurf</button>
+                    <button data-throw="gutter"  title="Kugel in die Rinne">Gassenwurf</button>
+                    <button data-throw="random"  title="Zuf&auml;lliger Wurf">Zufallswurf</button>
+                </div>
+                <div class="btngroup">
+                    <button id="btnAuto"  class="on" title="Automatisch weiterwerfen">Auto</button>
+                    <button id="btnSpeed" title="Simulationstempo">1&times;</button>
+                    <button id="btnSound" title="Ton an/aus">Ton aus</button>
+                    <button id="btnPause" title="Simulation anhalten">Pause</button>
+                </div>
+            </div>
+            <div id="hint">Tasten: 1&ndash;6 Kamera &middot; Leertaste Pause &middot; N Wurf &middot; A Auto &middot; M Ton &middot; +/&minus; Tempo &middot; Kamera 6: Maus ziehen/scrollen</div>
+        </div>
+
+        <div id="loader">PINSETTER WIRD GESTARTET &hellip;</div>
+    </div>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
