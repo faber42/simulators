@@ -460,27 +460,35 @@ function fixedCollider(desc, friction, restitution, tag) {
     }
 
     // ---- Rinnen ----
+    // Flacher Kreisbogen wie in echt (~23,5 cm breit, 4,8 cm tief): die
+    // innere Bogenkante schließt bündig mit der Bahnoberfläche ab, statt
+    // als Halbrohr über die Bahn zu ragen.
+    const GUT_R = 0.1678;                 // Bogenradius
+    const GUT_A = 0.7754;                 // halber Öffnungswinkel (~44°)
+    const GUT_CX = LANE.half + GUT_R * Math.sin(GUT_A);   // Bogenmitte
     for (const side of [-1, 1]) {
-        const gx = side * (LANE.half + LANE.gutterW / 2);
-        const half = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.13, 0.13, appLen, 28, 1, true, 0, Math.PI),
+        const arc = new THREE.Mesh(
+            new THREE.CylinderGeometry(GUT_R, GUT_R, appLen, 24, 1, true,
+                Math.PI / 2 - GUT_A, GUT_A * 2),
             mat.gutter);
-        half.rotation.z = -Math.PI / 2;               // Schale unten, Öffnung nach oben
-        half.rotation.y = Math.PI / 2;
-        half.position.set(gx, 0.082, appMid);
-        half.receiveShadow = true;
-        scene.add(half);
+        arc.rotation.z = -Math.PI / 2;                // Schale unten, Öffnung nach oben
+        arc.rotation.y = Math.PI / 2;
+        arc.position.set(side * GUT_CX, GUT_R - 0.048, appMid);
+        arc.receiveShadow = true;
+        scene.add(arc);
 
-        fixedCollider(RAPIER.ColliderDesc.cuboid(0.055, 0.015, appLen / 2)
-            .setTranslation(gx, -0.063, appMid), 0.12, 0.2, 'lane');
-        fixedCollider(RAPIER.ColliderDesc.cuboid(0.070, 0.012, appLen / 2)
-            .setTranslation(side * 0.566, -0.026, appMid)
-            .setRotation(quatZ(side * 0.675)), 0.12, 0.2, 'lane');
-        fixedCollider(RAPIER.ColliderDesc.cuboid(0.070, 0.012, appLen / 2)
-            .setTranslation(side * 0.736, -0.026, appMid)
-            .setRotation(quatZ(-side * 0.675)), 0.12, 0.2, 'lane');
+        // Physik: Boden + zwei flache Schrägen entlang des Bogens
+        fixedCollider(RAPIER.ColliderDesc.cuboid(0.045, 0.012, appLen / 2)
+            .setTranslation(side * GUT_CX, -0.060, appMid), 0.12, 0.2, 'lane');
+        fixedCollider(RAPIER.ColliderDesc.cuboid(0.050, 0.010, appLen / 2)
+            .setTranslation(side * 0.5697, -0.024, appMid)
+            .setRotation(quatZ(-side * 0.584)), 0.12, 0.2, 'lane');
+        fixedCollider(RAPIER.ColliderDesc.cuboid(0.050, 0.010, appLen / 2)
+            .setTranslation(side * 0.7322, -0.024, appMid)
+            .setRotation(quatZ(side * 0.584)), 0.12, 0.2, 'lane');
 
         // flache Rinne neben dem Deck (leicht vertieft, bündig zur runden Rinne)
+        const gx = side * (LANE.half + LANE.gutterW / 2);
         box(scene, LANE.gutterW, 0.06, deckLen, mat.panel, gx, -0.078, deckMid);
         fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.gutterW / 2, 0.03, deckLen / 2)
             .setTranslation(gx, -0.078, deckMid), 0.25, 0.15, 'lane');
