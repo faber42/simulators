@@ -36,7 +36,9 @@ Wertung mit Strike-/Spare-/Split-Erkennung.
 | Maus ziehen / Rad | freie Kamera drehen / zoomen (nur Kamera 6) |
 | `N` | sofort werfen |
 | Wurf-Buttons | Strike-, Split-, Gassen- oder Zufallswurf (laufender Zyklus: wird vorgemerkt) |
-| `A` / Auto | Automatikbetrieb an/aus |
+| Reset | alle Pins abräumen und ein frisches Rack stellen (wie an echten Bahnen) |
+| Frame 1 | Zählung auf Frame 1 zurücksetzen |
+| `A` / Auto | Automatikbetrieb an/aus (startet ausgeschaltet) |
 | `+` / `−` / Button | Tempo 0,5× – 4× |
 | `M` / Button | synthetischer Ton (Pin-Klacken, Motoren, Kugelrollen) |
 | Leertaste | Pause |

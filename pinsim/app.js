@@ -47,7 +47,7 @@ const SPOTS = [                           // Pin 1..10 (Index 0..9)
 ];
 
 const PIN  = { h: 0.381, rBelly: 0.0605, density: 684 };   // ergibt ~1,5 kg
-const BALL = { r: 0.108, density: 1203 };                  // ergibt ~6,35 kg
+const BALL = { r: 0.108, density: 1335 };                  // ergibt ~7,05 kg (15,5 lb)
 
 const PIT     = { floorY: -0.55, zEnd: 3.05 };
 const CUSHION = { z0: 1.52, z1: 1.66, yBot: -0.36, yTop: 0.56 };
@@ -439,12 +439,12 @@ function fixedCollider(desc, friction, restitution, tag) {
     const deckLen = LANE.tailEnd - LANE.deckStart, deckMid = (LANE.deckStart + LANE.tailEnd) / 2;
 
     box(scene, LANE.half * 2, 0.1, appLen, mat.approach, 0, -0.05, appMid);
-    fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.half, 0.05, appLen / 2)
-        .setTranslation(0, -0.05, appMid), 0.06, 0.03, 'lane');
-
     box(scene, LANE.half * 2, 0.1, deckLen, mat.lane, 0, -0.05, deckMid);
-    fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.half, 0.05, deckLen / 2)
-        .setTranslation(0, -0.05, deckMid), 0.22, 0.05, 'lane');
+    // EIN durchgehender Bahn-Collider: zwei aneinanderstoßende Quader erzeugen
+    // an der inneren Kante Geisterkollisionen, die die Kugel hüpfen lassen.
+    const laneLen = LANE.tailEnd - LANE.zFront;
+    fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.half, 0.05, laneLen / 2)
+        .setTranslation(0, -0.05, (LANE.zFront + LANE.tailEnd) / 2), 0.15, 0.04, 'lane');
 
     const spotGeo = new THREE.CircleGeometry(0.028, 20);
     const spotMat = new THREE.MeshStandardMaterial({ color: 0x151210, roughness: 0.5 });
@@ -477,10 +477,10 @@ function fixedCollider(desc, friction, restitution, tag) {
             .setTranslation(side * 0.736, -0.026, appMid)
             .setRotation(quatZ(-side * 0.675)), 0.12, 0.2, 'lane');
 
-        // flache Rinne neben dem Deck (leicht vertieft)
-        box(scene, LANE.gutterW, 0.06, deckLen, mat.panel, gx, -0.075, deckMid);
+        // flache Rinne neben dem Deck (leicht vertieft, bündig zur runden Rinne)
+        box(scene, LANE.gutterW, 0.06, deckLen, mat.panel, gx, -0.078, deckMid);
         fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.gutterW / 2, 0.03, deckLen / 2)
-            .setTranslation(gx, -0.075, deckMid), 0.25, 0.15, 'lane');
+            .setTranslation(gx, -0.078, deckMid), 0.25, 0.15, 'lane');
     }
 
     // dunkler Unterbau — keine Kamera sieht "unter" die Bahn
@@ -521,17 +521,28 @@ function fixedCollider(desc, friction, restitution, tag) {
         .setTranslation(0, 0.7, HOUSING.zBack - 0.06), 0.5, 0.1, 'kick');
 
     // ---- Gehäuse ----
+    // Einseitige Hülle (Flächen zeigen nach innen): von innen geschlossen,
+    // von außen schaut die freie Service-Kamera wie in ein Puppenhaus hinein.
     const W = HOUSING.xIn, T = HOUSING.yTop, ZB = HOUSING.zBack, ZF = HOUSING.zFront;
     const len = ZB - ZF, zc = (ZB + ZF) / 2;
-    box(scene, 0.05, T + 0.75, len, mat.panel, -W, T / 2 - 0.33, zc);
-    box(scene, 0.05, T + 0.75, len, mat.panel, W, T / 2 - 0.33, zc);
-    box(scene, W * 2, 0.06, len, mat.panel, 0, T, zc, { recv: false });
-    box(scene, W * 2, T + 0.75, 0.06, mat.panel, 0, T / 2 - 0.33, ZB);
+    const wall = (wdt, hgt, x, y, z, ry, rx) => {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(wdt, hgt), mat.panel);
+        m.position.set(x, y, z);
+        if (ry) m.rotation.y = ry;
+        if (rx) m.rotation.x = rx;
+        m.receiveShadow = true;
+        scene.add(m);
+        return m;
+    };
+    wall(len, T + 0.75, -W, T / 2 - 0.33, zc, Math.PI / 2);
+    wall(len, T + 0.75, W, T / 2 - 0.33, zc, -Math.PI / 2);
+    wall(W * 2, len, 0, T, zc, 0, Math.PI / 2).receiveShadow = false;
+    wall(W * 2, T + 0.75, 0, T / 2 - 0.33, ZB, Math.PI);
     box(scene, W * 2, 0.05, len, mat.rubber, 0, -0.66, zc);
     // Frontwand mit Bahnöffnung + Maskenblende
-    box(scene, W * 2, T - 0.56, 0.06, mat.panel, 0, 0.56 + (T - 0.56) / 2, ZF);
-    box(scene, W - LANE.kickIn, 1.3, 0.06, mat.panel, -(LANE.kickIn + W) / 2, 0.0, ZF);
-    box(scene, W - LANE.kickIn, 1.3, 0.06, mat.panel, (LANE.kickIn + W) / 2, 0.0, ZF);
+    wall(W * 2, T - 0.56, 0, 0.56 + (T - 0.56) / 2, ZF);
+    wall(W - LANE.kickIn, 1.3, -(LANE.kickIn + W) / 2, 0.0, ZF);
+    wall(W - LANE.kickIn, 1.3, (LANE.kickIn + W) / 2, 0.0, ZF);
     box(scene, LANE.kickIn * 2, 0.07, 0.05, mat.hazard, 0, 0.60, ZF + 0.10);
 
     for (const z of [-0.5, 0.4, 1.3, 2.2, 2.9]) {
@@ -801,7 +812,7 @@ class PinEnt {
                        : shape === 'caps' ? RAPIER.ColliderDesc.capsule(hh, r)
                        : RAPIER.ColliderDesc.ball(r);
             desc.setTranslation(0, y, 0).setDensity(PIN.density)
-                .setFriction(0.16).setRestitution(0.50)
+                .setFriction(0.13).setRestitution(0.55)
                 .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
                 .setContactForceEventThreshold(35);
             const col = world.createCollider(desc, this.body);
@@ -955,9 +966,13 @@ ball.mesh.visible = false;
 scene.add(ball.mesh);
 {
     const desc = RAPIER.ColliderDesc.ball(BALL.r).setDensity(BALL.density)
-        .setFriction(0.05).setRestitution(0.06)
+        .setFriction(0.05).setRestitution(0.02)
         .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
         .setContactForceEventThreshold(150);
+    // Kugel prallt nie federnd von Pins ab (Min statt Mittelwert der Restitution)
+    if (RAPIER.CoefficientCombineRule && desc.setRestitutionCombineRule) {
+        desc.setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min);
+    }
     ball.col = world.createCollider(desc, ball.body);
     colliderTag.set(ball.col.handle, 'ball');
     handleBody.set(ball.col.handle, ball.body);
@@ -1321,9 +1336,10 @@ function clearDeckCompletely() {
 const machine = {
     state: 'IDLE',                        // IDLE | ROLLING | CYCLE
     idleT: 0, rollT: 0,
+    pendingDef: null, launchT: 0, launchedAt: 0,
     q: [], step: null,
     frame: 1, wurf: 1,
-    auto: true, pending: null,
+    auto: false, pending: null,
     phase: 'BEREIT',
     thrownType: '',
     sweepRetries: 0,
@@ -1379,6 +1395,28 @@ function secondPassIfNeeded() {
     }
 }
 
+// Wartet aufs volle Magazin, entlädt es in den Tisch und stellt das Rack.
+function pushRackSetSteps(steps) {
+    steps.push(stUntil(() =>
+        turretCount() >= 10 && !transport.dropBusy &&
+        transport.slots.every(p => !p || p.st === 'turret'),
+        'WARTE AUF PINNACHSCHUB'));
+    steps.push(stPhase('MAGAZIN ENTLÄDT'), stMove({ grip: 0 }, 0.3));
+    steps.push(stCall(() => { transport.unload = { phase: 'align', t: 0 }; }));
+    steps.push(stUntil(() => !transport.unload && pinsInDeckCount() === 10));
+    steps.push(stPhase('RACK WIRD GESETZT'), stMove({ deckY: DECK.yDown }, 1.15));
+    steps.push(stMove({ grip: 1 }, 0.3), stCall(releaseDeckPins), stWait(0.2));
+    steps.push(stMove({ deckY: DECK.yHome }, 1.05));
+    steps.push(stPhase('KEHRWERK HEBT SICH'), stMove({ sweepY: SWEEP.yUp }, 0.65));
+}
+
+function finishCycleSteps(steps) {
+    steps.push(stPhase('BEREIT'), stCall(() => { machine.state = 'IDLE'; machine.idleT = 0; }));
+    machine.q = steps;
+    machine.step = null;
+    machine.state = 'CYCLE';
+}
+
 function buildCycle() {
     const survey = surveyPins();
     scoreThrow(survey);
@@ -1388,8 +1426,9 @@ function buildCycle() {
 
     steps.push(stPhase('KEHRWERK SENKT SICH'), stMove({ sweepY: SWEEP.yDown }, 0.7));
 
-    if (isBall1 && n > 0 && n < 10) {
-        // Teilabräumer: stehende Pins heben, Holz räumen, nachsetzen
+    if (isBall1 && n > 0) {
+        // Erster Wurf, es steht noch etwas (auch: gar nichts gefallen):
+        // stehende Pins heben, Holz räumen, dieselben Pins nachsetzen
         steps.push(stPhase('GREIFER SENKT SICH'), stMove({ deckY: DECK.yDown }, 1.05));
         steps.push(stMove({ grip: 0 }, 0.3), stCall(grabStandingPins), stWait(0.35));
         steps.push(stPhase('GREIFER HEBT PINS'), stMove({ deckY: DECK.yHome }, 1.05));
@@ -1399,39 +1438,34 @@ function buildCycle() {
         steps.push(stMove({ deckY: DECK.yHome }, 1.05));
         steps.push(stPhase('KEHRWERK HEBT SICH'), stMove({ sweepY: SWEEP.yUp }, 0.65));
         steps.push(stCall(() => { machine.wurf = 2; }));
-    } else if (isBall1 && n === 10) {
-        // nichts gefallen: Leerhub
-        pushSweepStrokes(steps);
-        steps.push(stPhase('KEHRWERK HEBT SICH'), stMove({ sweepY: SWEEP.yUp }, 0.65));
-        steps.push(stCall(() => { machine.wurf = 2; }));
     } else {
         // Strike oder zweiter Wurf: alles räumen, neues Rack aus dem Magazin
         pushSweepStrokes(steps);
         steps.push(stCall(forceCaptureLeftovers));
         steps.push(stCall(clearDeckCompletely));
-        steps.push(stUntil(() =>
-            turretCount() >= 10 && !transport.dropBusy &&
-            transport.slots.every(p => !p || p.st === 'turret'),
-            'WARTE AUF PINNACHSCHUB'));
-        steps.push(stPhase('MAGAZIN ENTLÄDT'), stMove({ grip: 0 }, 0.3));
-        steps.push(stCall(() => { transport.unload = { phase: 'align', t: 0 }; }));
-        steps.push(stUntil(() => !transport.unload && pinsInDeckCount() === 10));
-        steps.push(stPhase('RACK WIRD GESETZT'), stMove({ deckY: DECK.yDown }, 1.15));
-        steps.push(stMove({ grip: 1 }, 0.3), stCall(releaseDeckPins), stWait(0.2));
-        steps.push(stMove({ deckY: DECK.yHome }, 1.05));
-        steps.push(stPhase('KEHRWERK HEBT SICH'), stMove({ sweepY: SWEEP.yUp }, 0.65));
+        pushRackSetSteps(steps);
         steps.push(stCall(() => { machine.wurf = 1; machine.frame++; machine.cycles++; }));
     }
-    steps.push(stPhase('BEREIT'), stCall(() => { machine.state = 'IDLE'; machine.idleT = 0; }));
-    machine.q = steps;
-    machine.step = null;
-    machine.state = 'CYCLE';
+    finishCycleSteps(steps);
+}
+
+// Reset-Taste: alles abräumen und ein frisches Rack stellen (ohne Wertung,
+// Zählung bleibt; der Frame beginnt wieder mit Wurf 1).
+function buildReset() {
+    const steps = [];
+    steps.push(stPhase('RESET: ABRÄUMEN'), stMove({ sweepY: SWEEP.yDown }, 0.7));
+    pushSweepStrokes(steps);
+    steps.push(stCall(forceCaptureLeftovers));
+    steps.push(stCall(clearDeckCompletely));
+    pushRackSetSteps(steps);
+    steps.push(stCall(() => { machine.wurf = 1; machine.lastResult = '—'; }));
+    finishCycleSteps(steps);
 }
 
 function machineUpdate(dt) {
     if (machine.state === 'IDLE') {
         machine.idleT += dt;
-        const delay = machine.wurf === 1 ? 2.0 : 1.6;
+        const delay = machine.wurf === 1 ? 1.5 : 1.2;
         if (machine.pending && machine.idleT > 0.5) {
             doThrow(machine.pending);
             machine.pending = null;
@@ -1440,6 +1474,18 @@ function machineUpdate(dt) {
         }
     } else if (machine.state === 'ROLLING') {
         machine.rollT += dt;
+        if (machine.pendingDef) {
+            // Kugel ist noch auf der (unsichtbaren) Bahn unterwegs
+            machine.launchT -= dt;
+            if (machine.launchT <= 0) {
+                const d = machine.pendingDef;
+                machine.pendingDef = null;
+                machine.launchedAt = machine.rollT;
+                ballLaunch(d.x, d.y || BALL.r + 0.004, d.vx, d.v);
+            }
+            return;
+        }
+        const since = machine.rollT - machine.launchedAt;
         const ballGone = ball.mode !== 'roll' || ball.body.translation().z > 1.10;
         let quiet = true;
         for (const p of pins) {
@@ -1448,7 +1494,7 @@ function machineUpdate(dt) {
             if (lv.x * lv.x + lv.y * lv.y + lv.z * lv.z > 0.012 ||
                 av.x * av.x + av.y * av.y + av.z * av.z > 0.08) { quiet = false; break; }
         }
-        if ((machine.rollT > 1.7 && ballGone && quiet) || machine.rollT > 4.6) buildCycle();
+        if ((since > 1.7 && ballGone && quiet) || since > 4.6) buildCycle();
     } else if (machine.state === 'CYCLE') {
         let guard = 0;
         while (guard++ < 24) {
@@ -1469,21 +1515,22 @@ function machineUpdate(dt) {
 // Startposition ergibt sich aus der Seitwärtsgeschwindigkeit und der Flugzeit.
 function aimedThrow(arriveX, vx, v) {
     const t = (0 - (LANE.zFront + 0.15)) / v;      // Zeit bis Pin 1
-    return { x: clamp(arriveX - vx * t, -0.52, 0.52), vx, v };
+    // Start bleibt sicher auf der Bahn (Kugelrand vor der Rinne)
+    return { x: clamp(arriveX - vx * t, -0.41, 0.41), vx, v };
 }
 
 const THROW_DEFS = {
-    pocket:   () => aimedThrow(rand(0.075, 0.105), rand(-0.45, -0.15), rand(8.9, 9.8)),
-    brooklyn: () => aimedThrow(rand(-0.105, -0.075), rand(0.15, 0.45), rand(8.6, 9.4)),
-    headon:   () => aimedThrow(rand(-0.02, 0.02), rand(-0.05, 0.05), rand(8.9, 9.9)),
+    pocket:   () => aimedThrow(rand(0.075, 0.105), rand(-0.68, -0.50), rand(7.8, 8.6)),
+    brooklyn: () => aimedThrow(rand(-0.105, -0.075), rand(0.50, 0.68), rand(7.7, 8.4)),
+    headon:   () => aimedThrow(rand(-0.02, 0.02), rand(-0.05, 0.05), rand(7.4, 8.3)),
     thin:     () => { const s = Math.random() < 0.6 ? 1 : -1;
-                      return aimedThrow(s * rand(0.17, 0.24), -s * rand(0, 0.15), rand(8.0, 9.0)); },
+                      return aimedThrow(s * rand(0.17, 0.24), -s * rand(0, 0.15), rand(6.9, 7.8)); },
     five:     () => { const s = Math.random() < 0.5 ? 1 : -1;
-                      return aimedThrow(s * rand(0.26, 0.34), 0, rand(7.6, 8.6)); },
+                      return aimedThrow(s * rand(0.26, 0.34), 0, rand(6.8, 7.7)); },
     edge:     () => { const s = Math.random() < 0.5 ? 1 : -1;
-                      return aimedThrow(s * rand(0.40, 0.47), s * rand(-0.05, 0.08), rand(7.8, 8.8)); },
+                      return aimedThrow(s * rand(0.40, 0.47), s * rand(-0.05, 0.08), rand(6.9, 7.9)); },
     gutter:   () => { const s = Math.random() < 0.5 ? 1 : -1;
-                      return { x: s * (LANE.half + LANE.gutterW / 2), vx: 0, v: rand(7.4, 8.4),
+                      return { x: s * (LANE.half + LANE.gutterW / 2), vx: 0, v: rand(6.4, 7.4),
                                y: 0.064, gutter: true }; },
 };
 
@@ -1512,7 +1559,7 @@ function doThrow(type) {
             mx /= survey.standing.length;
             const target = clamp(mx, -0.45, 0.45) + rand(-0.05, 0.05);
             const x0 = clamp(target + rand(-0.06, 0.06), -0.5, 0.5);
-            def = { x: x0, vx: (target - x0) * 2.2, v: rand(7.7, 8.7) };
+            def = { x: x0, vx: (target - x0) * 2.2, v: rand(6.9, 7.8) };
         } else {
             def = THROW_DEFS.pocket();
         }
@@ -1521,7 +1568,12 @@ function doThrow(type) {
         def = THROW_DEFS[type]();
         machine.thrownType = type;
     }
-    ballLaunch(def.x, def.y || BALL.r + 0.004, def.vx, def.v);
+    // seltener "Powerwurf" — sonst gemächliches Haus-Tempo
+    if (!def.gutter && Math.random() < 0.12) def.v += rand(0.6, 1.0);
+    // Anrollzeit: die Kugel braucht sichtbar lange über die (unsichtbare) Bahn
+    machine.pendingDef = def;
+    machine.launchT = rand(0.95, 1.30);
+    machine.launchedAt = 0;
     machine.state = 'ROLLING';
     machine.rollT = 0;
     machine.phase = 'KUGEL AUF DER BAHN';
@@ -1577,7 +1629,7 @@ function captureChecks() {
             ball.pitT += H;
             if (speed2 < 1.0 || ball.pitT > 1.4) captureBall();
         }
-        if (machine.rollT > 7) { captureBall(true); toast('KUGEL MANUELL ENTFERNT'); }
+        if (machine.rollT - machine.launchedAt > 7) { captureBall(true); toast('KUGEL MANUELL ENTFERNT'); }
         if (t.y < -0.75) captureBall(true);
     }
     for (const p of pins) {
@@ -1726,13 +1778,13 @@ function drainContacts() {
 const CAMS = [
     { n: 'PINDECK LINKS',    pos: [-0.70, 0.62, -0.80], look: [0.14, 0.24, 0.55], fov: 60 },
     { n: 'PINDECK RECHTS',   pos: [0.70, 0.62, -0.80],  look: [-0.14, 0.24, 0.55], fov: 60 },
-    { n: 'TISCH & MAGAZIN',  pos: [0.66, 1.58, -0.95],  look: [-0.12, 0.58, 0.58], fov: 64 },
+    { n: 'TISCH & MAGAZIN',  pos: [0.60, 1.62, -0.72],  look: [-0.10, 0.58, 0.55], fov: 64 },
     { n: 'AUFZUG & GRUBE',   pos: [-0.88, 1.92, 0.15],  look: [0.18, 0.32, 2.25], fov: 72 },
     { n: 'GRUBE & BALLTÜR',  pos: [-0.58, 0.45, 1.34],  look: [0.72, -0.50, 1.54], fov: 74 },
     { n: 'FREI (SERVICE)',   orbit: true, fov: 58 },
 ];
 
-const orbit = { theta: -2.55, phi: 1.05, r: 3.6, tx: 0, ty: 0.55, tz: 1.0, drag: false, lx: 0, ly: 0 };
+const orbit = { theta: -1.98, phi: 1.09, r: 2.4, tx: 0, ty: 0.40, tz: 1.20, drag: false, lx: 0, ly: 0 };
 let camIdx = 0;
 
 function applyCamera() {
@@ -1840,6 +1892,14 @@ el.btnPause.addEventListener('click', () => {
     paused = !paused;
     el.btnPause.classList.toggle('on', paused);
 });
+document.getElementById('btnReset').addEventListener('click', () => {
+    if (machine.state === 'IDLE') buildReset();
+    else toast('ZYKLUS LÄUFT – RESET GERADE NICHT MÖGLICH');
+});
+document.getElementById('btnFrame1').addEventListener('click', () => {
+    machine.frame = 1;
+    toast('ZÄHLUNG AUF FRAME 1 GESETZT');
+});
 
 addEventListener('keydown', e => {
     if (e.key >= '1' && e.key <= '6') setCam(+e.key - 1);
@@ -1864,7 +1924,8 @@ function updateHud() {
         if (t.y < 0.08 && t.y > -0.05 && t.z < 1.0 && pinUpY(p) > 0.9) standing++;
     }
     const ballTxt = ball.mode === 'roll' ? (ball.body.translation().z > 1.05 ? 'IN DER GRUBE' : 'AUF DER BAHN')
-                  : ball.mode === 'rail' ? 'IM RÜCKLAUF' : '—';
+                  : ball.mode === 'rail' ? 'IM RÜCKLAUF'
+                  : machine.state === 'ROLLING' ? 'AUF DER BAHN' : '—';
     el.status.textContent =
         `PHASE    ${machine.phase}\n` +
         `FRAME ${machine.frame} · WURF ${machine.wurf}\n` +
