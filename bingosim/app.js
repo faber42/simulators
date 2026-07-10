@@ -179,7 +179,7 @@ const TRACK_DROP_S = (() => {    // Bahnposition unter dem Kugelhalter
 
 // ---- Spielzustand ------------------------------------------------------------
 const S = {
-    mode: 'ATTRACT',     // ATTRACT | RELEASE | AIM | ON_TRACK | IN_FIELD | POCKETED | PROGRAM | EVALUATE | PAYOUT
+    mode: 'ATTRACT',     // ATTRACT | INIT | RELEASE | AIM | ON_TRACK | IN_FIELD | POCKETED | PROGRAM | PAYOUT
     timer: 0,
     throwsDone: [],      // gefallene Ziffern des laufenden Spiels
     attempt: 1,          // 1..3 (nächster zu wertender Wurf)
@@ -401,25 +401,24 @@ function registerPocket(idx) {
     S.spielFrei = false; // Tasche erreicht: „SPIEL FREI“ erlischt, die Ziffer leuchtet auf
     AudioFX.klack();
     S.msg = `Die Kugel fällt in Tasche „${digit}“.`;
-}
-
-function evaluateGame() {
-    let win = 0, winCol = -1;
-    S.lit.forEach((rows, i) => {
-        if (rows[0] && rows[1] && rows[2]) { win = COLUMNS[i].value; winCol = i; }
-    });
-    if (winCol >= 0) {
-        S.valueLit[winCol] = true;
-        S.lastWin = win;
-        S.kasseOut += win;
-        S.coinQueue = Math.round(win / 10);   // Auszahlung in 10-Pf-Stücken
-        S.coinDelay = 0.3;
-        S.msg = `Gewinn: ${fmtPf(win)}! Die Münzen fallen in die Schale. Münze einwerfen für ein neues Spiel.`;
-        setMode('PAYOUT');
-    } else {
-        S.lastWin = 0;
-        S.msg = 'Leider kein Gewinn. Das Zahlenfeld erlischt — KONTROLLE zeigt das Ergebnis noch einmal.';
-        setMode('ATTRACT');
+    // Nach der dritten Ziffer schalten die Relais einen Gewinn sofort durch:
+    // das Betragsfeld zündet zeitgleich mit der dritten Zahl
+    if (S.throwsDone.length >= 3) {
+        let win = 0, winCol = -1;
+        S.lit.forEach((rows, i) => {
+            if (rows[0] && rows[1] && rows[2]) { win = COLUMNS[i].value; winCol = i; }
+        });
+        if (winCol >= 0) {
+            S.valueLit[winCol] = true;
+            S.lastWin = win;
+            S.kasseOut += win;
+            S.coinQueue = Math.round(win / 10);   // Auszahlung in 10-Pf-Stücken
+            S.coinDelay = 0.9;                    // der Auswerfer braucht einen Moment
+            S.msg = `Gewinn: ${fmtPf(win)}! Die Münzen fallen in die Schale.`;
+            AudioFX.klack();
+        } else {
+            S.lastWin = 0;
+        }
     }
 }
 
@@ -427,8 +426,9 @@ function evaluateGame() {
 function update(dt) {
     const b = S.ball;
 
-    // Kraftbalken (Pendeln zwischen 0 und 1, solange gehalten)
-    if (S.charging && S.mode === 'AIM') {
+    // Kraftbalken (Pendeln zwischen 0 und 1, solange gehalten — auch schon,
+    // während die Kugel noch zum Schlagwerk rollt)
+    if (S.charging) {
         S.power += S.powerDir * 0.85 * dt;
         if (S.power >= 1) { S.power = 1; S.powerDir = -1; }
         if (S.power <= 0) { S.power = 0; S.powerDir = 1; }
@@ -442,14 +442,18 @@ function update(dt) {
             if (S.mode === 'RELEASE') startRelease();
             else if (S.mode === 'INIT') stepInit();
             else if (S.mode === 'PROGRAM') {
-                if (S.throwsDone.length >= 3) { setMode('EVALUATE', 0.7); }
-                else {
+                if (S.throwsDone.length >= 3) {
+                    // Spielende: Gewinn wurde schon beim Taschentreffer geschaltet
+                    if (S.lastWin > 0) S.msg = `Gewinn: ${fmtPf(S.lastWin)}! Münze einwerfen für ein neues Spiel.`;
+                    else S.msg = 'Leider kein Gewinn. Das Zahlenfeld erlischt — KONTROLLE zeigt das Ergebnis noch einmal.';
+                    if (S.coinQueue > 0) setMode('PAYOUT');
+                    else setMode('ATTRACT');
+                } else {
                     S.attempt = S.throwsDone.length + 1;
                     S.msg = 'Der Automat gibt die Kugel für den nächsten Wurf frei …';
                     setMode('RELEASE', 0.3);
                 }
             }
-            else if (S.mode === 'EVALUATE') evaluateGame();
         }
     }
 
@@ -531,13 +535,18 @@ function update(dt) {
                 b.v = 0; b.state = 'REST';
                 AudioFX.rollOff();
                 if (S.mode === 'ON_TRACK') {
-                    S.msg = 'Zu schwach! Die Kugel rollt zurück — Wurf wiederholen.';
+                    S.msg = S.charging
+                        ? 'Zu schwach! Die Kugel ist zurück — loslassen zum neuen Schlag!'
+                        : 'Zu schwach! Die Kugel rollt zurück — Wurf wiederholen.';
                     setMode('AIM');
                 } else {
                     setMode('AIM');
-                    S.msg = `${S.attempt}. Wurf: Schlagknopf halten und im richtigen Moment loslassen.`;
+                    S.msg = S.charging
+                        ? 'Die Kugel liegt am Schlagwerk — loslassen zum Schleudern!'
+                        : `${S.attempt}. Wurf: Schlagknopf halten und im richtigen Moment loslassen.`;
                 }
-                S.power = 0; S.powerDir = 1;
+                // eine bereits laufende Aufladung bleibt erhalten
+                if (!S.charging) { S.power = 0; S.powerDir = 1; }
             } else {
                 const p = trackPos(b.s);
                 b.x = p.x; b.y = p.y;
@@ -1274,14 +1283,24 @@ function updateDom() {
 // ---- Eingabe ----------------------------------------------------------------------
 function beginCharge() {
     AudioFX.unlock();
-    if (S.mode !== 'AIM' || S.ball.state !== 'REST') return;
+    // Die Hand liegt schon am Hebel, während die Kugel noch anrollt:
+    // Kraftaufbau ist jederzeit im laufenden Spiel erlaubt
+    if (S.mode === 'ATTRACT' || S.mode === 'PAYOUT' || S.charging) return;
     S.charging = true;
     S.power = 0; S.powerDir = 1;
-    S.msg = `${S.attempt}. Wurf: … und loslassen!`;
+    S.msg = S.mode === 'AIM' && S.ball.state === 'REST'
+        ? `${S.attempt}. Wurf: … und loslassen!`
+        : 'Schlagkraft wird aufgebaut — die Kugel ist noch nicht am Schlagwerk …';
 }
 function endCharge() {
-    if (S.charging && S.mode === 'AIM') launch();
+    if (!S.charging) return;
     S.charging = false;
+    if (S.mode === 'AIM' && S.ball.state === 'REST') { launch(); return; }
+    // Schlag ins Leere: die Kugel war noch nicht da — neu ansetzen erlaubt
+    S.leverAnim = 1;
+    S.power = 0; S.powerDir = 1;
+    AudioFX.thock();
+    S.msg = 'Ins Leere geschlagen — die Kugel war noch nicht am Schlagwerk. Einfach neu ansetzen!';
 }
 
 function canvasPos(ev) {

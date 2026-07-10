@@ -19,7 +19,9 @@ Originalgeräts abgestimmt — die folgenden Details sind verbindlich.
    ohne einen Hügel zu überwinden. Sie läuft **im Uhrzeigersinn** — unten
    nach links, die linke Seite hinauf (Dauer < 1 s) — und verlässt die Bahn
    oben links durch eine **Einweg-Klammer**: Danach kann sie nicht auf die
-   Bahn zurück, nur ins Nadelfeld.
+   Bahn zurück, nur ins Nadelfeld. Die Schlagkraft darf der Spieler schon
+   aufbauen, während die freigegebene Kugel noch zum Schlagwerk rollt —
+   ein zu früher Schlag geht ins Leere und wird einfach wiederholt.
 3. Im **Nadelfeld** (3 Reihen mit 12 / 13 / 14 Nadeln) prallt die Kugel
    2–3 s umher und fällt in eine der **14 Zahlentaschen**. Reihenfolge der
    Taschenziffern von links nach rechts:
@@ -52,9 +54,10 @@ Originalgeräts abgestimmt — die folgenden Details sind verbindlich.
   **Reihenfolge egal**. Gewinn, wenn die drei Würfe genau die drei Ziffern
   der Säule ergeben.
 - Leuchten nach dem 3. Durchgang in einer Säule alle 3 Zahlen, zündet das
-  Betragsfeld darunter und der Betrag wird in 10-Pf-Stücken in die Schale
-  ausgezahlt. (Mathematisch kann nie mehr als eine Säule gleichzeitig
-  vollständig sein.)
+  Betragsfeld darunter **im selben Moment wie die dritte Ziffer** — die
+  Relais schalten den Gewinn direkt durch. Der Betrag wird in
+  10-Pf-Stücken in die Schale ausgezahlt. (Mathematisch kann nie mehr als
+  eine Säule gleichzeitig vollständig sein.)
 
 ## Ruhezustand, KONTROLLE und Initialisierung
 
