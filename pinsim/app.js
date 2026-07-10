@@ -1186,19 +1186,15 @@ function transportUpdate(dt) {
             if (!tr.slots[i] && slotAngleDist(i, 0) < 0.06) { emptyAligned = true; break; }
         }
         if (!emptyAligned) {
-            // nächsten freien Becher heranholen (kürzeste Drehung)
-            let best = -1, bestD = 1e9;
+            // nächsten freien Becher heranholen — das Karussell indexiert
+            // wie ein echtes Ratschen-Magazin immer in DIESELBE Richtung
+            let best = -1, bestA = 1e9;
             for (let i = 0; i < 10; i++) {
                 if (tr.slots[i]) continue;
                 const cur = norm2pi(V.turret + i * TAU / 10);
-                const d = Math.min(cur, TAU - cur);
-                if (d < bestD) { bestD = d; best = i; }
+                if (cur < bestA) { bestA = cur; best = i; }
             }
-            if (best >= 0) {
-                const cur = norm2pi(V.turret + best * TAU / 10);
-                const delta = cur <= Math.PI ? -cur : TAU - cur;
-                tr.turretTurn = { target: V.turret + delta };
-            }
+            if (best >= 0) tr.turretTurn = { target: V.turret - bestA };
         }
     }
 
@@ -1240,8 +1236,9 @@ function transportUpdate(dt) {
     if (tr.unload) {
         const u = tr.unload;
         if (u.phase === 'align') {
+            // auch das Ausrichten dreht nur in der festen Richtung weiter
             const stepAng = TAU / 10;
-            const target = Math.round(V.turret / stepAng) * stepAng;
+            const target = Math.floor(V.turret / stepAng + 1e-6) * stepAng;
             const d = target - V.turret;
             V.turret += clamp(d, -TURRET.stepSpeed * dt, TURRET.stepSpeed * dt);
             if (Math.abs(d) < 0.005) {
