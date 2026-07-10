@@ -71,8 +71,8 @@ const WHEEL = {                           // Pin-Aufzugsrad (dreht um die x-Achs
     dropA: 2.50, dropA1: 2.95,            // Übergabe ans Laufband (oben vorn)
 };
 
-const BELT = {                            // Laufband oben, Richtung Magazin
-    cx: 0.15, z0: 2.16, z1: 0.80, y0: 0.86, y1: 0.97,
+const BELT = {                            // Laufband oben, steigt zum Magazin an
+    cx: 0.15, z0: 2.16, z1: 0.82, y0: 0.86, y1: 1.30,
     w: 0.46, speed: 0.42, gap: 0.30,
     yTop(z) { return this.y0 + (this.z0 - z) * (this.y1 - this.y0) / (this.z0 - this.z1); },
 };
@@ -395,6 +395,9 @@ const mat = {
     belt:     new THREE.MeshStandardMaterial({ map: beltTex, roughness: 0.85 }),
     hazard:   new THREE.MeshStandardMaterial({ map: hazardTex, roughness: 0.6 }),
     red:      new THREE.MeshStandardMaterial({ color: 0x8e2320, roughness: 0.5 }),
+    plexi:    new THREE.MeshStandardMaterial({ color: 0xaccdd4, roughness: 0.12, metalness: 0.05,
+                                               transparent: true, opacity: 0.28,
+                                               side: THREE.DoubleSide, depthWrite: false }),
 };
 
 const M = {};                             // Referenzen auf bewegliche Baugruppen
@@ -623,7 +626,13 @@ for (const k in V) S[k] = new STrack(V[k]);
 {
     const g = new THREE.Group();
     g.position.set(0, V.deckY, DECK.cz);
-    box(g, 1.26, 0.06, 1.02, mat.steel, 0, 0, 0, { cast: true });
+    // Tischplatte aus getöntem Acryl: man sieht von oben durch auf die Pins
+    box(g, 1.26, 0.05, 1.02, mat.plexi, 0, 0, 0);
+    // Metallrahmen drumherum
+    box(g, 1.30, 0.05, 0.05, mat.darkSteel, 0, 0, -0.51, { cast: true });
+    box(g, 1.30, 0.05, 0.05, mat.darkSteel, 0, 0, 0.51, { cast: true });
+    box(g, 0.05, 0.05, 0.98, mat.darkSteel, -0.625, 0, 0, { cast: true });
+    box(g, 0.05, 0.05, 0.98, mat.darkSteel, 0.625, 0, 0, { cast: true });
     box(g, 1.26, 0.02, 0.06, mat.red, 0, -0.02, -0.53, { cast: true });
     M.grippers = [];
     for (const [sx, sz] of SPOTS) {
@@ -1181,8 +1190,10 @@ function transportUpdate(dt) {
             tr.slots[aligned] = p;
             p.st = 'toTurret';
             p.slotIdx = aligned;
-            railBlend(p, () => slotPose(p.slotIdx), 0.95, {
-                arc: 0.42,
+            // Bandende liegt knapp über dem Becherrand: der Pin rutscht
+            // hinein, statt durch die Luft zu springen
+            railBlend(p, () => slotPose(p.slotIdx), 0.8, {
+                arc: 0.05,
                 onDone: () => {
                     p.st = 'turret';
                     railAttach(p, () => slotPose(p.slotIdx));
@@ -1473,16 +1484,22 @@ function buildCycle() {
     finishCycleSteps(steps);
 }
 
-// Reset-Taste: alles abräumen und ein frisches Rack stellen (ohne Wertung,
-// Zählung bleibt; der Frame beginnt wieder mit Wurf 1).
-function buildReset() {
+// Reset Frame: alles abräumen und ein frisches Rack stellen (ohne Wertung,
+// der Frame beginnt wieder mit Wurf 1). Reset Game macht dasselbe und setzt
+// zusätzlich die Zählung auf Frame 1 zurück — das gehört immer zusammen.
+function buildReset(resetGame) {
     const steps = [];
-    steps.push(stPhase('RESET: ABRÄUMEN'), stMove({ sweepY: SWEEP.yDown }, 0.7));
+    steps.push(stPhase(resetGame ? 'RESET GAME: ABRÄUMEN' : 'RESET: ABRÄUMEN'),
+               stMove({ sweepY: SWEEP.yDown }, 0.7));
     pushSweepStrokes(steps);
     steps.push(stCall(forceCaptureLeftovers));
     steps.push(stCall(clearDeckCompletely));
     pushRackSetSteps(steps);
-    steps.push(stCall(() => { machine.wurf = 1; machine.lastResult = '—'; }));
+    steps.push(stCall(() => {
+        machine.wurf = 1;
+        machine.lastResult = '—';
+        if (resetGame) machine.frame = 1;
+    }));
     finishCycleSteps(steps);
 }
 
@@ -1916,13 +1933,13 @@ el.btnPause.addEventListener('click', () => {
     paused = !paused;
     el.btnPause.classList.toggle('on', paused);
 });
-document.getElementById('btnReset').addEventListener('click', () => {
-    if (machine.state === 'IDLE') buildReset();
+document.getElementById('btnResetFrame').addEventListener('click', () => {
+    if (machine.state === 'IDLE') buildReset(false);
     else toast('ZYKLUS LÄUFT – RESET GERADE NICHT MÖGLICH');
 });
-document.getElementById('btnFrame1').addEventListener('click', () => {
-    machine.frame = 1;
-    toast('ZÄHLUNG AUF FRAME 1 GESETZT');
+document.getElementById('btnResetGame').addEventListener('click', () => {
+    if (machine.state === 'IDLE') buildReset(true);
+    else toast('ZYKLUS LÄUFT – RESET GERADE NICHT MÖGLICH');
 });
 
 addEventListener('keydown', e => {
