@@ -1430,6 +1430,16 @@ function secondPassIfNeeded() {
     }
 }
 
+// Absetzen wie in echt: Klammern lösen, dann taucht der Tisch noch gut
+// 2 cm nach und gleitet ohne Absetzer aus der Abwärts- in die
+// Aufwärtsbewegung — so wirft er die frisch gestellten Pins beim
+// Hochfahren nicht wieder um.
+function pushSetDownSteps(steps) {
+    steps.push(stMove({ grip: 1 }, 0.3), stCall(releaseDeckPins));
+    steps.push(stMove({ deckY: DECK.yDown - 0.022 }, 0.45));
+    steps.push(stMove({ deckY: DECK.yHome }, 1.15));
+}
+
 // Wartet aufs volle Magazin, entlädt es in den Tisch und stellt das Rack.
 function pushRackSetSteps(steps) {
     steps.push(stUntil(() =>
@@ -1440,8 +1450,7 @@ function pushRackSetSteps(steps) {
     steps.push(stCall(() => { transport.unload = { phase: 'align', t: 0 }; }));
     steps.push(stUntil(() => !transport.unload && pinsInDeckCount() === 10));
     steps.push(stPhase('RACK WIRD GESETZT'), stMove({ deckY: DECK.yDown }, 1.15));
-    steps.push(stMove({ grip: 1 }, 0.3), stCall(releaseDeckPins), stWait(0.2));
-    steps.push(stMove({ deckY: DECK.yHome }, 1.05));
+    pushSetDownSteps(steps);
     steps.push(stPhase('KEHRWERK HEBT SICH'), stMove({ sweepY: SWEEP.yUp }, 0.65));
 }
 
@@ -1469,8 +1478,7 @@ function buildCycle() {
         steps.push(stPhase('GREIFER HEBT PINS'), stMove({ deckY: DECK.yHome }, 1.05));
         pushSweepStrokes(steps);
         steps.push(stPhase('PINS NACHSETZEN'), stMove({ deckY: DECK.yDown }, 1.05));
-        steps.push(stMove({ grip: 1 }, 0.3), stCall(releaseDeckPins), stWait(0.2));
-        steps.push(stMove({ deckY: DECK.yHome }, 1.05));
+        pushSetDownSteps(steps);
         steps.push(stPhase('KEHRWERK HEBT SICH'), stMove({ sweepY: SWEEP.yUp }, 0.65));
         steps.push(stCall(() => { machine.wurf = 2; }));
     } else {
