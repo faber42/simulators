@@ -462,7 +462,7 @@ function fixedCollider(desc, friction, restitution, tag) {
         const half = new THREE.Mesh(
             new THREE.CylinderGeometry(0.13, 0.13, appLen, 28, 1, true, 0, Math.PI),
             mat.gutter);
-        half.rotation.z = Math.PI / 2;
+        half.rotation.z = -Math.PI / 2;               // Schale unten, Öffnung nach oben
         half.rotation.y = Math.PI / 2;
         half.position.set(gx, 0.082, appMid);
         half.receiveShadow = true;
@@ -1228,21 +1228,45 @@ function transportUpdate(dt) {
                 u.phase = 'launch';
                 u.t = 0;
                 u.launched = 0;
+                // Jeder Pin nimmt den kürzesten Weg in den Tisch: Becher und
+                // Aufstell-Spots werden paarweise nach minimaler Distanz
+                // zugeordnet (gierig, kürzeste Paare zuerst) — kein Kreuzflug.
+                const cups = [];
+                for (let i = 0; i < 10; i++) {
+                    if (!tr.slots[i] || tr.slots[i].st !== 'turret') continue;
+                    const a = V.turret + i * TAU / 10;
+                    cups.push({ slot: i,
+                                x: TURRET.cx + TURRET.r * Math.sin(a),
+                                z: TURRET.cz + TURRET.r * Math.cos(a) });
+                }
+                const cand = [];
+                for (const c of cups) {
+                    for (let j = 0; j < 10; j++) {
+                        const dx = c.x - SPOTS[j][0], dz = c.z - SPOTS[j][1];
+                        cand.push({ slot: c.slot, spot: j, d: Math.hypot(dx, dz) });
+                    }
+                }
+                cand.sort((a, b) => a.d - b.d);
+                const slotUsed = new Set(), spotUsed = new Set();
                 u.order = [];
-                for (let i = 0; i < 10; i++) if (tr.slots[i] && tr.slots[i].st === 'turret') u.order.push(i);
+                for (const c of cand) {
+                    if (slotUsed.has(c.slot) || spotUsed.has(c.spot)) continue;
+                    slotUsed.add(c.slot);
+                    spotUsed.add(c.spot);
+                    u.order.push(c);
+                }
             }
         } else {
             u.t += dt;
             while (u.launched < u.order.length && u.t > u.launched * 0.14) {
-                const slot = u.order[u.launched];
-                const p = tr.slots[slot];
-                tr.slots[slot] = null;
-                const spotIdx = u.launched;
+                const pick = u.order[u.launched];
+                const p = tr.slots[pick.slot];
+                tr.slots[pick.slot] = null;
                 p.st = 'toDeck';
-                p.spot = spotIdx;
+                p.spot = pick.spot;
                 p.slotIdx = -1;
-                railBlend(p, () => cellPose(p.spot), 0.9, {
-                    arc: 0.16,
+                railBlend(p, () => cellPose(p.spot), clamp(0.5 + pick.d * 0.8, 0.5, 1.0), {
+                    arc: 0.14,
                     onDone: () => { p.st = 'deck'; railAttach(p, () => cellPose(p.spot)); },
                 });
                 u.launched++;
