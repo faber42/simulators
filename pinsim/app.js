@@ -1268,22 +1268,27 @@ function transportUpdate(dt) {
                 }
             }
         } else {
-            u.t += dt;
-            while (u.launched < u.order.length && u.t > u.launched * 0.14) {
-                const pick = u.order[u.launched];
-                const p = tr.slots[pick.slot];
-                tr.slots[pick.slot] = null;
-                p.st = 'toDeck';
-                p.spot = pick.spot;
-                p.slotIdx = -1;
-                railBlend(p, () => cellPose(p.spot), clamp(0.5 + pick.d * 0.8, 0.5, 1.0), {
-                    arc: 0.14,
-                    onDone: () => { p.st = 'deck'; railAttach(p, () => cellPose(p.spot)); },
-                });
-                u.launched++;
+            // Alle 10 Pins fallen GLEICHZEITIG aus dem Magazin in die
+            // geschlossenen Halterungen des Tisches (einheitliche Fallzeit,
+            // Zuordnung weiterhin zum nächstgelegenen Platz).
+            if (!u.dropped) {
+                u.dropped = true;
+                for (const pick of u.order) {
+                    const p = tr.slots[pick.slot];
+                    tr.slots[pick.slot] = null;
+                    p.st = 'toDeck';
+                    p.spot = pick.spot;
+                    p.slotIdx = -1;
+                    railBlend(p, () => cellPose(p.spot), 0.55, {
+                        arc: 0.05,
+                        onDone: () => { p.st = 'deck'; railAttach(p, () => cellPose(p.spot)); },
+                    });
+                }
+                sfx.click();
             }
-            if (u.launched === u.order.length && pinsInDeckCount() === u.order.length) {
+            if (u.dropped && pinsInDeckCount() === u.order.length) {
                 tr.unload = null;
+                sfx.clack(900, 0);            // Pins rasten in den Halterungen ein
             }
         }
     }
@@ -1449,6 +1454,7 @@ function pushRackSetSteps(steps) {
     steps.push(stPhase('MAGAZIN ENTLÄDT'), stMove({ grip: 0 }, 0.3));
     steps.push(stCall(() => { transport.unload = { phase: 'align', t: 0 }; }));
     steps.push(stUntil(() => !transport.unload && pinsInDeckCount() === 10));
+    steps.push(stWait(0.5));                  // kurz setzen lassen, dann absetzen
     steps.push(stPhase('RACK WIRD GESETZT'), stMove({ deckY: DECK.yDown }, 1.15));
     pushSetDownSteps(steps);
     steps.push(stPhase('KEHRWERK HEBT SICH'), stMove({ sweepY: SWEEP.yUp }, 0.65));
