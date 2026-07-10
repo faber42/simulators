@@ -1177,14 +1177,38 @@ function transportUpdate(dt) {
     tr.beltRun = anyMoved;
     if (anyMoved) V.belt += dt * BELT.speed;
 
-    // ---- Übergabe Band -> Karussell ----
-    if (headWaiting && !tr.dropBusy && !tr.unload) {
-        // freien Becher an der Abwurfposition (Winkel 0 = hinten) suchen
+    // ---- Karussell hält proaktiv einen leeren Becher bereit ----
+    // Wie beim echten Automaten: Becher füllen, SOFORT weiterdrehen, und
+    // dann mit dem leeren Becher an der Übergabe auf den nächsten Pin warten.
+    if (!tr.unload && !tr.dropBusy && !tr.turretTurn && turretCount() < 10) {
+        let emptyAligned = false;
+        for (let i = 0; i < 10; i++) {
+            if (!tr.slots[i] && slotAngleDist(i, 0) < 0.06) { emptyAligned = true; break; }
+        }
+        if (!emptyAligned) {
+            // nächsten freien Becher heranholen (kürzeste Drehung)
+            let best = -1, bestD = 1e9;
+            for (let i = 0; i < 10; i++) {
+                if (tr.slots[i]) continue;
+                const cur = norm2pi(V.turret + i * TAU / 10);
+                const d = Math.min(cur, TAU - cur);
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            if (best >= 0) {
+                const cur = norm2pi(V.turret + best * TAU / 10);
+                const delta = cur <= Math.PI ? -cur : TAU - cur;
+                tr.turretTurn = { target: V.turret + delta };
+            }
+        }
+    }
+
+    // ---- Übergabe Band -> Karussell (der leere Becher wartet schon) ----
+    if (headWaiting && !tr.dropBusy && !tr.unload && !tr.turretTurn) {
         let aligned = -1;
         for (let i = 0; i < 10; i++) {
             if (!tr.slots[i] && slotAngleDist(i, 0) < 0.06) { aligned = i; break; }
         }
-        if (aligned >= 0 && !tr.turretTurn) {
+        if (aligned >= 0) {
             const p = tr.beltPins.shift();
             tr.dropBusy = true;
             tr.slots[aligned] = p;
@@ -1201,20 +1225,6 @@ function transportUpdate(dt) {
                     sfx.tick();
                 },
             });
-        } else if (!tr.turretTurn && turretCount() < 10) {
-            // nächsten freien Becher heranholen (kürzeste Drehung)
-            let best = -1, bestD = 1e9;
-            for (let i = 0; i < 10; i++) {
-                if (tr.slots[i]) continue;
-                const cur = norm2pi(V.turret + i * TAU / 10);
-                const d = Math.min(cur, TAU - cur);
-                if (d < bestD) { bestD = d; best = i; }
-            }
-            if (best >= 0) {
-                const cur = norm2pi(V.turret + best * TAU / 10);
-                const delta = cur <= Math.PI ? -cur : TAU - cur;
-                tr.turretTurn = { target: V.turret + delta };
-            }
         }
     }
 
@@ -1872,7 +1882,8 @@ canvas.addEventListener('pointerdown', e => {
 });
 addEventListener('pointermove', e => {
     if (!orbit.drag || !CAMS[camIdx].orbit) return;
-    orbit.theta -= (e.clientX - orbit.lx) * 0.005;
+    // "Szene anfassen": der zur Kamera gerichtete Teil folgt dem Mauszeiger
+    orbit.theta += (e.clientX - orbit.lx) * 0.005;
     orbit.phi = clamp(orbit.phi - (e.clientY - orbit.ly) * 0.005, 0.15, 1.5);
     orbit.lx = e.clientX; orbit.ly = e.clientY;
 });
@@ -2143,7 +2154,7 @@ renderer.setAnimationLoop(() => {
 
 // ---- Debug-Schnittstelle (für Tests) --------------------------------------
 window.PINSIM = {
-    machine, transport, pins, ball, V, world, RAPIER,
+    machine, transport, pins, ball, V, world, RAPIER, orbit,
     throwNow: t => { if (machine.state === 'IDLE') doThrow(t || pickThrowType()); },
     setSpeed: s => { timeScale = s; },
     setCam,
