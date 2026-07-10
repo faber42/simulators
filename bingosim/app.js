@@ -37,12 +37,11 @@ const TRACK_R = 260;                                     // Kugel-Mittellinie
 const WALL_R = 239;                                      // max. Abstand Kugelmitte (freier Flug)
 const BALL_R = 9;
 
-const MERGE_DEG = 228;                                   // Einmündung Abschussbahn
 const EXIT_DEG = 322;                                    // Ende der Bahn (Klammer, oben links)
 const EXIT_POS = clockPt(319, 232);                      // Startpunkt freier Flug
 const EXIT_DIR = norm2(0.892, -0.452);                   // Abwurfrichtung (rechts-oben)
 
-const HAMMER = { x: 628, y: 886 };                       // Ruheposition vor dem Schlagwerk
+const HAMMER = { x: 648, y: 907 };                       // Ruheposition vor dem Schlagwerk
 const HOLE = { x: 380, y: 838, r: 12 };                  // Kugelhalter unter dem O
 
 // Nadelfeld: 3 Reihen (12/13/14), Raster 34 px
@@ -77,6 +76,7 @@ const COLUMNS = [
     { digits: [2, 3, 4], value: 20,  color: 'blue'   },
     { digits: [1, 3, 4], value: 10,  color: 'green'  },
 ];
+const PURE = COLUMNS.map(c => c.digits[0] === c.digits[1] && c.digits[1] === c.digits[2]);
 const CELL = { x0: 180, pitch: 58, w: 50, y0: 78, rowPitch: 52, h: 46, valueY: 240, valueH: 54 };
 const COL_COLORS = {
     green:  { dim: '#1e3d28', lit: '#3ecb6e', digitDim: '#7fa88b' },
@@ -109,35 +109,26 @@ function fmtPf(pf) {
 }
 
 // ---- Bahn als 1D-Pfad --------------------------------------------------------
-// Schlagwerk (s=0) → Schwung durch die Kreisunterseite → Einmündung → Bogen
-// links hinauf → Klammer (s=S_END). Kugelzustand auf der Bahn: (s, v).
+// Schlagwerk (s=0) → waagerechte Rampe (Tangente an die Kreisbahn) → unterer
+// Scheitelpunkt → Bogen im Uhrzeigersinn links hinauf → Klammer (s=S_END).
+// Kugelzustand auf der Bahn: (s, v).
 const TRACK = buildTrack();
 function buildTrack() {
-    // Kontrollpunkte des Abschuss-Schwungs (Catmull-Rom)
-    const cps = [
-        { x: 700, y: 905 }, // Phantom-Punkt für Tangente am Start
-        { x: HAMMER.x, y: HAMMER.y },
-        { x: 556, y: 873 },
-        { x: 468, y: 861 },
-        { x: 380, y: 856 },
-        { x: 302, y: 845 },
-        { x: 240, y: 830 },
-        clockPt(MERGE_DEG, TRACK_R),
-        clockPt(MERGE_DEG + 6, TRACK_R), // Phantom-Punkt für Endtangente
-    ];
     const raw = [];
-    for (let i = 1; i < cps.length - 2; i++) {
-        const p0 = cps[i - 1], p1 = cps[i], p2 = cps[i + 1], p3 = cps[i + 2];
-        for (let t = 0; t < 16; t++) {
-            const u = t / 16, u2 = u * u, u3 = u2 * u;
-            raw.push({
-                x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * u + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * u2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * u3),
-                y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * u + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * u2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * u3),
-            });
-        }
+    // Rampe: optisch waagerecht, minimal zum Schlagwerk geneigt, damit die
+    // freigegebene Kugel von selbst vor das Schlagwerk rollt. Sie mündet
+    // tangential in den unteren Scheitel der Kreisbahn — kein Hügel.
+    const tangent = clockPt(180, TRACK_R);
+    const steps = Math.ceil((HAMMER.x - tangent.x) / 3);
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        raw.push({
+            x: HAMMER.x + (tangent.x - HAMMER.x) * t,
+            y: HAMMER.y + (tangent.y - HAMMER.y) * t,
+        });
     }
-    // Kreisbogen von der Einmündung bis zur Klammer
-    for (let d = MERGE_DEG + 1; d <= EXIT_DEG; d += 1) raw.push(clockPt(d, TRACK_R));
+    // Kreisbogen vom Scheitel im Uhrzeigersinn (unten → links hinauf) zur Klammer
+    for (let d = 181; d <= EXIT_DEG; d += 1) raw.push(clockPt(d, TRACK_R));
 
     // gleichmäßig neu abtasten (ds ≈ 3 px)
     const xs = [raw[0].x], ys = [raw[0].y], ss = [0];
@@ -195,7 +186,7 @@ const S = {
     lit: COLUMNS.map(() => [false, false, false]),
     valueLit: COLUMNS.map(() => false),
     spielFrei: false,
-    lampTest: false,
+    kontrolle: false,    // KONTROLLE-Knopf gedrückt: zeigt das gehaltene Relais-Bild
     msg: 'Münze einwerfen (Knopf rechts am Gerät oder Taste M).',
     charging: false,
     power: 0, powerDir: 1,
@@ -204,6 +195,10 @@ const S = {
     lastWin: null,
     stuckTime: 0,
     ratchetT: 0,
+    clatterT: 0,         // Schreibmaschinen-Klappern der Initialisierung
+    flicker: 0,          // Flacker-Fenster für gemischte Säulen
+    initPhase: null,     // show | fill | value | dark
+    initFillTicks: 0,
     ball: {
         state: 'HELD',   // HELD (im Halter) | DROP | TRACK | FREE | SETTLE | SINK | HIDDEN | REST (am Schlagwerk)
         x: HOLE.x, y: HOLE.y, vx: 0, vy: 0,
@@ -228,6 +223,64 @@ function computeLit(throwsArr) {
     });
 }
 function refreshLamps() { S.lit = computeLit(S.throwsDone); }
+
+// ---- Initialisierung beim Münzeinwurf -------------------------------------------
+// Die Relais halten das letzte Ergebnis (Beleuchtung aus, KONTROLLE zeigt es).
+// Um sie auf Null zu bringen, lässt der Automat das Programm zu Ende laufen:
+// Das alte Bild leuchtet unverändert auf, dann werden im ~300-ms-Takt die
+// angefangenen reinen Säulen Ziffer für Ziffer aufgefüllt, deren Gewinnfelder
+// blitzen kurz, dann fällt alles ab. Bereits leuchtende Ziffern der gemischten
+// Säulen flackern im gleichen Rhythmus mit.
+function computeInitFillTicks() {
+    let ticks = 0;
+    COLUMNS.forEach((col, i) => {
+        if (!PURE[i]) return;
+        const n = S.lit[i].filter(Boolean).length;
+        if (n > 0) ticks = Math.max(ticks, 3 - n);
+    });
+    return ticks;
+}
+function applyInitFill() {
+    COLUMNS.forEach((col, i) => {
+        if (!PURE[i]) return;
+        const n = S.lit[i].filter(Boolean).length;
+        if (n > 0 && n < 3) S.lit[i][n] = true;
+    });
+}
+function applyInitValue() {
+    S.lit.forEach((rows, i) => {
+        if (rows[0] && rows[1] && rows[2]) S.valueLit[i] = true;
+    });
+}
+function stepInit() {
+    if (S.initPhase === 'show' || S.initPhase === 'fill') {
+        if (S.initFillTicks > 0) {
+            applyInitFill();
+            S.initFillTicks--;
+            S.initPhase = 'fill';
+            S.flicker = 0.18;
+            AudioFX.klack();
+            S.timer = 0.3;
+        } else {
+            applyInitValue();
+            S.initPhase = 'value';
+            S.flicker = 0.18;
+            AudioFX.klack();
+            S.timer = 0.35;
+        }
+    } else if (S.initPhase === 'value') {
+        // Relais fallen ab: alles dunkel, Zählwerk steht auf Null
+        S.lit = COLUMNS.map(() => [false, false, false]);
+        S.valueLit = COLUMNS.map(() => false);
+        S.throwsDone = [];
+        S.attempt = 1;
+        S.initPhase = 'dark';
+        S.timer = 0.3;
+    } else {
+        S.msg = 'Spiel frei! Der Automat gibt die Kugel frei …';
+        setMode('RELEASE', 0.05);
+    }
+}
 
 // ---- Audio ---------------------------------------------------------------------
 const AudioFX = (() => {
@@ -294,6 +347,7 @@ const AudioFX = (() => {
         plop()    { blip(240, 0.4, 0.1, 'sine'); blip(90, 0.3, 0.12, 'sine'); },  // Tasche
         ratchet() { noiseBurst(0.12, 0.025, 1300); },                          // Programmwerk
         coin()    { noiseBurst(0.35, 0.1, 3400); blip(3000 + Math.random() * 500, 0.12, 0.09, 'triangle'); },
+        typebar() { noiseBurst(0.16, 0.02, 2300 + Math.random() * 1500); if (Math.random() < 0.3) blip(2600 + Math.random() * 900, 0.05, 0.025, 'triangle'); },
         roll(v)   { if (rollGain && !muted) rollGain.gain.value = clamp(Math.abs(v) / 2600, 0, 1) * 0.22; },
         rollOff() { if (rollGain) rollGain.gain.value = 0; },
     };
@@ -304,24 +358,26 @@ function insertCoin() {
     if (S.mode !== 'ATTRACT') return false;
     AudioFX.unlock(); AudioFX.klack();
     S.kasseIn += 10;
-    S.throwsDone = [];
     S.attempt = 1;
-    S.lit = COLUMNS.map(() => [false, false, false]);
-    S.valueLit = COLUMNS.map(() => false);
     S.coins = []; S.coinQueue = 0;
     S.lastWin = null;
-    S.spielFrei = true;
-    S.msg = 'Spiel frei! Der Automat gibt die Kugel frei …';
-    setMode('RELEASE', 0.5);
+    S.kontrolle = false;
+    S.initFillTicks = computeInitFillTicks();
+    S.initPhase = 'show';
+    S.clatterT = 0;
+    S.msg = 'Der Automat nullt das Zahlenfeld — das Programmwerk rattert durch …';
+    setMode('INIT', 0.35);
     return true;
 }
 function setMode(m, t) { S.mode = m; S.timer = t || 0; }
 
 function startRelease() {
-    // Kugel fällt aus dem Halter auf die Bahn und rollt vor das Schlagwerk
+    // Kugel fällt aus dem Halter unten in die Kreisbahn und rollt vor das
+    // Schlagwerk — genau jetzt leuchtet „SPIEL FREI“ wieder auf
     const b = S.ball;
     b.state = 'DROP';
     b.x = HOLE.x; b.y = HOLE.y; b.vx = 0; b.vy = 0;
+    S.spielFrei = true;
 }
 function launch() {
     if (S.mode !== 'AIM') return;
@@ -342,6 +398,7 @@ function registerPocket(idx) {
     const digit = POCKET_DIGITS[idx];
     S.throwsDone.push(digit);
     refreshLamps();
+    S.spielFrei = false; // Tasche erreicht: „SPIEL FREI“ erlischt, die Ziffer leuchtet auf
     AudioFX.klack();
     S.msg = `Die Kugel fällt in Tasche „${digit}“.`;
 }
@@ -361,8 +418,7 @@ function evaluateGame() {
         setMode('PAYOUT');
     } else {
         S.lastWin = 0;
-        S.msg = 'Leider kein Gewinn. Münze einwerfen für ein neues Spiel.';
-        S.spielFrei = false;
+        S.msg = 'Leider kein Gewinn. Das Zahlenfeld erlischt — KONTROLLE zeigt das Ergebnis noch einmal.';
         setMode('ATTRACT');
     }
 }
@@ -384,6 +440,7 @@ function update(dt) {
         S.timer -= dt;
         if (S.timer <= 0) {
             if (S.mode === 'RELEASE') startRelease();
+            else if (S.mode === 'INIT') stepInit();
             else if (S.mode === 'PROGRAM') {
                 if (S.throwsDone.length >= 3) { setMode('EVALUATE', 0.7); }
                 else {
@@ -402,6 +459,13 @@ function update(dt) {
         if (S.ratchetT <= 0) { AudioFX.ratchet(); S.ratchetT = 0.45; }
     }
 
+    // Initialisierung: Relais-Klappern wie bei einer alten Schreibmaschine
+    if (S.mode === 'INIT') {
+        S.clatterT -= dt;
+        if (S.clatterT <= 0) { AudioFX.typebar(); S.clatterT = 0.045 + Math.random() * 0.035; }
+    }
+    if (S.flicker > 0) S.flicker -= dt;
+
     // Auszahlung: Münzen einzeln in die Schale
     if (S.coinQueue > 0) {
         S.coinDelay -= dt;
@@ -414,10 +478,7 @@ function update(dt) {
                 rot: Math.random() * Math.PI, settled: false,
             });
             AudioFX.coin();
-            if (S.coinQueue === 0 && S.mode === 'PAYOUT') {
-                S.spielFrei = false;
-                setTimeoutMode();
-            }
+            if (S.coinQueue === 0 && S.mode === 'PAYOUT') setMode('ATTRACT');
         }
     }
     for (const c of S.coins) {
@@ -441,7 +502,7 @@ function update(dt) {
             if (b.y >= target.y) {
                 b.state = 'TRACK';
                 b.s = TRACK_DROP_S;
-                b.v = -140;             // rollt zum Schlagwerk (abnehmendes s)
+                b.v = -180;             // rollt zum Schlagwerk (abnehmendes s)
                 AudioFX.tick(0.15);
             }
             break;
@@ -464,19 +525,19 @@ function update(dt) {
                 AudioFX.rollOff();
                 if (S.mode === 'ON_TRACK') setMode('IN_FIELD');
             } else if (b.s <= 0) {
+                // Anschlag am Schlagwerk: die Kugel bleibt liegen
                 b.s = 0;
-                if (Math.abs(b.v) < 60) {
-                    b.v = 0; b.state = 'REST';
-                    AudioFX.rollOff();
-                    if (S.mode === 'ON_TRACK') {
-                        S.msg = 'Zu schwach! Die Kugel rollt zurück — Wurf wiederholen.';
-                        setMode('AIM');
-                    } else {
-                        setMode('AIM');
-                        S.msg = `${S.attempt}. Wurf: Schlagknopf halten und im richtigen Moment loslassen.`;
-                    }
-                    S.power = 0; S.powerDir = 1;
-                } else b.v = -b.v * 0.25;
+                if (Math.abs(b.v) > 60) AudioFX.tick(Math.min(0.3, Math.abs(b.v) / 900));
+                b.v = 0; b.state = 'REST';
+                AudioFX.rollOff();
+                if (S.mode === 'ON_TRACK') {
+                    S.msg = 'Zu schwach! Die Kugel rollt zurück — Wurf wiederholen.';
+                    setMode('AIM');
+                } else {
+                    setMode('AIM');
+                    S.msg = `${S.attempt}. Wurf: Schlagknopf halten und im richtigen Moment loslassen.`;
+                }
+                S.power = 0; S.powerDir = 1;
             } else {
                 const p = trackPos(b.s);
                 b.x = p.x; b.y = p.y;
@@ -532,8 +593,6 @@ function update(dt) {
         b.state = 'HELD'; b.x = HOLE.x; b.y = HOLE.y;
     }
 }
-
-function setTimeoutMode() { setMode('ATTRACT'); }
 
 // Kollisionsbehandlung der frei fliegenden Kugel
 function collideFree(b) {
@@ -1064,29 +1123,38 @@ function render(nowSec) {
     ctx.clearRect(0, 0, W, H);
     ctx.drawImage(bgLayer.canvas, 0, 0, W, H);
 
-    // Lampen
+    // Lampen: leuchten nur im Spielbetrieb bzw. bei der Initialisierung.
+    // Im Ruhezustand ist das Feld dunkel (Relais halten das Ergebnis) —
+    // der KONTROLLE-Knopf legt es wieder auf die Lampen.
+    const lampsOn = S.mode !== 'ATTRACT' || S.kontrolle;
     const pulse = 0.85 + 0.15 * Math.sin(nowSec * 5);
-    for (let c2 = 0; c2 < 7; c2++) {
+    if (lampsOn) for (let c2 = 0; c2 < 7; c2++) {
         const col = COLUMNS[c2];
         const theme = COL_COLORS[col.color];
         const cx = CELL.x0 + c2 * CELL.pitch;
+        // Während der Initialisierung flackern die bereits leuchtenden
+        // Ziffern der gemischten Säulen im Takt der Schaltschritte mit
+        const flick = (S.flicker > 0 && !PURE[c2])
+            ? 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(nowSec * 78 + c2 * 2.3))
+            : 1;
         for (let r = 0; r < 3; r++) {
-            const on = S.lampTest || S.lit[c2][r];
-            if (!on) continue;
+            if (!S.lit[c2][r]) continue;
             const cy = CELL.y0 + r * CELL.rowPitch;
             ctx.save();
+            ctx.globalAlpha = flick;
             ctx.shadowColor = theme.lit; ctx.shadowBlur = 16;
             roundRect(ctx, cx, cy, CELL.w, CELL.h, 6);
             ctx.fillStyle = theme.lit; ctx.fill();
-            ctx.restore();
+            ctx.shadowBlur = 0;
             roundRect(ctx, cx, cy, CELL.w, CELL.h, 6);
             ctx.strokeStyle = '#f6e7b8'; ctx.lineWidth = 1.5; ctx.stroke();
             ctx.fillStyle = '#141414';
             ctx.font = 'bold 30px Georgia, serif';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(String(col.digits[r]), cx + CELL.w / 2, cy + CELL.h / 2 + 1);
+            ctx.restore();
         }
-        if (S.lampTest || S.valueLit[c2]) {
+        if (S.valueLit[c2]) {
             ctx.save();
             ctx.shadowColor = theme.lit; ctx.shadowBlur = 20 * pulse;
             roundRect(ctx, cx, CELL.valueY, CELL.w, CELL.valueH, 6);
@@ -1096,8 +1164,8 @@ function render(nowSec) {
         }
     }
 
-    // SPIEL FREI
-    if (S.spielFrei || S.lampTest) drawDiamond(ctx, true);
+    // SPIEL FREI — nur solange die Kugel für den Spieler freigegeben ist
+    if (S.spielFrei) drawDiamond(ctx, true);
 
     // Kugel
     const b = S.ball;
@@ -1162,7 +1230,7 @@ function render(nowSec) {
 
     // KONTROLLE gedrückt?
     ctx.beginPath(); ctx.arc(150, 992, 15, 0, Math.PI * 2);
-    ctx.fillStyle = S.lampTest ? '#8a1810' : '#c03428';
+    ctx.fillStyle = S.kontrolle ? '#8a1810' : '#c03428';
     ctx.fill();
     ctx.strokeStyle = '#5c1610'; ctx.lineWidth = 2; ctx.stroke();
     const shine = ctx.createRadialGradient(146, 987, 1, 150, 992, 14);
@@ -1225,12 +1293,12 @@ canvas.addEventListener('pointerdown', ev => {
     AudioFX.unlock();
     try { canvas.setPointerCapture(ev.pointerId); } catch (e) { /* synthetische/abgelaufene Pointer */ }
     if (p.x > 715 && p.y > 320 && p.y < 490) { insertCoin(); return; }
-    if (Math.hypot(p.x - 150, p.y - 992) < 30) { S.lampTest = true; AudioFX.klack(); return; }
+    if (Math.hypot(p.x - 150, p.y - 992) < 30) { S.kontrolle = true; AudioFX.klack(); return; }
     if (p.x > 540 && p.y > 930) { beginCharge(); return; }
     beginCharge(); // überall sonst: ebenfalls Schlagwerk (bequemer)
 });
-canvas.addEventListener('pointerup', () => { if (S.lampTest) { S.lampTest = false; AudioFX.klack(); } endCharge(); });
-canvas.addEventListener('pointercancel', () => { S.lampTest = false; S.charging = false; });
+canvas.addEventListener('pointerup', () => { if (S.kontrolle) { S.kontrolle = false; AudioFX.klack(); } endCharge(); });
+canvas.addEventListener('pointercancel', () => { S.kontrolle = false; S.charging = false; });
 canvas.addEventListener('pointermove', ev => {
     const p = canvasPos(ev);
     const hot = (p.x > 715 && p.y > 320 && p.y < 490) || Math.hypot(p.x - 150, p.y - 992) < 30 || (p.x > 540 && p.y > 930);
