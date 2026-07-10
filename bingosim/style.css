@@ -1,0 +1,125 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    background: #1a1d23;
+    color: #e8eaed;
+    min-height: 100vh;
+    padding: 1rem;
+}
+
+#app {
+    max-width: 1180px;
+    margin: 0 auto;
+}
+
+h1 {
+    font-size: 1.5rem;
+    margin: 0.2rem 0 0.8rem;
+}
+h1 .sub {
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: #9aa0a6;
+    margin-left: 0.6rem;
+}
+
+#main {
+    display: flex;
+    gap: 1.2rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+#canvas {
+    height: min(92vh, 1000px);
+    aspect-ratio: 760 / 1100;
+    width: auto;
+    max-width: 100%;
+    border-radius: 14px;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.55);
+    touch-action: none;
+    user-select: none;
+}
+
+#sidebar {
+    flex: 1 1 260px;
+    min-width: 250px;
+    max-width: 330px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.box {
+    background: #23262e;
+    border: 1px solid #33373f;
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
+}
+
+.box h3 {
+    font-size: 0.95rem;
+    margin-bottom: 0.6rem;
+    color: #d9b95c;
+}
+
+.wide-btn {
+    display: block;
+    width: 100%;
+    padding: 0.55rem 0.8rem;
+    margin-bottom: 0.5rem;
+    background: #2d313a;
+    color: #e8eaed;
+    border: 1px solid #444956;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.wide-btn:hover:not(:disabled) {
+    background: #383d49;
+    border-color: #5b8def;
+}
+.wide-btn.primary {
+    background: #6d5314;
+    border-color: #d9b95c;
+}
+.wide-btn.primary:hover:not(:disabled) {
+    background: #8a6d2f;
+}
+.wide-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.hint {
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: #9aa0a6;
+}
+.hint b { color: #c9cdd3; }
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.88rem;
+    padding: 0.15rem 0;
+    color: #c9cdd3;
+}
+.stat-row span:last-child {
+    font-variant-numeric: tabular-nums;
+    color: #e8eaed;
+}
+
+#statusMsg {
+    margin-top: 0.55rem;
+    padding: 0.5rem 0.6rem;
+    background: #1a1d23;
+    border-left: 3px solid #d9b95c;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: #e3d9b8;
+    min-height: 3.2em;
+}

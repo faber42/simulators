@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bingolett-Simulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <h1>Bingolett-Simulator <span class="sub">Geldspielautomat, Baujahr 1959</span></h1>
+        <div id="main">
+            <canvas id="canvas" width="760" height="1100"></canvas>
+            <div id="sidebar">
+                <div class="box">
+                    <h3>Steuerung</h3>
+                    <button id="coinBtn" class="wide-btn primary">🪙 10 Pf einwerfen</button>
+                    <button id="muteBtn" class="wide-btn">🔊 Ton an</button>
+                    <p class="hint">
+                        <b>Schleudern:</b> Leertaste (oder Maustaste auf dem Automaten)
+                        gedrückt halten &ndash; die Kraftanzeige pendelt &ndash; und im
+                        richtigen Moment loslassen.<br>
+                        <b>Münze:</b> Taste M, Knopf oben oder Münzplatte rechts am Gerät.<br>
+                        <b>Roter Knopf:</b> Kontrolle &ndash; gedrückt halten für den Lampentest.
+                    </p>
+                </div>
+                <div class="box">
+                    <h3>Spiel</h3>
+                    <div class="stat-row"><span>Wurf:</span><span id="statWurf">&ndash;</span></div>
+                    <div class="stat-row"><span>Gefallene Ziffern:</span><span id="statZiffern">&ndash;</span></div>
+                    <div id="statusMsg">Münze einwerfen.</div>
+                </div>
+                <div class="box">
+                    <h3>Kasse</h3>
+                    <div class="stat-row"><span>Eingeworfen:</span><span id="statEin">0 Pf</span></div>
+                    <div class="stat-row"><span>Ausgezahlt:</span><span id="statAus">0 Pf</span></div>
+                    <div class="stat-row"><span>Spielerbilanz:</span><span id="statSaldo">+0 Pf</span></div>
+                </div>
+                <div class="box">
+                    <h3>So funktioniert&rsquo;s</h3>
+                    <p class="hint">
+                        Pro Spiel (10 Pf) wird dieselbe Kugel dreimal über die Kreisbahn
+                        geschleudert. Sie fällt oben ins Nadelfeld und landet in einer der
+                        14 Zahlentaschen. Jede gefallene Ziffer zündet Lampen im Zahlenfeld:
+                        Säulen mit gleichen Ziffern (z.&nbsp;B. 1&middot;1&middot;1) füllen sich
+                        von oben nach unten &ndash; die Ziffer muss dreimal fallen. Gemischte
+                        Säulen (z.&nbsp;B. 1&middot;3&middot;4) leuchten, sobald ihre Ziffern
+                        fallen, Reihenfolge egal. Ist nach dem dritten Durchgang eine Säule
+                        komplett, leuchtet ihr Betrag auf und wird in die Schale ausgezahlt.
+                        Zu schwache Würfe rollen zurück und dürfen wiederholt werden.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
