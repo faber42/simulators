@@ -608,6 +608,21 @@ for (const k in V) S[k] = new STrack(V[k]);
     const g = new THREE.Group();
     box(g, SWEEP.width, SWEEP.height, 0.08, mat.darkSteel, 0, SWEEP.height / 2, 0, { cast: true });
     box(g, SWEEP.width, 0.075, 0.012, mat.hazard, 0, 0.06, -0.047, { cast: true });
+    // Schriftzug auf der Front — kommt bei jedem Abräumen ins Bild
+    const sweepWord = makeTexture(1024, 128, (ctx, w, h) => {
+        ctx.fillStyle = '#e6e0d2';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'bold 84px Arial, sans-serif';
+        const word = 'BOWLING';
+        const step = w / (word.length + 1);
+        for (let i = 0; i < word.length; i++) ctx.fillText(word[i], step * (i + 1), h / 2 + 4);
+    });
+    const label = new THREE.Mesh(new THREE.PlaneGeometry(1.08, 0.115),
+        new THREE.MeshStandardMaterial({ map: sweepWord, transparent: true, roughness: 0.55 }));
+    label.position.set(0, 0.158, -0.045);
+    label.rotation.y = Math.PI;
+    g.add(label);
     scene.add(g);
     M.sweep = g;
     // zwei Schubstangen nach oben, außen an den Barenden (nicht im Kamerabild)
