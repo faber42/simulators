@@ -61,13 +61,14 @@ Originalgeräts abgestimmt — die folgenden Details sind verbindlich.
   Relais schalten den Gewinn direkt durch. Der Betrag wird in
   10-Pf-Stücken in die Schale ausgezahlt. (Mathematisch kann nie mehr als
   eine Säule gleichzeitig vollständig sein.)
-- **Auszahlung:** Ein schwerer Hebel drückt alle **~300 ms** die unterste
-  Münze aus der Münzsäule in den Auszahlschacht — pro 10 Pf ein
-  „Kasching“, die in der Säule nachrutschenden Münzen klirren hörbar
-  nach. Bei jedem Hub **flackern die Lampen** kurz, auch die
-  Gewinnfelder — ähnlich der Initialisierung, nur lauter. 20 Pf sind
-  zwei Hübe, der Hauptgewinn zehn: Dauer und Geräuschkulisse der
-  Auszahlung wachsen direkt mit dem Gewinn.
+- **Auszahlwerk:** Nach dem dritten Wurf fährt der Automat **immer**
+  dieselbe Sequenz aus **10 Stufen im 300-ms-Takt** ab — auch bei einer
+  Niete. Der schwere Münzhebel greift nur so oft wie nötig, und zwar am
+  **Ende** der Sequenz: pro 10 Pf Gewinn eine laute „Kasching“-Stufe
+  (Hebel drückt die unterste Münze aus der Münzsäule, die Säule rutscht
+  klirrend nach, die Lampen flackern kurz). Die Stufen davor sind leises
+  Leerlauf-Relaisklappern. 1 DM = 10× laut; 80 Pf = 2× leise, 8× laut;
+  10 Pf = 9× leise, 1× laut; kein Gewinn = 10× leise.
 
 ## Ruhezustand, KONTROLLE und Initialisierung
 
@@ -100,5 +101,8 @@ Originalgeräts abgestimmt — die folgenden Details sind verbindlich.
   und 144-Hz-Displays identisch.
 - Geräusche (Relais, Schlagwerk, Nadeln, Programmwerk, Münzen) werden mit
   WebAudio synthetisiert, keine Audiodateien.
+- Auto-Spielmodus (Knopf in der Seitenleiste): wirft 5 s nach Spielende
+  selbst die nächste Münze ein und bedient das Schlagwerk mit zufälliger
+  Haltedauer — zum Zuschauen und Vorführen.
 - Debug-Haken in der Konsole: `__bingo.insertCoin()`,
   `__bingo.forceLaunch(kraft)`, `__bingo.fastForward(sekunden)`.

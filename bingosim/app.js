@@ -188,7 +188,7 @@ function rampSAt(x) {
 
 // ---- Spielzustand ------------------------------------------------------------
 const S = {
-    mode: 'ATTRACT',     // ATTRACT | INIT | RELEASE | AIM | ON_TRACK | IN_FIELD | POCKETED | PROGRAM | PAYOUT
+    mode: 'ATTRACT',     // ATTRACT | INIT | RELEASE | AIM | ON_TRACK | IN_FIELD | POCKETED | PROGRAM | PAYRUN
     timer: 0,
     throwsDone: [],      // gefallene Ziffern des laufenden Spiels
     attempt: 1,          // 1..3 (nächster zu wertender Wurf)
@@ -217,7 +217,12 @@ const S = {
         pocket: -1,
     },
     coins: [],           // Auszahl-Münzen in der Schale
-    coinQueue: 0, coinDelay: 0,
+    payStep: 0,          // Position des Auszahlwerks (läuft nach dem 3. Wurf immer 10 Stufen)
+    payCoins: 0,         // wie viele der 10 Stufen den Münzhebel bewegen (Gewinn / 10 Pf)
+    auto: false,         // Auto-Spielbetrieb: Münze + Schlagwerk automatisch
+    autoWait: 0,
+    autoPrev: null,
+    autoCharging: false,
 };
 
 // ---- Lampenlogik --------------------------------------------------------------
@@ -360,6 +365,10 @@ const AudioFX = (() => {
         ratchet() { noiseBurst(0.12, 0.025, 1300); },                          // Programmwerk
         coin()    { noiseBurst(0.35, 0.1, 3400); blip(3000 + Math.random() * 500, 0.12, 0.09, 'triangle'); },
         typebar() { noiseBurst(0.16, 0.02, 2300 + Math.random() * 1500); if (Math.random() < 0.3) blip(2600 + Math.random() * 900, 0.05, 0.025, 'triangle'); },
+        // Leerlaufstufe des Auszahlwerks: metallisches Klackern wie der
+        // Nadel-Tick (dessen Band: 1900–2800 Hz), nur mit fester Frequenz —
+        // Hauptklick plus leiser Nachschlag
+        payIdle() { noiseBurst(0.3, 0.03, 1900); noiseBurst(0.12, 0.025, 2500, 0.035); },
         kasching() {
             // schwerer Auszahlhebel drückt die unterste Münze aus der Säule …
             blip(85 + Math.random() * 20, 0.6, 0.11, 'sine');
@@ -380,7 +389,8 @@ function insertCoin() {
     AudioFX.unlock(); AudioFX.klack();
     S.kasseIn += 10;
     S.attempt = 1;
-    S.coins = []; S.coinQueue = 0;
+    S.coins = [];
+    S.payStep = 0; S.payCoins = 0;
     S.lastWin = null;
     S.kontrolle = false;
     S.initFillTicks = computeInitFillTicks();
@@ -433,14 +443,21 @@ function registerPocket(idx) {
             S.valueLit[winCol] = true;
             S.lastWin = win;
             S.kasseOut += win;
-            S.coinQueue = Math.round(win / 10);   // Auszahlung in 10-Pf-Stücken
-            S.coinDelay = 0.9;                    // der Auswerfer braucht einen Moment
-            S.msg = `Gewinn: ${fmtPf(win)}! Die Münzen fallen in die Schale.`;
+            S.msg = `Gewinn: ${fmtPf(win)}! Das Auszahlwerk läuft an …`;
             AudioFX.klack();
         } else {
             S.lastWin = 0;
         }
+        S.payCoins = Math.round((S.lastWin || 0) / 10);
     }
+}
+
+function spawnPayCoin() {
+    S.coins.push({
+        x: 380 + (Math.random() - 0.5) * 50, y: 946,
+        vx: (Math.random() - 0.5) * 60, vy: 40 + Math.random() * 40,
+        rot: Math.random() * Math.PI, settled: false,
+    });
 }
 
 // ---- Physik: ein fester Zeitschritt ----------------------------------------------
@@ -456,25 +473,72 @@ function update(dt) {
     }
     if (S.leverAnim > 0) S.leverAnim = Math.max(0, S.leverAnim - dt * 4);
 
+    // Auto-Spielbetrieb: wirft 5 s nach Spielende selbst eine Münze ein und
+    // bedient das Schlagwerk mit zufälliger Haltedauer
+    if (S.auto) {
+        if (S.autoPrev !== S.mode) {
+            S.autoPrev = S.mode;
+            if (S.mode === 'ATTRACT') S.autoWait = 5;
+            else if (S.mode === 'AIM') S.autoWait = 0.4 + Math.random() * 0.8;
+        }
+        if (S.mode === 'ATTRACT') {
+            S.autoWait -= dt;
+            if (S.autoWait <= 0) insertCoin();
+        } else if (S.mode === 'AIM' && S.ball.state === 'REST') {
+            if (!S.charging) {
+                S.autoWait -= dt;
+                if (S.autoWait <= 0) {
+                    beginCharge();
+                    S.autoCharging = true;
+                    S.autoWait = 0.3 + Math.random() * 1.4; // Haltedauer am Hebel
+                }
+            } else if (S.autoCharging) {
+                S.autoWait -= dt;
+                if (S.autoWait <= 0) { S.autoCharging = false; endCharge(); }
+            }
+        }
+    } else if (S.autoCharging) {
+        // Auto wurde mitten im Aufladen abgeschaltet: Hebel loslassen ohne Schlag
+        S.autoCharging = false;
+        S.charging = false;
+        S.power = 0; S.powerDir = 1;
+    }
+
     // Modus-Timer
     if (S.timer > 0) {
         S.timer -= dt;
         if (S.timer <= 0) {
             if (S.mode === 'RELEASE') startRelease();
             else if (S.mode === 'INIT') stepInit();
-            else if (S.mode === 'PAYOUT') setMode('ATTRACT');
-            else if (S.mode === 'PROGRAM') {
-                if (S.throwsDone.length >= 3) {
-                    // Spielende: Gewinn wurde schon beim Taschentreffer geschaltet
-                    if (S.lastWin > 0) S.msg = `Gewinn: ${fmtPf(S.lastWin)}! Münze einwerfen für ein neues Spiel.`;
-                    else S.msg = 'Leider kein Gewinn. Das Zahlenfeld erlischt — KONTROLLE zeigt das Ergebnis noch einmal.';
-                    if (S.coinQueue > 0) setMode('PAYOUT');
-                    else setMode('ATTRACT');
+            else if (S.mode === 'PAYRUN') {
+                // Das Auszahlwerk fährt nach jedem Spiel dieselben 10 Stufen im
+                // 300-ms-Takt ab. Der Münzhebel greift nur am Ende der Sequenz —
+                // pro 10 Pf Gewinn eine laute Stufe, davor leiser Leerlauf.
+                if (S.payStep >= 10) {
+                    setMode('ATTRACT'); // Nachklang vorbei, Licht aus
                 } else {
-                    S.attempt = S.throwsDone.length + 1;
-                    S.msg = 'Der Automat gibt die Kugel für den nächsten Wurf frei …';
-                    setMode('RELEASE', 0.3);
+                    S.payStep++;
+                    if (S.payStep > 10 - S.payCoins) {
+                        AudioFX.kasching();          // Hebel wirft eine Münze aus
+                        spawnPayCoin();
+                        S.flicker = 0.2;
+                        S.flickerScope = 'all';
+                    } else {
+                        AudioFX.payIdle();           // Leerlaufstufe: leises Relaisklappern
+                    }
+                    if (S.payStep >= 10) {
+                        S.msg = S.lastWin > 0
+                            ? `Gewinn: ${fmtPf(S.lastWin)}! Münze einwerfen für ein neues Spiel.`
+                            : 'Leider kein Gewinn. Das Zahlenfeld erlischt — KONTROLLE zeigt das Ergebnis noch einmal.';
+                        S.timer = 0.8;
+                    } else S.timer = 0.3;
                 }
+            }
+            else if (S.mode === 'PROGRAM') {
+                // nur nach Wurf 1 und 2 — das Spielende läuft über PAYRUN
+                S.attempt = S.throwsDone.length + 1;
+                S.msg = 'Der Automat gibt die Kugel für den nächsten Wurf frei …';
+                setMode('RELEASE', 0.3);
             }
         }
     }
@@ -492,24 +556,6 @@ function update(dt) {
     }
     if (S.flicker > 0) S.flicker -= dt;
 
-    // Auszahlung: ein schwerer Hebel drückt alle ~300 ms die unterste Münze
-    // aus der Münzsäule — „Kasching“, die Lampen flackern bei jedem Hub
-    if (S.coinQueue > 0) {
-        S.coinDelay -= dt;
-        if (S.coinDelay <= 0) {
-            S.coinDelay = 0.3;
-            S.coinQueue--;
-            S.coins.push({
-                x: 380 + (Math.random() - 0.5) * 50, y: 946,
-                vx: (Math.random() - 0.5) * 60, vy: 40 + Math.random() * 40,
-                rot: Math.random() * Math.PI, settled: false,
-            });
-            AudioFX.kasching();
-            S.flicker = 0.2;
-            S.flickerScope = 'all';
-            if (S.coinQueue === 0 && S.mode === 'PAYOUT') S.timer = 0.8; // kurzer Nachklang
-        }
-    }
     for (const c of S.coins) {
         if (c.settled) continue;
         c.vy += TUNE.G * dt; c.x += c.vx * dt; c.y += c.vy * dt;
@@ -619,8 +665,14 @@ function update(dt) {
             if (S.mode === 'POCKETED' && S.timer <= 0) {
                 registerPocket(b.pocket);
                 b.state = 'SINK'; b.sink = 0;
-                setMode('PROGRAM', 3.0);
-                S.ratchetT = 0.4;
+                if (S.throwsDone.length >= 3) {
+                    // Spielende: das Auszahlwerk fährt immer seine 10 Stufen ab
+                    S.payStep = 0;
+                    setMode('PAYRUN', 0.6);
+                } else {
+                    setMode('PROGRAM', 3.0);
+                    S.ratchetT = 0.4;
+                }
             }
             break;
         }
@@ -1298,6 +1350,7 @@ const el = {
     aus: document.getElementById('statAus'),
     saldo: document.getElementById('statSaldo'),
     coinBtn: document.getElementById('coinBtn'),
+    autoBtn: document.getElementById('autoBtn'),
     muteBtn: document.getElementById('muteBtn'),
 };
 function updateDom() {
@@ -1321,7 +1374,7 @@ function beginCharge() {
     AudioFX.unlock();
     // Die Hand liegt schon am Hebel, während die Kugel noch anrollt:
     // Kraftaufbau ist jederzeit im laufenden Spiel erlaubt
-    if (S.mode === 'ATTRACT' || S.mode === 'PAYOUT' || S.charging) return;
+    if (S.mode === 'ATTRACT' || S.mode === 'PAYRUN' || S.charging) return;
     S.charging = true;
     S.power = 0; S.powerDir = 1;
     S.msg = S.mode === 'AIM' && S.ball.state === 'REST'
@@ -1368,6 +1421,16 @@ window.addEventListener('keyup', ev => {
     if (ev.code === 'Space') { ev.preventDefault(); endCharge(); }
 });
 el.coinBtn.addEventListener('click', () => insertCoin());
+el.autoBtn.addEventListener('click', () => {
+    AudioFX.unlock();
+    S.auto = !S.auto;
+    if (S.auto) {
+        S.autoPrev = S.mode;
+        // beim Einschalten nicht erst 5 s warten
+        S.autoWait = S.mode === 'ATTRACT' ? 1.0 : 0.6;
+    }
+    el.autoBtn.textContent = S.auto ? '⏸ Auto-Spiel: an' : '▶ Auto-Spiel: aus';
+});
 el.muteBtn.addEventListener('click', () => {
     const m = AudioFX.toggleMute();
     el.muteBtn.textContent = m ? '🔇 Ton aus' : '🔊 Ton an';
