@@ -52,7 +52,7 @@
     .clock {
         position: relative;
         margin-bottom: calc(26vh - 4.5vmin);
-        width: 66vmin; height: 36vmin;
+        width: 77vmin; height: 36vmin;
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
     }
@@ -153,6 +153,13 @@
     }
     @keyframes blink { 0%, 45% { opacity: 0.95; } 60%, 85% { opacity: 0.25; } 100% { opacity: 0.95; } }
 
+    /* Sekundenblatt */
+    .flap.sec { width: 11vmin; height: 15vmin; }
+    .flap.sec .half span { font-size: 9.5vmin; font-weight: 600; }
+    .flap.sec .pin { height: 2.4vmin; width: 1vmin; }
+    .flap.sec .pin.l { left: -0.5vmin; }
+    .flap.sec .pin.r { right: -0.5vmin; }
+
     /* kleine Tag/Datum-Klappen */
     .dayrow {
         position: absolute; bottom: 1.4vmin; left: 0; right: 0;
@@ -192,6 +199,7 @@
                 <div class="flap" id="flapH"></div>
                 <div class="colon"><i></i><i></i></div>
                 <div class="flap" id="flapM"></div>
+                <div class="flap sec" id="flapS"></div>
             </div>
             <div class="dayrow">
                 <div class="flap small" id="flapDay"></div>
@@ -200,7 +208,7 @@
             <div class="brand">FLIP&nbsp;24</div>
         </div>
     </div>
-    <div class="caption">Jede Minute fällt ein Blatt. Klick auf den Wecker blättert einmal durch alle Klappen.</div>
+    <div class="caption">Im Sekundentakt fällt das kleine Blatt, jede Minute die großen. Klick auf den Wecker blättert einmal durch alle Klappen.</div>
 
 <script>
 (() => {
@@ -331,6 +339,7 @@ class Flap {
 
 const flapH = new Flap(document.getElementById('flapH'));
 const flapM = new Flap(document.getElementById('flapM'));
+const flapS = new Flap(document.getElementById('flapS'));
 const flapDay = new Flap(document.getElementById('flapDay'));
 const flapDate = new Flap(document.getElementById('flapDate'));
 
@@ -342,6 +351,7 @@ function nowParts() {
     return {
         h: p2(d.getHours()),
         m: p2(d.getMinutes()),
+        s: p2(d.getSeconds()),
         day: DAYS[d.getDay()],
         date: p2(d.getDate()) + '.'
     };
@@ -359,6 +369,7 @@ function rollAll() {
     };
     flapH.roll(seqNum(t.h, 5, 24));
     flapM.roll(seqNum(t.m, 8, 60));
+    flapS.roll(seqNum(t.s, 6, 60));
     const di = DAYS.indexOf(t.day);
     flapDay.roll([DAYS[(di + 5) % 7], DAYS[(di + 6) % 7], t.day]);
     flapDate.roll([t.date]);
@@ -367,7 +378,7 @@ function rollAll() {
 // Startwerte setzen, dann einmal durchblättern
 {
     const t = nowParts();
-    flapH.set(t.h); flapM.set(t.m); flapDay.set(t.day); flapDate.set(t.date);
+    flapH.set(t.h); flapM.set(t.m); flapS.set(t.s); flapDay.set(t.day); flapDate.set(t.date);
     setTimeout(rollAll, 500);
 }
 
@@ -376,6 +387,7 @@ document.getElementById('clock').addEventListener('click', rollAll);
 // ---- Uhrwerk: auf Minutenwechsel prüfen -------------------------------------
 setInterval(() => {
     const t = nowParts();
+    if (t.s !== flapS.value) flapS.flipTo(t.s);
     if (t.m !== flapM.value) flapM.flipTo(t.m);
     if (t.h !== flapH.value) setTimeout(() => flapH.flipTo(t.h), 130);
     if (t.day !== flapDay.value) { flapDay.flipTo(t.day); flapDate.flipTo(t.date); }

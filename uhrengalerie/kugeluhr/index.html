@@ -65,7 +65,7 @@
         <button data-demo="hour">Stundenwechsel</button>
         <button data-demo="midnight">Mitternacht</button>
     </div>
-    <div class="caption">Jede Sekunde f&auml;llt eine Kugel in die oberste Wanne. Wird eine Wanne zu voll, kippt sie: die erste Kugel tr&auml;gt eine Stelle weiter nach unten, der Rest rollt zur&uuml;ck ins Reservoir.</div>
+    <div class="caption">Jede Sekunde f&auml;llt eine Kugel in die oberste Wanne. Wird eine Wanne zu voll, kippt sie: die erste Kugel tr&auml;gt eine Stelle weiter nach unten, der Rest f&auml;llt seitlich an der Mechanik vorbei in die Sammelschale.</div>
 
 <script>
 (() => {
@@ -76,8 +76,9 @@
 //  - Kettenaufzug hebt Kugeln zum Zulaufkanal, ein Taktschieber lässt
 //    jede Sekunde genau eine Kugel in die Sekunden-Einer-Wanne.
 //  - Wannen (Kapazität 9/5/9/5/9/2) kippen beim Überlauf: Kugel Nr. 1
-//    fällt in den Übertragtrichter zur nächsten Stelle, der Rest fliegt
-//    über die geschlossene Trichterklappe in den Rückführkanal.
+//    fällt in den Übertragtrichter zur nächsten Stelle, der Rest kippt
+//    seitlich über die Lippe und fällt senkrecht an der Mechanik vorbei
+//    in die breite Sammelschale, in der auch der Aufzug steht.
 //  - Mitternachtsauslöser: erreicht das Stundenwerk 2/4 (= 24 h),
 //    entleeren beide Stundenwannen komplett ins Reservoir.
 //  - Anzeige = Kugelzahl je Wanne; die Digitalanzeige oben liest nur ab.
@@ -106,8 +107,7 @@ const NAMES = [['Sekunden', 'Einer'], ['Sekunden', 'Zehner'], ['Minuten', 'Einer
                ['Minuten', 'Zehner'], ['Stunden', 'Einer'], ['Stunden', 'Zehner']];
 const TOTAL = 74;
 
-const DUCT_L = 205, DUCT_R = 1120;                  // Rückführkanäle
-const RES = { x: 330, y: 952, w: 760, h: 72 };      // Reservoir
+const RES = { x: 350, y: 952, w: 970, h: 72 };      // Sammelschale (reicht bis unter den Aufzug)
 const LIFT_X = 1258, LIFT_TOP = 82, LIFT_BOT = 940;
 const FEED_Y = 90, GATE_X = 1002;                   // Zulaufkanal & Taktschieber
 const FEED_MAX = 8;
@@ -230,8 +230,6 @@ function flightPos(f) {
 }
 
 // ---- Mechanik ----------------------------------------------------------------------
-function ductFor(dir) { return dir < 0 ? DUCT_L : DUCT_R; }
-
 function arriveAt(ti) {
     const tr = trough(ti);
     tr.count++;
@@ -271,14 +269,13 @@ function tipTrough(ti, dumpAll) {
                 slotXY(nxt, 'incoming'),
             ], { delay, onArrive: () => arriveAt(ti + 1) });
         } else {
-            // zurück ins Reservoir über den Rückführkanal
-            const duct = ductFor(d);
+            // seitlich über die Lippe und senkrecht an der Mechanik vorbei
+            // in die Sammelschale fallen
+            const fx = lx + d * (34 + Math.random() * 14);
             spawnFlight([
                 [start.x, start.y],
-                [lx + d * 52, tr.cy - 26],
-                [duct, tr.cy + 6],
-                [duct, RES.y - 20],
-                [RES.x + RES.w * (0.2 + Math.random() * 0.6), RES.y + 18],
+                [fx, tr.cy - 12],
+                [fx, RES.y + 16],
             ], { delay, onArrive: () => { reservoir++; klack(0.08, 2400); } });
         }
     }
@@ -556,13 +553,21 @@ function draw() {
     ctx.fillStyle = 'rgba(232,226,208,0.5)';
     ctx.fillText(live ? 'abgelesen aus den Wannen' : 'VORFÜHRUNG — danach zurück zur Echtzeit', 172, 152);
 
-    // Rückführkanäle
-    for (const x of [DUCT_L, DUCT_R]) {
-        ctx.strokeStyle = '#4a4f56';
-        ctx.lineWidth = 6;
-        ctx.beginPath(); ctx.moveTo(x - 18, 150); ctx.lineTo(x - 18, RES.y - 6); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x + 18, 150); ctx.lineTo(x + 18, RES.y - 6); ctx.stroke();
-    }
+    // Sammelschale (liegt hinter dem Aufzug, der in sie hineingreift)
+    ctx.fillStyle = '#2a2e34';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(RES.x, RES.y, RES.w, RES.h, 12);
+    else ctx.rect(RES.x, RES.y, RES.w, RES.h);
+    ctx.fill();
+    ctx.strokeStyle = '#4a4f56';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    const shown = Math.min(reservoir, heap.length);
+    for (let i = 0; i < shown; i++) ball(ctx, heap[i][0], heap[i][1], BALL_R - 1);
+    ctx.fillStyle = 'rgba(232,226,208,0.55)';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Sammelschale: ${reservoir} Kugeln`, RES.x + RES.w / 2, RES.y + RES.h + 20);
 
     // Aufzug
     ctx.strokeStyle = '#4a4f56';
@@ -609,22 +614,6 @@ function draw() {
 
     // Wannen
     for (const tr of troughs) drawTrough(ctx, tr);
-
-    // Reservoir
-    ctx.fillStyle = '#2a2e34';
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(RES.x, RES.y, RES.w, RES.h, 12);
-    else ctx.rect(RES.x, RES.y, RES.w, RES.h);
-    ctx.fill();
-    ctx.strokeStyle = '#4a4f56';
-    ctx.lineWidth = 4;
-    ctx.stroke();
-    const shown = Math.min(reservoir, heap.length);
-    for (let i = 0; i < shown; i++) ball(ctx, heap[i][0], heap[i][1], BALL_R - 1);
-    ctx.fillStyle = 'rgba(232,226,208,0.55)';
-    ctx.font = '13px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`Reservoir: ${reservoir} Kugeln`, RES.x + RES.w / 2, RES.y + RES.h + 20);
 
     // fliegende Kugeln
     for (const f of flights) {

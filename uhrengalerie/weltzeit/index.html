@@ -32,7 +32,7 @@
     .soundbtn:hover { background: rgba(40,44,52,0.9); }
 
     .board {
-        --fs: min(2.75vw, 4.15vh);
+        --fs: min(2.42vw, 4.0vh);
         font-size: var(--fs);
         background: linear-gradient(180deg, #121317 0%, #0c0d10 100%);
         border: 0.45em solid #23262d;
@@ -252,6 +252,23 @@ class Mod {
         if (this.delay > 0) { this.delay -= dt; return; }
         if (!this.stepReady) this.beginStep();
         this.phase += dt / STEP_MS;
+        // Bei gedrosseltem rAF (großes dt) mehrere Blätterungen in einem Tick
+        // abschließen, damit laufende Ziele (Sekunden!) eingeholt werden.
+        let guard = 24;
+        while (this.phase >= 1 && guard-- > 0) {
+            if (this.next !== null) {
+                this.value = this.next;
+                this.next = null;
+                this.paint(this.botS, this.value);
+                if (this.value === this.target) { tickSound(0.11, 1800); break; }
+            }
+            if (this.value !== this.target) {
+                this.phase -= 1;
+                this.beginStep();
+            } else {
+                break;
+            }
+        }
         if (this.phase < 0.5) {
             this.topA.style.visibility = 'visible';
             this.botA.style.visibility = 'hidden';
@@ -261,19 +278,6 @@ class Mod {
             this.botA.style.visibility = 'visible';
             this.botA.style.transform = `rotateX(${(1 - (this.phase - 0.5) * 2) * 90}deg)`;
         } else if (this.phase < 1 + BOUNCE_MS / STEP_MS) {
-            // Zeichen ist gelandet
-            if (this.next !== null) {
-                this.value = this.next;
-                this.next = null;
-                this.paint(this.botS, this.value);
-                if (this.value === this.target) tickSound(0.11, 1800);
-            }
-            if (this.value !== this.target) {
-                // sofort weiterblättern
-                this.phase = 0;
-                this.beginStep();
-                return;
-            }
             // Nachfedern der unteren Klappe
             const pb = (this.phase - 1) / (BOUNCE_MS / STEP_MS);
             this.botA.style.visibility = 'visible';
@@ -310,21 +314,26 @@ const rows = CITIES.map((city) => {
     colon.innerHTML = '<i></i><i></i>';
     gTime.appendChild(colon);
     const m1 = new Mod(gTime, D09), m2 = new Mod(gTime, D09);
+    const colon2 = document.createElement('div');
+    colon2.className = 'colon';
+    colon2.innerHTML = '<i></i><i></i>';
+    gTime.appendChild(colon2);
+    const s1 = new Mod(gTime, D09), s2 = new Mod(gTime, D09);
     const gIcon = mk('icon');
     const iconMod = new Mod(gIcon, ICONS);
     rowsEl.appendChild(row);
 
     const fmt = new Intl.DateTimeFormat('de-DE', {
-        timeZone: city.tz, hour: '2-digit', minute: '2-digit',
+        timeZone: city.tz, hour: '2-digit', minute: '2-digit', second: '2-digit',
         weekday: 'short', hourCycle: 'h23',
     });
-    return { city, cityMods, dayMods, mods: [h1, h2, m1, m2], iconMod, fmt };
+    return { city, cityMods, dayMods, mods: [h1, h2, m1, m2, s1, s2], iconMod, fmt };
 });
 
 // ---- Animator ----------------------------------------------------------------
 let last = performance.now();
 function loop(now) {
-    const dt = Math.min(now - last, 50);
+    const dt = Math.min(now - last, 500);
     last = now;
     for (const m of [...active]) m.tick(dt);
     requestAnimationFrame(loop);
@@ -336,7 +345,7 @@ function apply(stagger) {
     rows.forEach((r, ri) => {
         const parts = Object.fromEntries(
             r.fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
-        const hh = parts.hour, mm = parts.minute;
+        const hh = parts.hour, mm = parts.minute, ss = parts.second;
         const day = parts.weekday.replace('.', '').toUpperCase().slice(0, 2).padEnd(2, ' ');
         const hNum = parseInt(hh, 10);
         const icon = (hNum >= 6 && hNum < 20) ? '☀' : '☾';
@@ -346,14 +355,14 @@ function apply(stagger) {
             mod.setTarget((r.city.name[i] || ' '), jitter()));
         r.dayMods[0].setTarget(day[0], jitter());
         r.dayMods[1].setTarget(day[1], jitter());
-        [hh[0], hh[1], mm[0], mm[1]].forEach((ch, i) =>
+        [hh[0], hh[1], mm[0], mm[1], ss[0], ss[1]].forEach((ch, i) =>
             r.mods[i].setTarget(ch, jitter()));
         r.iconMod.setTarget(icon, jitter());
     });
 }
 
 apply(true);
-setInterval(() => apply(false), 1000);
+setInterval(() => apply(false), 250);
 
 // Klick: alles einmal neu anblättern (Module auf Zufallszeichen, dann stellen)
 document.getElementById('board').addEventListener('click', () => {

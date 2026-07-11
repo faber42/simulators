@@ -8,7 +8,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; }
     body { overflow: hidden; background: #c8ab7e; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
-    canvas { display: block; position: fixed; inset: 0; }
+    canvas { display: block; position: fixed; inset: 0; cursor: pointer; }
     .back {
         position: fixed; top: 1rem; left: 1rem; z-index: 10;
         color: #fff; background: rgba(40,50,55,0.5);
@@ -38,7 +38,7 @@
     <a class="back" href="../">&larr; Uhrengalerie</a>
     <button class="soundbtn" id="soundBtn" title="Meeresrauschen an/aus">&#128263; Ton aus</button>
     <canvas id="canvas"></canvas>
-    <div class="caption">Zu jeder vollen Minute rollt eine Welle heran und nimmt die Schrift mit &mdash; dann f&auml;hrt der Apparat los und ritzt die neue Uhrzeit in den nassen Sand.</div>
+    <div class="caption">Zu jeder vollen Minute rollt eine Welle heran und nimmt die Schrift mit, dann ritzt der Apparat die neue Uhrzeit in den nassen Sand &mdash; ein Klick in den Sand ruft die Welle sofort.</div>
 
 <script>
 (() => {
@@ -46,11 +46,11 @@
 
 // ============================================================================
 // Strandschreiber
-//  - Sekunde 0-8: Welle läuft auf, spült die alte Ritzung fort, zieht sich
-//    zurück (die Ritzschicht wird unter Wasser weggelöst, Schaumflocken
-//    und nasser Glanz bleiben zurück).
-//  - Ab Sekunde ~8,6 fährt der Schreibwagen los und ritzt HH:MM der
-//    laufenden Minute; danach parkt er am rechten Rand.
+//  - Wellenzyklus: Sekunde 0-8 läuft die Welle auf, spült die Ritzung fort
+//    und zieht sich zurück (Schaumflocken und nasser Glanz bleiben);
+//    ab Sekunde ~8,6 ritzt der Schreibwagen die dann gültige Uhrzeit.
+//  - Der Zyklus startet automatisch zu jeder vollen Minute — oder sofort
+//    per Klick in den Sand.
 //  - Räder hinterlassen Spuren im Sand, die die nächste Welle ebenfalls tilgt.
 // ============================================================================
 
@@ -120,20 +120,10 @@ function resize() {
     [wet, wctx] = mkLayer();
     layoutText();
     // aktuellen Zustand sofort herstellen
-    const now = new Date();
-    const secs = now.getSeconds() + now.getMilliseconds() / 1000;
-    if (secs >= WRITE_START) {
-        stampInstant(fmt(now));
-        writtenFor = minuteKey(now);
-        cart.x = PARK_X(); cart.sx = cart.x; cart.sy = TEXT.baseY;
-        writer = null;
-    } else {
-        const prev = new Date(now.getTime() - 60000);
-        stampInstant(fmt(prev));
-        writtenFor = null;
-        writer = null;
-        cart.x = PARK_X(); cart.sx = cart.x; cart.sy = TEXT.baseY;
-    }
+    stampInstant(fmt(new Date()));
+    writer = null;
+    needsWrite = false;
+    cart.x = PARK_X(); cart.sx = cart.x; cart.sy = TEXT.baseY;
 }
 window.addEventListener('resize', resize);
 
@@ -142,6 +132,10 @@ const SEA_BASE = () => H * 0.30;
 const MAX_REACH = () => H * 0.80;
 const WRITE_START = 8.6;
 let tGlobal = 0;
+let waveStart = -1000;                 // Wellenbeginn in performance-Sekunden
+let prevPhase = 1000;
+let needsWrite = false;
+let lastMinute = new Date().getMinutes();
 
 function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
 
@@ -250,7 +244,6 @@ function carveDot(x, y) {
 }
 
 const fmt = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-const minuteKey = d => d.getHours() * 60 + d.getMinutes();
 
 function stampInstant(text) {
     cctx.clearRect(0, 0, W, H);
@@ -268,7 +261,12 @@ function stampInstant(text) {
 const PARK_X = () => W - 150;
 const cart = { x: 0, sx: 0, sy: 0, wheelRot: 0, armUp: true };
 let writer = null;        // { jobs:[{pts, carve:true/false}], job, t }
-let writtenFor = null;
+
+// Klick in den Sand: Welle sofort losschicken
+canvas.addEventListener('click', () => {
+    const pNow = performance.now() / 1000;
+    if (pNow - waveStart > 10) waveStart = pNow;
+});
 
 function buildWriter(text) {
     const jobs = [];
@@ -489,13 +487,21 @@ function frame(now) {
     tGlobal += dt;
 
     const nd = new Date();
-    const sec = nd.getSeconds() + nd.getMilliseconds() / 1000;
+    const pNow = now / 1000;          // gleiche Zeitbasis wie die Animation
+    // Welle automatisch zur vollen Minute (sofern nicht gerade eine läuft)
+    if (nd.getMinutes() !== lastMinute) {
+        lastMinute = nd.getMinutes();
+        if (pNow - waveStart > 6) waveStart = pNow;
+    }
+    const sec = pNow - waveStart;      // Phase seit Wellenbeginn
     const p = waveP(sec);
 
-    // Schreiber starten
-    if (sec >= WRITE_START && writtenFor !== minuteKey(nd) && !writer) {
+    // nach dem Rückzug der Welle die dann gültige Uhrzeit schreiben
+    if (prevPhase < 8.4 && sec >= 8.4) needsWrite = true;
+    prevPhase = sec;
+    if (needsWrite && sec >= WRITE_START && !writer) {
         writer = buildWriter(fmt(nd));
-        writtenFor = minuteKey(nd);
+        needsWrite = false;
     }
     if (writer) stepWriter(dt);
     stepGulls(dt);
