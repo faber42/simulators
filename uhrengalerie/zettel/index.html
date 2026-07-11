@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bleistift &amp; Zettel</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        overflow: hidden;
+        background: #241d16;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #ece5d8; background: rgba(25,20,14,0.65);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .back:hover { background: rgba(52,42,30,0.85); }
+    .soundbtn {
+        position: fixed; top: 1rem; right: 1rem; z-index: 10;
+        background: rgba(25,20,14,0.65); color: #ece5d8;
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .soundbtn:hover { background: rgba(52,42,30,0.85); }
+    canvas { display: block; box-shadow: 0 3vmin 8vmin rgba(0,0,0,0.6); border-radius: 0.6vmin; }
+    .caption {
+        position: fixed; bottom: 1.0rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(230,218,200,0.42);
+        font-size: 0.8rem;
+        pointer-events: none;
+    }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+    <button class="soundbtn" id="soundBtn" title="Schreib- und Bl&auml;tterger&auml;usch an/aus">&#128263; Ton aus</button>
+
+    <canvas id="canvas"></canvas>
+    <div class="caption">Jede Sekunde eine Zeile: 30 Uhrzeiten in der linken Spalte, 30 in der rechten &mdash; dann wird umgebl&auml;ttert und der Stapel w&auml;chst.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Bleistift & Zettel
+//  - Ein Bleistift schreibt jede Sekunde die Uhrzeit HH:MM:SS auf einen
+//    karierten Zettel: Zeile 0-29 links, Zeile 30-59 rechts.
+//  - Nach der 60. Zeile wird das Blatt über die rechte Kante umgeblättert
+//    und landet umgedreht auf dem Stapel; darunter liegt schon das nächste.
+// ============================================================================
+
+const W = 1680, H = 1050;
+const SHEET = { x: 250, y: 55, w: 660, h: 940 };
+const PILE  = { x: SHEET.x + SHEET.w + 30, y: SHEET.y };
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+    const s = Math.min(window.innerWidth * 0.94 / W, window.innerHeight * 0.88 / H);
+    canvas.style.width = (W * s) + 'px';
+    canvas.style.height = (H * s) + 'px';
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(W * s * dpr);
+    canvas.height = Math.round(H * s * dpr);
+    ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---- Schreibtisch (statisch) ---------------------------------------------------
+const bg = document.createElement('canvas');
+bg.width = W; bg.height = H;
+{
+    const g = bg.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, W, H);
+    grad.addColorStop(0, '#7a5632');
+    grad.addColorStop(0.5, '#68472a');
+    grad.addColorStop(1, '#503620');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, W, H);
+    // Maserung
+    for (let i = 0; i < 90; i++) {
+        const y = Math.random() * H;
+        g.strokeStyle = `rgba(40,20,5,${0.03 + Math.random() * 0.05})`;
+        g.lineWidth = 1 + Math.random() * 2.5;
+        g.beginPath();
+        g.moveTo(0, y);
+        for (let x = 0; x <= W; x += 80) {
+            g.lineTo(x, y + Math.sin(x * 0.01 + i) * 6 + (Math.random() - 0.5) * 4);
+        }
+        g.stroke();
+    }
+    // Vignette
+    const v = g.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.95);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(10,5,0,0.45)');
+    g.fillStyle = v;
+    g.fillRect(0, 0, W, H);
+    // Kaffeetasse von oben (links oben)
+    g.save();
+    g.translate(120, 150);
+    g.fillStyle = 'rgba(0,0,0,0.3)';
+    g.beginPath(); g.ellipse(6, 10, 62, 58, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#e8e2d5';
+    g.beginPath(); g.arc(0, 0, 60, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#d5cec0';
+    g.beginPath(); g.arc(0, 0, 52, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#3a2413';
+    g.beginPath(); g.arc(0, 0, 44, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.12)';
+    g.beginPath(); g.ellipse(-12, -14, 20, 12, -0.6, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#e8e2d5';
+    g.beginPath(); g.arc(66, 18, 16, -1.1, 1.6); g.arc(66, 18, 8, 1.6, -1.1, true); g.fill();
+    g.restore();
+    // alter Kaffeering
+    g.strokeStyle = 'rgba(60,30,10,0.18)';
+    g.lineWidth = 7;
+    g.beginPath(); g.arc(1180, 900, 55, 0.2, Math.PI * 1.7); g.stroke();
+}
+
+// ---- Blatt & Stapel ---------------------------------------------------------------
+const sheet = document.createElement('canvas');
+sheet.width = SHEET.w; sheet.height = SHEET.h;
+const sctx = sheet.getContext('2d');
+
+const pile = document.createElement('canvas');
+pile.width = W; pile.height = H;
+const pctx = pile.getContext('2d');
+let pileCount = 0;
+
+function paintPaperBase(g, w, h) {
+    g.fillStyle = '#faf7ee';
+    g.fillRect(0, 0, w, h);
+    // Karos (5-mm-Raster)
+    g.strokeStyle = 'rgba(120,150,190,0.28)';
+    g.lineWidth = 1;
+    for (let x = 24; x < w; x += 24) {
+        g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke();
+    }
+    for (let y = 24; y < h; y += 24) {
+        g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
+    }
+}
+
+function addToPile() {
+    pileCount++;
+    const rot = (Math.random() - 0.5) * 0.05;
+    const ox = PILE.x + (Math.random() - 0.5) * 14;
+    const oy = PILE.y - Math.min(pileCount, 14) * 1.2 + (Math.random() - 0.5) * 10;
+    pctx.save();
+    pctx.translate(ox + SHEET.w / 2, oy + SHEET.h / 2);
+    pctx.rotate(rot);
+    pctx.fillStyle = 'rgba(0,0,0,0.22)';
+    pctx.fillRect(-SHEET.w / 2 + 5, -SHEET.h / 2 + 8, SHEET.w, SHEET.h);
+    // Rückseite: Karos scheinen schwach durch
+    pctx.fillStyle = '#f6f3e9';
+    pctx.fillRect(-SHEET.w / 2, -SHEET.h / 2, SHEET.w, SHEET.h);
+    pctx.strokeStyle = 'rgba(120,150,190,0.10)';
+    pctx.lineWidth = 1;
+    for (let x = -SHEET.w / 2 + 24; x < SHEET.w / 2; x += 48) {
+        pctx.beginPath(); pctx.moveTo(x, -SHEET.h / 2); pctx.lineTo(x, SHEET.h / 2); pctx.stroke();
+    }
+    pctx.strokeStyle = 'rgba(0,0,0,0.08)';
+    pctx.strokeRect(-SHEET.w / 2, -SHEET.h / 2, SHEET.w, SHEET.h);
+    pctx.restore();
+}
+
+// ---- Handschrift ---------------------------------------------------------------
+const GLYPHS = {
+    '0': [[[0.62,0.06],[0.34,0.10],[0.16,0.38],[0.14,0.72],[0.30,0.96],[0.58,0.98],[0.78,0.78],[0.84,0.42],[0.74,0.12],[0.62,0.06]]],
+    '1': [[[0.22,0.32],[0.58,0.06],[0.58,0.98]]],
+    '2': [[[0.20,0.30],[0.28,0.10],[0.52,0.04],[0.74,0.14],[0.76,0.36],[0.56,0.62],[0.32,0.82],[0.16,0.96],[0.50,0.93],[0.84,0.92]]],
+    '3': [[[0.22,0.16],[0.44,0.04],[0.68,0.10],[0.72,0.30],[0.52,0.45],[0.42,0.47],[0.64,0.52],[0.76,0.72],[0.60,0.92],[0.34,0.98],[0.18,0.86]]],
+    '4': [[[0.58,0.04],[0.16,0.62],[0.80,0.60]],[[0.64,0.06],[0.64,0.98]]],
+    '5': [[[0.72,0.06],[0.34,0.06],[0.30,0.42]],[[0.30,0.42],[0.54,0.36],[0.74,0.46],[0.79,0.68],[0.62,0.92],[0.34,0.96],[0.18,0.82]]],
+    '6': [[[0.66,0.04],[0.42,0.22],[0.24,0.52],[0.20,0.78],[0.36,0.96],[0.60,0.94],[0.72,0.76],[0.67,0.57],[0.44,0.50],[0.28,0.62]]],
+    '7': [[[0.16,0.10],[0.50,0.05],[0.82,0.06],[0.56,0.50],[0.38,0.98]],[[0.28,0.55],[0.68,0.52]]],
+    '8': [[[0.55,0.04],[0.30,0.12],[0.28,0.32],[0.50,0.46],[0.71,0.58],[0.75,0.80],[0.52,0.97],[0.29,0.88],[0.30,0.66],[0.52,0.50],[0.68,0.36],[0.68,0.14],[0.55,0.04]]],
+    '9': [[[0.72,0.28],[0.60,0.09],[0.36,0.07],[0.21,0.27],[0.27,0.46],[0.50,0.52],[0.68,0.42],[0.72,0.28],[0.70,0.60],[0.58,0.98]]],
+    ':': [[[0.5,0.32]],[[0.5,0.74]]],
+    '.': [[[0.5,0.92]]],
+};
+
+function smooth(pts, step) {
+    if (pts.length === 1) return [pts[0]];
+    const out = [];
+    const P = (i) => pts[Math.max(0, Math.min(pts.length - 1, i))];
+    for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+        const d = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+        const n = Math.max(2, Math.ceil(d / step));
+        for (let j = 0; j < n; j++) {
+            const t = j / n, t2 = t * t, t3 = t2 * t;
+            out.push([
+                0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+                0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
+            ]);
+        }
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+}
+
+// Text -> Strokes in Blattkoordinaten
+function layoutText(text, x, y, charH) {
+    const charW = charH * 0.62;
+    const strokes = [];
+    let cx = x;
+    for (const ch of text) {
+        const glyph = GLYPHS[ch];
+        const adv = ch === ':' || ch === '.' ? charW * 0.6 : charW * 1.18;
+        if (glyph) {
+            const rot = (Math.random() - 0.5) * 0.06;
+            const cos = Math.cos(rot), sin = Math.sin(rot);
+            for (const stroke of glyph) {
+                const pts = stroke.map(([px, py]) => {
+                    const jx = px + (Math.random() - 0.5) * 0.06;
+                    const jy = py + (Math.random() - 0.5) * 0.06;
+                    const dx = (jx - 0.5) * charW, dy = (jy - 0.5) * charH;
+                    return [cx + charW / 2 + dx * cos - dy * sin, y + charH / 2 + dx * sin + dy * cos];
+                });
+                strokes.push(smooth(pts, 2.2));
+            }
+        }
+        cx += adv;
+    }
+    return strokes;
+}
+
+// ---- Bleistiftstrich ---------------------------------------------------------------
+function pencilSeg(g, x1, y1, x2, y2) {
+    g.strokeStyle = `rgba(55,58,66,${0.55 + Math.random() * 0.3})`;
+    g.lineWidth = 1.7;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(x1, y1);
+    g.lineTo(x2, y2);
+    g.stroke();
+    if (Math.random() < 0.4) {
+        g.strokeStyle = 'rgba(55,58,66,0.16)';
+        g.lineWidth = 0.9;
+        g.beginPath();
+        g.moveTo(x1 + 0.8, y1 + 0.7);
+        g.lineTo(x2 + 0.8, y2 + 0.7);
+        g.stroke();
+    }
+}
+function pencilDot(g, x, y) {
+    g.fillStyle = 'rgba(55,58,66,0.85)';
+    g.beginPath();
+    g.arc(x, y, 1.6, 0, Math.PI * 2);
+    g.fill();
+}
+
+// ---- Bleistift-Sprite ----------------------------------------------------------------
+const pencil = { x: 240, y: 680, a: -2.25, idleX: 235, idleY: 690 };
+function drawPencil(g) {
+    g.save();
+    g.translate(pencil.x, pencil.y);
+    g.rotate(pencil.a);
+    // Schatten
+    g.fillStyle = 'rgba(0,0,0,0.22)';
+    g.fillRect(6, 10, 150, 8);
+    // Spitze
+    g.fillStyle = '#2f3237';
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(9, -3.5); g.lineTo(9, 3.5); g.closePath(); g.fill();
+    g.fillStyle = '#e3c99b';
+    g.beginPath(); g.moveTo(7, -4.5); g.lineTo(26, -7.5); g.lineTo(26, 7.5); g.lineTo(7, 4.5); g.closePath(); g.fill();
+    // Schaft
+    const grad = g.createLinearGradient(0, -8, 0, 8);
+    grad.addColorStop(0, '#f5c84a');
+    grad.addColorStop(0.5, '#e8a92c');
+    grad.addColorStop(1, '#b97f16');
+    g.fillStyle = grad;
+    g.fillRect(26, -8, 118, 16);
+    g.strokeStyle = 'rgba(120,70,0,0.35)';
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(26, -2.8); g.lineTo(144, -2.8); g.moveTo(26, 2.8); g.lineTo(144, 2.8); g.stroke();
+    // Zwinge + Radierer
+    g.fillStyle = '#b9bec6';
+    g.fillRect(144, -8, 14, 16);
+    g.fillStyle = '#d98f8f';
+    if (g.roundRect) {
+        g.beginPath(); g.roundRect(158, -7, 14, 14, 4); g.fill();
+    } else g.fillRect(158, -7, 14, 14);
+    g.restore();
+}
+
+// ---- Ton ------------------------------------------------------------------------------
+let audioOn = false, actx = null, noiseSrc = null, writeGain = null;
+function ensureAudio() {
+    if (actx) return;
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const len = actx.sampleRate;
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    noiseSrc = actx.createBufferSource();
+    noiseSrc.buffer = buf; noiseSrc.loop = true;
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 3300; bp.Q.value = 1.8;
+    writeGain = actx.createGain(); writeGain.gain.value = 0;
+    noiseSrc.connect(bp).connect(writeGain).connect(actx.destination);
+    noiseSrc.start();
+}
+function flipSound() {
+    if (!audioOn || !actx) return;
+    const t = actx.currentTime;
+    const len = Math.floor(actx.sampleRate * 0.28);
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+        const e = Math.sin((i / len) * Math.PI);
+        d[i] = (Math.random() * 2 - 1) * e * e;
+    }
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    const lp = actx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(900, t);
+    lp.frequency.exponentialRampToValueAtTime(2600, t + 0.14);
+    lp.frequency.exponentialRampToValueAtTime(700, t + 0.28);
+    const g = actx.createGain(); g.gain.value = 0.5;
+    src.connect(lp).connect(g).connect(actx.destination);
+    src.start(t);
+}
+const soundBtn = document.getElementById('soundBtn');
+soundBtn.addEventListener('click', () => {
+    audioOn = !audioOn;
+    soundBtn.innerHTML = audioOn ? '&#128266; Ton an' : '&#128263; Ton aus';
+    if (audioOn) { ensureAudio(); actx.resume(); }
+    else if (writeGain) writeGain.gain.value = 0;
+});
+function setScribble(v) {
+    if (audioOn && writeGain) writeGain.gain.setTargetAtTime(v, actx.currentTime, 0.02);
+}
+
+// ---- Seitenlayout ---------------------------------------------------------------------
+const ROW0_Y = 96, ROW_H = 28.2, CHAR_H = 20;
+const COL_X = [64, 372];
+const p2 = n => String(n).padStart(2, '0');
+
+function entryPos(idx) {
+    return { x: COL_X[idx < 30 ? 0 : 1], y: ROW0_Y + (idx % 30) * ROW_H };
+}
+
+let pageStamp = null;     // "HH:MM" der laufenden Seite
+let entriesDone = 0;      // fertig beauftragte Zeilen dieser Seite
+
+function newPage(now) {
+    paintPaperBase(sctx, SHEET.w, SHEET.h);
+    // Kopfzeile: Datum, handschriftlich
+    const dateText = p2(now.getDate()) + '.' + p2(now.getMonth() + 1) + '.' + now.getFullYear();
+    for (const s of layoutText(dateText, 200, 26, 24)) drawStrokesInstant(s);
+    sctx.strokeStyle = 'rgba(55,58,66,0.5)';
+    sctx.lineWidth = 1.4;
+    sctx.beginPath();
+    sctx.moveTo(196, 62 + (Math.random() - 0.5) * 3);
+    sctx.lineTo(384, 60 + (Math.random() - 0.5) * 3);
+    sctx.stroke();
+    pageStamp = p2(now.getHours()) + ':' + p2(now.getMinutes());
+    entriesDone = 0;
+}
+
+function drawStrokesInstant(pts) {
+    for (let i = 0; i < pts.length - 1; i++) {
+        pencilSeg(sctx, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+    }
+    if (pts.length === 1) pencilDot(sctx, pts[0][0], pts[0][1]);
+}
+
+function entryText(idx) { return pageStamp + ':' + p2(idx); }
+
+function stampEntryInstant(idx) {
+    const { x, y } = entryPos(idx);
+    for (const s of layoutText(entryText(idx), x, y, CHAR_H)) drawStrokesInstant(s);
+}
+
+// ---- Schreib-/Blätter-Zustand ------------------------------------------------------------
+// writing: {strokes, stroke, t, speed}  |  flip: {t}
+let writing = null;
+let flip = null;
+
+function startEntry(idx, fast) {
+    const { x, y } = entryPos(idx);
+    writing = {
+        strokes: layoutText(entryText(idx), x, y, CHAR_H),
+        stroke: 0, t: 0,
+        speed: fast ? 2600 : 780,
+    };
+}
+
+function stepWriting(dt) {
+    // Zeitbudget-Formulierung: jede Runde schließt entweder ein Segment exakt
+    // ab (t wird ganzzahlig) oder setzt das Budget exakt auf 0 — so kann sich
+    // kein Fließkomma-Rest festfressen.
+    const wjs = writing;
+    let remaining = dt;
+    while (remaining > 0 && wjs.stroke < wjs.strokes.length) {
+        const pts = wjs.strokes[wjs.stroke];
+        if (pts.length === 1) {
+            pencilDot(sctx, pts[0][0], pts[0][1]);
+            movePencilTo(pts[0]);
+            wjs.stroke++; wjs.t = 0;
+            remaining -= 14 / wjs.speed;
+            continue;
+        }
+        if (wjs.t >= pts.length - 1) { wjs.stroke++; wjs.t = 0; continue; }
+        const i = Math.floor(wjs.t);
+        const frac = wjs.t - i;
+        const p = pts[i], q = pts[i + 1];
+        const segLen = Math.hypot(q[0] - p[0], q[1] - p[1]) || 0.5;
+        const need = (1 - frac) * segLen / wjs.speed;   // Zeit bis Segmentende
+        let nf;
+        if (remaining >= need) {
+            nf = 1;
+            remaining -= need;
+        } else {
+            nf = frac + remaining * wjs.speed / segLen;
+            remaining = 0;
+        }
+        const nx = p[0] + (q[0] - p[0]) * nf;
+        const ny = p[1] + (q[1] - p[1]) * nf;
+        pencilSeg(sctx, p[0] + (q[0] - p[0]) * frac, p[1] + (q[1] - p[1]) * frac, nx, ny);
+        movePencilTo([nx, ny]);
+        wjs.t = nf >= 1 ? i + 1 : i + nf;
+    }
+    setScribble(0.04 + Math.random() * 0.02);
+    if (wjs.stroke >= wjs.strokes.length) {
+        writing = null;
+        setScribble(0);
+    }
+}
+
+function movePencilTo(pt) {
+    pencil.x = SHEET.x + pt[0];
+    pencil.y = SHEET.y + pt[1];
+    pencil.a = -2.28 + Math.sin(performance.now() / 300) * 0.03;
+}
+
+// ---- Uhrlogik ------------------------------------------------------------------------------
+function checkClock() {
+    if (writing || flip) return;
+    const now = new Date();
+    const stamp = p2(now.getHours()) + ':' + p2(now.getMinutes());
+    const sec = now.getSeconds();
+
+    if (pageStamp === null) {
+        newPage(now);
+        for (let i = 0; i < sec; i++) stampEntryInstant(i);
+        entriesDone = sec;
+        return;
+    }
+    if (stamp !== pageStamp) {
+        // Minute vorbei: umblättern (auch wenn das Blatt nicht ganz voll wurde)
+        flip = { t: 0, done: false };
+        flipSound();
+        return;
+    }
+    if (entriesDone <= sec && entriesDone < 60) {
+        startEntry(entriesDone, sec - entriesDone > 1);
+        entriesDone++;
+    }
+}
+
+// ---- Umblättern zeichnen ---------------------------------------------------------------------
+function drawFlip(g, t) {
+    // t: 0..1, Drehung um die rechte Blattkante
+    const anchor = SHEET.x + SHEET.w;
+    const th = t * Math.PI;
+    const c = Math.cos(th);
+    const lift = Math.sin(th);
+    // Schlagschatten unter der wandernden Kante
+    g.fillStyle = `rgba(0,0,0,${0.18 * lift})`;
+    g.beginPath();
+    g.ellipse(anchor - c * SHEET.w * 0.5, SHEET.y + SHEET.h * 0.55,
+              Math.abs(c) * SHEET.w * 0.5 + 40, 36 + lift * 26, 0, 0, Math.PI * 2);
+    g.fill();
+    if (c > 0) {
+        const wNow = SHEET.w * c;
+        g.save();
+        g.translate(anchor - wNow, SHEET.y - lift * 26);
+        g.drawImage(sheet, 0, 0, wNow, SHEET.h + lift * 10);
+        const sh = g.createLinearGradient(0, 0, wNow, 0);
+        sh.addColorStop(0, `rgba(0,0,0,${0.30 * lift})`);
+        sh.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = sh;
+        g.fillRect(0, 0, wNow, SHEET.h + lift * 10);
+        g.restore();
+    } else {
+        const wNow = SHEET.w * (-c);
+        g.save();
+        g.translate(anchor, SHEET.y - lift * 26);
+        g.fillStyle = '#f6f3e9';
+        g.fillRect(0, 0, wNow, SHEET.h + lift * 10);
+        const sh = g.createLinearGradient(0, 0, wNow, 0);
+        sh.addColorStop(0, `rgba(255,255,255,${0.4 * lift})`);
+        sh.addColorStop(1, `rgba(0,0,0,${0.16 * lift})`);
+        g.fillStyle = sh;
+        g.fillRect(0, 0, wNow, SHEET.h + lift * 10);
+        g.strokeStyle = 'rgba(0,0,0,0.1)';
+        g.strokeRect(0, 0, wNow, SHEET.h + lift * 10);
+        g.restore();
+    }
+}
+
+// ---- Hauptschleife ----------------------------------------------------------------------------
+let last = performance.now();
+function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.06);
+    last = now;
+
+    checkClock();
+    if (writing) stepWriting(dt);
+    if (flip) {
+        flip.t += dt / 0.95;
+        if (flip.t >= 1) {
+            addToPile();
+            newPage(new Date());
+            flip = null;
+        }
+    }
+    if (!writing && !flip) {
+        pencil.x += (pencil.idleX - pencil.x) * Math.min(1, dt * 3);
+        pencil.y += (pencil.idleY - pencil.y) * Math.min(1, dt * 3);
+    }
+
+    // Zeichnen
+    ctx.drawImage(bg, 0, 0);
+    ctx.drawImage(pile, 0, 0);
+
+    // Stapel leerer Blätter unter dem aktuellen
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fillRect(SHEET.x + 8, SHEET.y + 12, SHEET.w, SHEET.h);
+    ctx.fillStyle = '#efece1';
+    ctx.fillRect(SHEET.x + 4, SHEET.y + 6, SHEET.w, SHEET.h);
+    ctx.fillStyle = '#f4f1e7';
+    ctx.fillRect(SHEET.x + 2, SHEET.y + 3, SHEET.w, SHEET.h);
+
+    if (flip) {
+        // frisches Blatt liegt schon darunter
+        ctx.fillStyle = '#faf7ee';
+        ctx.fillRect(SHEET.x, SHEET.y, SHEET.w, SHEET.h);
+        drawFlip(ctx, flip.t);
+    } else {
+        ctx.drawImage(sheet, SHEET.x, SHEET.y);
+    }
+
+    drawPencil(ctx);
+    requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

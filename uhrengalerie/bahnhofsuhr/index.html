@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bahnhofsuhr</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        overflow: hidden;
+        /* Bahnhofswand: heller Putz, Licht von oben links, Dachschatten oben */
+        background:
+            linear-gradient(180deg, rgba(20,22,26,0.34) 0%, rgba(20,22,26,0.10) 9%, rgba(20,22,26,0) 18%),
+            radial-gradient(120% 90% at 30% 18%, #d9d6cd 0%, #c6c2b8 45%, #a9a59a 100%);
+    }
+    /* feiner Putz-/Betonkorn-Schleier */
+    body::before {
+        content: '';
+        position: fixed; inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+        pointer-events: none;
+    }
+    /* Vignette */
+    body::after {
+        content: '';
+        position: fixed; inset: 0;
+        background: radial-gradient(120% 110% at 50% 40%, rgba(0,0,0,0) 55%, rgba(15,16,20,0.22) 100%);
+        pointer-events: none;
+    }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #f0efe9; background: rgba(30,32,38,0.72);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+    }
+    .back:hover { background: rgba(30,32,38,0.9); }
+
+    .stage {
+        position: fixed; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .clock {
+        position: relative;
+        width: min(76vmin, 700px);
+        height: min(76vmin, 700px);
+    }
+    /* Gehäuseschatten an der Wand */
+    .clock::before {
+        content: '';
+        position: absolute; inset: 3%;
+        border-radius: 50%;
+        box-shadow: 2.4vmin 4.2vmin 5vmin rgba(25,22,18,0.38), 0.8vmin 1.4vmin 1.8vmin rgba(25,22,18,0.30);
+    }
+    .bezel {
+        position: absolute; inset: 0; border-radius: 50%;
+        background:
+            radial-gradient(circle at 34% 26%, rgba(255,255,255,0.42), rgba(255,255,255,0) 58%),
+            conic-gradient(from 205deg,
+                #9aa0a8 0deg, #dde1e6 24deg, #868c94 58deg, #cdd1d7 92deg, #798089 128deg,
+                #d6dadf 168deg, #8b929a 208deg, #e6eaee 248deg, #7e858e 288deg, #ccd0d6 324deg, #9aa0a8 360deg);
+        box-shadow: inset 0 0.35vmin 0.7vmin rgba(255,255,255,0.55), inset 0 -0.5vmin 1.2vmin rgba(30,32,40,0.45);
+    }
+    /* konischer Ringabsatz */
+    .bezel::after {
+        content: '';
+        position: absolute; inset: 4.6%; border-radius: 50%;
+        background:
+            conic-gradient(from 25deg,
+                #6a7078 0deg, #b9bdc3 30deg, #5f656d 75deg, #aeb2b8 115deg, #575d65 150deg,
+                #b4b8be 195deg, #666c74 240deg, #c2c6cc 285deg, #5c626a 330deg, #6a7078 360deg);
+        box-shadow: inset 0 0.4vmin 1vmin rgba(20,22,28,0.5);
+    }
+    .dialwrap {
+        position: absolute; inset: 7.2%; border-radius: 50%;
+        background: radial-gradient(circle at 42% 36%, #fbfbf8 0%, #f4f4ef 58%, #e4e4dc 92%, #d8d8cf 100%);
+        box-shadow: inset 0 0.7vmin 2.4vmin rgba(25,28,34,0.30), inset 0 -0.4vmin 1.4vmin rgba(25,28,34,0.14);
+        overflow: hidden;
+    }
+    .dialwrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    /* Uhrenglas: Lichtkuppel + schräger Fensterreflex */
+    .glass {
+        position: absolute; inset: 7.2%; border-radius: 50%;
+        pointer-events: none;
+        background:
+            radial-gradient(ellipse 46% 34% at 33% 22%, rgba(255,255,255,0.30), rgba(255,255,255,0) 70%),
+            linear-gradient(116deg, rgba(255,255,255,0) 40%, rgba(255,255,255,0.115) 46%, rgba(255,255,255,0.02) 52%, rgba(255,255,255,0) 57%),
+            radial-gradient(circle at 68% 88%, rgba(255,255,255,0.07), rgba(255,255,255,0) 32%);
+    }
+
+    /* Emaille-Gleisschild */
+    .sign {
+        position: fixed; left: 4.5vmin; bottom: 5vmin;
+        background: linear-gradient(180deg, #24488f, #1b3a77);
+        color: #f4f6fb;
+        border: 0.55vmin solid #f0f2f7;
+        outline: 0.35vmin solid #16305f;
+        border-radius: 1vmin;
+        padding: 1.1vmin 3.2vmin 1.4vmin;
+        font-weight: 700;
+        font-size: 5.2vmin;
+        letter-spacing: 0.04em;
+        box-shadow: 0.7vmin 1.3vmin 2vmin rgba(25,22,18,0.35);
+        user-select: none;
+    }
+    .sign small { font-size: 2.2vmin; font-weight: 600; display: block; margin-top: -0.6vmin; opacity: 0.85; }
+
+    .caption {
+        position: fixed; bottom: 1.1rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(40,42,48,0.72);
+        font-size: 0.82rem;
+        pointer-events: none;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.3);
+    }
+    .soundbtn {
+        position: fixed; top: 1rem; right: 1rem; z-index: 10;
+        background: rgba(30,32,38,0.72); color: #f0efe9;
+        border: none; border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .soundbtn:hover { background: rgba(30,32,38,0.9); }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+    <button class="soundbtn" id="soundBtn" title="Minutenklack an/aus">&#128263; Ton aus</button>
+
+    <div class="stage">
+        <div class="clock">
+            <div class="bezel"></div>
+            <div class="dialwrap">
+                <svg viewBox="0 0 1000 1000" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <filter id="softblur" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur stdDeviation="7"/>
+                        </filter>
+                        <filter id="tinyblur" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur stdDeviation="2.5"/>
+                        </filter>
+                    </defs>
+
+                    <g id="ticks" fill="#1e2024"></g>
+
+                    <text x="500" y="712" text-anchor="middle" font-size="27" letter-spacing="7"
+                          fill="#a2a29a" font-family="system-ui, sans-serif">QUARZ</text>
+
+                    <!-- Zeigerschatten (fallen leicht nach unten rechts aufs Blatt) -->
+                    <g id="shadows" fill="#20242c" opacity="0.17">
+                        <g id="shHour" filter="url(#softblur)" transform="translate(9 14)">
+                            <rect x="-17" y="-282" width="34" height="358"/>
+                        </g>
+                        <g id="shMin" filter="url(#softblur)" transform="translate(12 18)">
+                            <rect x="-11.5" y="-404" width="23" height="486"/>
+                        </g>
+                        <g id="shSec" filter="url(#tinyblur)" transform="translate(15 22)">
+                            <rect x="-3.6" y="-408" width="7.2" height="500"/>
+                            <circle cx="0" cy="-318" r="37" fill="none" stroke="#20242c" stroke-width="11"/>
+                        </g>
+                    </g>
+
+                    <!-- Zeiger -->
+                    <g id="hourHand">
+                        <rect x="-17" y="-282" width="34" height="358" fill="#17181c"/>
+                    </g>
+                    <g id="minHand">
+                        <rect x="-11.5" y="-404" width="23" height="486" fill="#17181c"/>
+                    </g>
+                    <circle cx="500" cy="500" r="26" fill="#17181c"/>
+                    <g id="secHand">
+                        <rect x="-3.6" y="-408" width="7.2" height="500" fill="#d0201f"/>
+                        <circle cx="0" cy="-318" r="37" fill="none" stroke="#d0201f" stroke-width="11"/>
+                    </g>
+                    <circle cx="500" cy="500" r="15" fill="#b81c1b"/>
+                    <circle cx="500" cy="500" r="5" fill="#d8b25c"/>
+                </svg>
+            </div>
+            <div class="glass"></div>
+        </div>
+    </div>
+
+    <div class="sign">Gleis 7<small>Richtung Hauptbahnhof</small></div>
+    <div class="caption">Minutensprung wie am Gleis: Der Sekundenzeiger läuft in 58,5&nbsp;s um und wartet oben auf den Minutenimpuls der Mutteruhr.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Bahnhofsuhr — Nebenuhr mit Minutensprung
+//  - Sekundenzeiger: voller Umlauf in 58,5 s, dann Halt auf 12 bis zum
+//    Minutenimpuls (klassischer Nebenuhr-Gang).
+//  - Minutenzeiger springt beim Impuls mit kleinem Überschwingen,
+//    der Stundenzeiger rückt dabei um 0,5° nach.
+// ============================================================================
+
+const SWEEP_S = 58.5;      // Umlaufzeit des Sekundenzeigers
+const JUMP_MS = 380;       // Dauer des Minutensprungs
+
+// ---- Ticks bauen -----------------------------------------------------------
+const ticks = document.getElementById('ticks');
+const NS = 'http://www.w3.org/2000/svg';
+for (let i = 0; i < 60; i++) {
+    const hour = i % 5 === 0;
+    const r = document.createElementNS(NS, 'rect');
+    const w = hour ? 30 : 12;
+    const h = hour ? 122 : 40;
+    r.setAttribute('x', String(500 - w / 2));
+    r.setAttribute('y', String(500 - 415));
+    r.setAttribute('width', String(w));
+    r.setAttribute('height', String(h));
+    r.setAttribute('transform', `rotate(${i * 6} 500 500)`);
+    ticks.appendChild(r);
+}
+
+// ---- Zeiger-Gruppen --------------------------------------------------------
+const hourHand = document.getElementById('hourHand');
+const minHand  = document.getElementById('minHand');
+const secHand  = document.getElementById('secHand');
+const shHour = document.getElementById('shHour');
+const shMin  = document.getElementById('shMin');
+const shSec  = document.getElementById('shSec');
+
+function setHand(el, angle, tx, ty) {
+    // Zeiger sind um (0,0) definiert und werden auf die Blattmitte gesetzt
+    el.setAttribute('transform', `translate(${500 + (tx || 0)} ${500 + (ty || 0)}) rotate(${angle})`);
+}
+
+// ---- Klack-Sound -----------------------------------------------------------
+let audioOn = false, actx = null;
+function klack() {
+    if (!audioOn) return;
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const t = actx.currentTime;
+    // dumpfer Anschlag
+    const o = actx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(170, t);
+    o.frequency.exponentialRampToValueAtTime(70, t + 0.09);
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+    o.connect(g).connect(actx.destination);
+    o.start(t); o.stop(t + 0.15);
+    // metallisches Klicken
+    const len = Math.floor(actx.sampleRate * 0.04);
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 3200; bp.Q.value = 1.4;
+    const g2 = actx.createGain();
+    g2.gain.setValueAtTime(0.16, t);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    src.connect(bp).connect(g2).connect(actx.destination);
+    src.start(t);
+}
+const soundBtn = document.getElementById('soundBtn');
+soundBtn.addEventListener('click', () => {
+    audioOn = !audioOn;
+    soundBtn.innerHTML = audioOn ? '&#128266; Ton an' : '&#128263; Ton aus';
+    if (audioOn) klack();
+});
+
+// ---- Gangwerk --------------------------------------------------------------
+let shownMinute = null;        // aktuell angezeigte Minute
+let minAngle = 0, hourAngle = 0;
+let jump = null;               // { t0, fromM, toM, fromH, toH }
+
+function easeOutBack(t) {
+    const c = 2.4;
+    const u = t - 1;
+    return 1 + (c + 1) * u * u * u + c * u * u;
+}
+
+function frame(nowMs) {
+    const now = new Date();
+    const m = now.getMinutes();
+    const h = now.getHours() % 12;
+    const secInMin = now.getSeconds() + now.getMilliseconds() / 1000;
+
+    // Sekundenzeiger: 58,5-s-Umlauf, dann Halt auf 12
+    const secAngle = Math.min(secInMin / SWEEP_S, 1) * 360;
+
+    const targetMin = m * 6;
+    const targetHour = h * 30 + m * 0.5;
+
+    if (shownMinute === null) {
+        // Erststart: ohne Animation stellen
+        minAngle = targetMin;
+        hourAngle = targetHour;
+        shownMinute = m;
+    } else if (m !== shownMinute) {
+        // Minutenimpuls: Sprung anstoßen (Wrap 354° -> 360°)
+        let toM = targetMin;
+        if (toM < minAngle - 180) toM += 360;
+        let toH = targetHour;
+        if (toH < hourAngle - 180) toH += 360;
+        jump = { t0: nowMs, fromM: minAngle, toM, fromH: hourAngle, toH };
+        shownMinute = m;
+        klack();
+    }
+
+    if (jump) {
+        const t = (nowMs - jump.t0) / JUMP_MS;
+        if (t >= 1) {
+            minAngle = jump.toM % 360;
+            hourAngle = jump.toH % 360;
+            jump = null;
+        } else {
+            const k = easeOutBack(t);
+            minAngle = jump.fromM + (jump.toM - jump.fromM) * k;
+            hourAngle = jump.fromH + (jump.toH - jump.fromH) * k;
+        }
+    }
+
+    setHand(hourHand, hourAngle);
+    setHand(minHand, minAngle);
+    setHand(secHand, secAngle);
+    // Schatten: gleiche Rotation, leicht versetzt (translate steckt im Gruppen-Offset)
+    shHour.setAttribute('transform', `translate(${500 + 9} ${500 + 14}) rotate(${hourAngle})`);
+    shMin.setAttribute('transform', `translate(${500 + 12} ${500 + 18}) rotate(${minAngle})`);
+    shSec.setAttribute('transform', `translate(${500 + 15} ${500 + 22}) rotate(${secAngle})`);
+
+    requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

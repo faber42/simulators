@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strandschreiber</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { overflow: hidden; background: #c8ab7e; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    canvas { display: block; position: fixed; inset: 0; }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #fff; background: rgba(40,50,55,0.5);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+    }
+    .back:hover { background: rgba(40,50,55,0.75); }
+    .soundbtn {
+        position: fixed; top: 1rem; right: 1rem; z-index: 10;
+        background: rgba(40,50,55,0.5); color: #fff;
+        border: none; border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .soundbtn:hover { background: rgba(40,50,55,0.75); }
+    .caption {
+        position: fixed; bottom: 1.0rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(60,45,25,0.65);
+        font-size: 0.8rem;
+        pointer-events: none;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.25);
+    }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+    <button class="soundbtn" id="soundBtn" title="Meeresrauschen an/aus">&#128263; Ton aus</button>
+    <canvas id="canvas"></canvas>
+    <div class="caption">Zu jeder vollen Minute rollt eine Welle heran und nimmt die Schrift mit &mdash; dann f&auml;hrt der Apparat los und ritzt die neue Uhrzeit in den nassen Sand.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Strandschreiber
+//  - Sekunde 0-8: Welle läuft auf, spült die alte Ritzung fort, zieht sich
+//    zurück (die Ritzschicht wird unter Wasser weggelöst, Schaumflocken
+//    und nasser Glanz bleiben zurück).
+//  - Ab Sekunde ~8,6 fährt der Schreibwagen los und ritzt HH:MM der
+//    laufenden Minute; danach parkt er am rechten Rand.
+//  - Räder hinterlassen Spuren im Sand, die die nächste Welle ebenfalls tilgt.
+// ============================================================================
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0;
+
+// Offscreen-Ebenen
+let sand = null;      // trockener/nasser Sandgrund (statisch)
+let carve = null, cctx = null;   // Ritzungen & Radspuren
+let foam = null, fctx = null;    // liegengebliebener Schaum
+let wet = null, wctx = null;     // Nässe-Glanz
+
+function mkLayer() {
+    const c = document.createElement('canvas');
+    c.width = Math.max(2, W); c.height = Math.max(2, H);
+    return [c, c.getContext('2d')];
+}
+
+function buildSand() {
+    sand = document.createElement('canvas');
+    sand.width = W; sand.height = H;
+    const g = sand.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#9f8a68');      // nass am Wasser
+    grad.addColorStop(0.42, '#c2a377');
+    grad.addColorStop(0.8, '#d5b988');
+    grad.addColorStop(1, '#dfc79a');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, W, H);
+    // Körnung
+    for (let i = 0; i < W * H / 160; i++) {
+        const x = Math.random() * W, y = Math.random() * H;
+        g.fillStyle = Math.random() < 0.5
+            ? `rgba(90,60,30,${0.03 + Math.random() * 0.05})`
+            : `rgba(255,245,225,${0.03 + Math.random() * 0.05})`;
+        g.fillRect(x, y, 1.6, 1.6);
+    }
+    // Rippelmuster im nassen Bereich
+    g.strokeStyle = 'rgba(120,90,55,0.10)';
+    g.lineWidth = 2.5;
+    for (let y = H * 0.30; y < H * 0.52; y += 9 + Math.random() * 8) {
+        g.beginPath();
+        for (let x = 0; x <= W; x += 26) {
+            const yy = y + Math.sin(x * 0.02 + y) * 3;
+            if (x === 0) g.moveTo(x, yy); else g.lineTo(x, yy);
+        }
+        g.stroke();
+    }
+    // Muscheln & Kiesel
+    for (let i = 0; i < 26; i++) {
+        const x = Math.random() * W, y = H * (0.45 + Math.random() * 0.5);
+        g.fillStyle = Math.random() < 0.5 ? '#b9a488' : '#8f8478';
+        g.beginPath();
+        g.ellipse(x, y, 2 + Math.random() * 3.5, 1.5 + Math.random() * 2.5, Math.random() * Math.PI, 0, Math.PI * 2);
+        g.fill();
+    }
+}
+
+function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W; canvas.height = H;
+    buildSand();
+    [carve, cctx] = mkLayer();
+    [foam, fctx] = mkLayer();
+    [wet, wctx] = mkLayer();
+    layoutText();
+    // aktuellen Zustand sofort herstellen
+    const now = new Date();
+    const secs = now.getSeconds() + now.getMilliseconds() / 1000;
+    if (secs >= WRITE_START) {
+        stampInstant(fmt(now));
+        writtenFor = minuteKey(now);
+        cart.x = PARK_X(); cart.sx = cart.x; cart.sy = TEXT.baseY;
+        writer = null;
+    } else {
+        const prev = new Date(now.getTime() - 60000);
+        stampInstant(fmt(prev));
+        writtenFor = null;
+        writer = null;
+        cart.x = PARK_X(); cart.sx = cart.x; cart.sy = TEXT.baseY;
+    }
+}
+window.addEventListener('resize', resize);
+
+// ---- Küstenlinie / Welle ------------------------------------------------------------
+const SEA_BASE = () => H * 0.30;
+const MAX_REACH = () => H * 0.80;
+const WRITE_START = 8.6;
+let tGlobal = 0;
+
+function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+
+function waveP(sec) {
+    if (sec < 2.8) return ease(sec / 2.8);
+    if (sec < 4.6) return 1;
+    if (sec < 8.2) return 1 - ease((sec - 4.6) / 3.6);
+    return 0;
+}
+
+function frontY(x, sec) {
+    const p = waveP(sec);
+    const wob = Math.sin(x * 0.006 + tGlobal * 1.5) * 11
+              + Math.sin(x * 0.017 - tGlobal * 0.9) * 6
+              + Math.sin(x * 0.001 + tGlobal * 0.4) * 9;
+    return SEA_BASE() + (MAX_REACH() - SEA_BASE()) * p + wob * (0.5 + p * 0.9);
+}
+
+// ---- Handschrift-Glyphen ---------------------------------------------------------------
+const GLYPHS = {
+    '0': [[[0.62,0.06],[0.34,0.10],[0.16,0.38],[0.14,0.72],[0.30,0.96],[0.58,0.98],[0.78,0.78],[0.84,0.42],[0.74,0.12],[0.62,0.06]]],
+    '1': [[[0.22,0.32],[0.58,0.06],[0.58,0.98]]],
+    '2': [[[0.20,0.30],[0.28,0.10],[0.52,0.04],[0.74,0.14],[0.76,0.36],[0.56,0.62],[0.32,0.82],[0.16,0.96],[0.50,0.93],[0.84,0.92]]],
+    '3': [[[0.22,0.16],[0.44,0.04],[0.68,0.10],[0.72,0.30],[0.52,0.45],[0.42,0.47],[0.64,0.52],[0.76,0.72],[0.60,0.92],[0.34,0.98],[0.18,0.86]]],
+    '4': [[[0.58,0.04],[0.16,0.62],[0.80,0.60]],[[0.64,0.06],[0.64,0.98]]],
+    '5': [[[0.72,0.06],[0.34,0.06],[0.30,0.42]],[[0.30,0.42],[0.54,0.36],[0.74,0.46],[0.79,0.68],[0.62,0.92],[0.34,0.96],[0.18,0.82]]],
+    '6': [[[0.66,0.04],[0.42,0.22],[0.24,0.52],[0.20,0.78],[0.36,0.96],[0.60,0.94],[0.72,0.76],[0.67,0.57],[0.44,0.50],[0.28,0.62]]],
+    '7': [[[0.16,0.10],[0.50,0.05],[0.82,0.06],[0.56,0.50],[0.38,0.98]],[[0.28,0.55],[0.68,0.52]]],
+    '8': [[[0.55,0.04],[0.30,0.12],[0.28,0.32],[0.50,0.46],[0.71,0.58],[0.75,0.80],[0.52,0.97],[0.29,0.88],[0.30,0.66],[0.52,0.50],[0.68,0.36],[0.68,0.14],[0.55,0.04]]],
+    '9': [[[0.72,0.28],[0.60,0.09],[0.36,0.07],[0.21,0.27],[0.27,0.46],[0.50,0.52],[0.68,0.42],[0.72,0.28],[0.70,0.60],[0.58,0.98]]],
+    ':': [[[0.5,0.30]],[[0.5,0.74]]],
+};
+
+function smooth(pts, step) {
+    if (pts.length === 1) return [pts[0]];
+    const out = [];
+    const P = (i) => pts[Math.max(0, Math.min(pts.length - 1, i))];
+    for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+        const d = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+        const n = Math.max(2, Math.ceil(d / step));
+        for (let j = 0; j < n; j++) {
+            const t = j / n, t2 = t * t, t3 = t2 * t;
+            out.push([
+                0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+                0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
+            ]);
+        }
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+}
+
+const TEXT = { y: 0, h: 0, baseY: 0 };
+let slots = [];   // x/w je Zeichen
+
+function layoutText() {
+    TEXT.h = Math.min(H * 0.21, W * 0.13);
+    TEXT.y = H * 0.47;
+    TEXT.baseY = TEXT.y + TEXT.h + 84;
+    const charW = TEXT.h * 0.72, colonW = TEXT.h * 0.3, adv = charW * 1.22;
+    const total = adv * 4 + colonW;
+    const x0 = (W - total) / 2;
+    slots = [
+        { x: x0, w: charW },
+        { x: x0 + adv, w: charW },
+        { x: x0 + adv * 2, w: colonW },
+        { x: x0 + adv * 2 + colonW * 1.4, w: charW },
+        { x: x0 + adv * 2 + colonW * 1.4 + adv, w: charW },
+    ];
+}
+
+function glyphStrokes(ch, slot) {
+    const g = GLYPHS[ch];
+    if (!g) return [];
+    return g.map(stroke => smooth(stroke.map(([px, py]) => [
+        slot.x + (px + (Math.random() - 0.5) * 0.03) * slot.w,
+        TEXT.y + (py + (Math.random() - 0.5) * 0.03) * TEXT.h,
+    ]), 5));
+}
+
+// ---- Ritzen ------------------------------------------------------------------------------
+function carveSeg(x1, y1, x2, y2) {
+    cctx.lineCap = 'round';
+    cctx.strokeStyle = 'rgba(96,66,38,0.9)';
+    cctx.lineWidth = 11;
+    cctx.beginPath(); cctx.moveTo(x1, y1); cctx.lineTo(x2, y2); cctx.stroke();
+    cctx.strokeStyle = 'rgba(58,38,20,0.85)';
+    cctx.lineWidth = 4.5;
+    cctx.beginPath(); cctx.moveTo(x1 + 1, y1 + 2); cctx.lineTo(x2 + 1, y2 + 2); cctx.stroke();
+    cctx.strokeStyle = 'rgba(255,240,214,0.55)';
+    cctx.lineWidth = 3;
+    cctx.beginPath(); cctx.moveTo(x1 - 2.5, y1 - 3.5); cctx.lineTo(x2 - 2.5, y2 - 3.5); cctx.stroke();
+    if (Math.random() < 0.3) {
+        cctx.fillStyle = 'rgba(150,115,70,0.5)';
+        cctx.beginPath();
+        cctx.arc(x1 + (Math.random() - 0.5) * 16, y1 + (Math.random() - 0.5) * 16, 1.4 + Math.random() * 1.8, 0, Math.PI * 2);
+        cctx.fill();
+    }
+}
+function carveDot(x, y) {
+    for (let i = 0; i < 6; i++) {
+        carveSeg(x + (Math.random() - 0.5) * 5, y + (Math.random() - 0.5) * 5,
+                 x + (Math.random() - 0.5) * 5, y + (Math.random() - 0.5) * 5);
+    }
+}
+
+const fmt = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+const minuteKey = d => d.getHours() * 60 + d.getMinutes();
+
+function stampInstant(text) {
+    cctx.clearRect(0, 0, W, H);
+    for (let i = 0; i < 5; i++) {
+        for (const pts of glyphStrokes(text[i], slots[i])) {
+            if (pts.length === 1) { carveDot(pts[0][0], pts[0][1]); continue; }
+            for (let k = 0; k < pts.length - 1; k++) {
+                carveSeg(pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1]);
+            }
+        }
+    }
+}
+
+// ---- Schreibwagen -----------------------------------------------------------------------
+const PARK_X = () => W - 150;
+const cart = { x: 0, sx: 0, sy: 0, wheelRot: 0, armUp: true };
+let writer = null;        // { jobs:[{pts, carve:true/false}], job, t }
+let writtenFor = null;
+
+function buildWriter(text) {
+    const jobs = [];
+    let cur = [PARK_X(), TEXT.baseY];
+    for (let i = 0; i < 5; i++) {
+        for (const pts of glyphStrokes(text[i], slots[i])) {
+            jobs.push({ pts: [cur, pts[0]], carve: false });
+            jobs.push({ pts, carve: true });
+            cur = pts[pts.length - 1];
+        }
+    }
+    jobs.push({ pts: [cur, [PARK_X(), TEXT.y + TEXT.h * 0.5]], carve: false });
+    return { jobs, job: 0, t: 0 };
+}
+
+function stepWriter(dt) {
+    const wr = writer;
+    let dist = dt * 0;
+    let remaining = dt;
+    while (remaining > 0 && wr.job < wr.jobs.length) {
+        const j = wr.jobs[wr.job];
+        const pts = j.pts;
+        if (pts.length === 1) { wr.job++; wr.t = 0; continue; }
+        const speed = j.carve ? 300 : 800;
+        const i = Math.floor(wr.t);
+        if (i >= pts.length - 1) { wr.job++; wr.t = 0; continue; }
+        const p = pts[i], q = pts[i + 1];
+        const segLen = Math.hypot(q[0] - p[0], q[1] - p[1]) || 0.5;
+        const need = (1 - (wr.t - i)) * segLen / speed;
+        const frac = wr.t - i;
+        if (remaining >= need) {
+            if (j.carve) carveSeg(p[0] + (q[0] - p[0]) * frac, p[1] + (q[1] - p[1]) * frac, q[0], q[1]);
+            cart.sx = q[0]; cart.sy = q[1];
+            remaining -= need;
+            wr.t = i + 1;
+        } else {
+            const nf = frac + remaining * speed / segLen;
+            const nx = p[0] + (q[0] - p[0]) * nf, ny = p[1] + (q[1] - p[1]) * nf;
+            if (j.carve) carveSeg(p[0] + (q[0] - p[0]) * frac, p[1] + (q[1] - p[1]) * frac, nx, ny);
+            cart.sx = nx; cart.sy = ny;
+            remaining = 0;
+            wr.t = i + nf;
+        }
+        cart.armUp = !j.carve;
+    }
+    if (wr.job >= wr.jobs.length) {
+        writer = null;
+        cart.armUp = true;
+    }
+}
+
+function drawCart(g, dt) {
+    // Wagen folgt dem Stift in x, bleibt auf seiner Fahrlinie
+    const targetX = cart.sx;
+    const prevX = cart.x;
+    cart.x += (targetX - cart.x) * Math.min(1, dt * 11);
+    cart.wheelRot += (cart.x - prevX) / 26;
+    const y = TEXT.baseY;
+
+    // Radspuren
+    if (Math.abs(cart.x - prevX) > 0.4) {
+        cctx.strokeStyle = 'rgba(105,78,48,0.16)';
+        cctx.lineWidth = 5;
+        for (const off of [-34, 34]) {
+            cctx.beginPath();
+            cctx.moveTo(prevX + off, y + 26);
+            cctx.lineTo(cart.x + off, y + 26);
+            cctx.stroke();
+        }
+    }
+
+    g.save();
+    g.translate(cart.x, y);
+    // Schatten
+    g.fillStyle = 'rgba(60,40,20,0.25)';
+    g.beginPath();
+    g.ellipse(2, 30, 66, 12, 0, 0, Math.PI * 2);
+    g.fill();
+    // Arm zum Stift
+    const ax = cart.sx - cart.x;
+    const ay = cart.sy - y;
+    g.strokeStyle = '#4c545c';
+    g.lineWidth = 7;
+    g.beginPath();
+    g.moveTo(0, -18);
+    g.lineTo(ax * 0.5, -46 + ay * 0.3);
+    g.lineTo(ax, ay + (cart.armUp ? -16 : -4));
+    g.stroke();
+    g.fillStyle = '#31363c';
+    g.beginPath(); g.arc(ax * 0.5, -46 + ay * 0.3, 6, 0, Math.PI * 2); g.fill();
+    // Stiftkopf
+    g.fillStyle = '#c9553a';
+    g.beginPath(); g.arc(ax, ay + (cart.armUp ? -16 : -4), 7, 0, Math.PI * 2); g.fill();
+    if (!cart.armUp) {
+        g.strokeStyle = '#6b4a26';
+        g.lineWidth = 4;
+        g.beginPath(); g.moveTo(ax, ay + 2); g.lineTo(ax, ay + 12); g.stroke();
+    }
+    // Körper
+    const grad = g.createLinearGradient(0, -30, 0, 16);
+    grad.addColorStop(0, '#8b98a5');
+    grad.addColorStop(0.5, '#67737f');
+    grad.addColorStop(1, '#454e58');
+    g.fillStyle = grad;
+    g.beginPath();
+    if (g.roundRect) g.roundRect(-58, -28, 116, 46, 11);
+    else g.rect(-58, -28, 116, 46);
+    g.fill();
+    g.fillStyle = '#d97b32';
+    g.fillRect(-58, -8, 116, 8);
+    // Sensorauge
+    g.fillStyle = '#1d2126';
+    g.beginPath(); g.arc(34, -14, 6, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#7fd4e8';
+    g.beginPath(); g.arc(35.5, -15.5, 2.2, 0, Math.PI * 2); g.fill();
+    // Räder
+    for (const off of [-34, 34]) {
+        g.save();
+        g.translate(off, 18);
+        g.rotate(cart.wheelRot);
+        g.fillStyle = '#23272c';
+        g.beginPath(); g.arc(0, 0, 22, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = '#3c4249';
+        g.lineWidth = 5;
+        g.beginPath(); g.arc(0, 0, 15, 0, Math.PI * 2); g.stroke();
+        g.fillStyle = '#8f979f';
+        for (let k = 0; k < 4; k++) {
+            g.rotate(Math.PI / 2);
+            g.fillRect(-2.5, -14, 5, 28);
+        }
+        g.beginPath(); g.arc(0, 0, 6, 0, Math.PI * 2); g.fill();
+        g.restore();
+    }
+    // Fähnchen
+    g.strokeStyle = '#4c545c';
+    g.lineWidth = 3;
+    g.beginPath(); g.moveTo(-44, -28); g.lineTo(-44, -58); g.stroke();
+    g.fillStyle = '#c9553a';
+    g.beginPath();
+    g.moveTo(-44, -58); g.lineTo(-24, -52); g.lineTo(-44, -46);
+    g.closePath(); g.fill();
+    g.restore();
+}
+
+// ---- Möwen ------------------------------------------------------------------------------------
+const gulls = [];
+let gullTimer = 6;
+function stepGulls(dt) {
+    gullTimer -= dt;
+    if (gullTimer <= 0) {
+        gullTimer = 14 + Math.random() * 26;
+        const dir = Math.random() < 0.5 ? 1 : -1;
+        gulls.push({
+            x: dir > 0 ? -40 : W + 40,
+            y: H * (0.05 + Math.random() * 0.16),
+            vx: dir * (34 + Math.random() * 30),
+            ph: Math.random() * 10,
+            s: 0.7 + Math.random() * 0.7,
+        });
+    }
+    for (let i = gulls.length - 1; i >= 0; i--) {
+        const gl = gulls[i];
+        gl.x += gl.vx * dt;
+        gl.ph += dt * 3;
+        gl.y += Math.sin(gl.ph) * 6 * dt;
+        if (gl.x < -60 || gl.x > W + 60) gulls.splice(i, 1);
+    }
+}
+function drawGulls(g) {
+    g.strokeStyle = 'rgba(50,55,60,0.75)';
+    g.lineWidth = 2.2;
+    g.lineCap = 'round';
+    for (const gl of gulls) {
+        const w = 11 * gl.s;
+        const f = Math.sin(gl.ph * 2.2) * 4 * gl.s;
+        g.beginPath();
+        g.moveTo(gl.x - w, gl.y - f * 0.4);
+        g.quadraticCurveTo(gl.x - w * 0.3, gl.y - f, gl.x, gl.y);
+        g.quadraticCurveTo(gl.x + w * 0.3, gl.y - f, gl.x + w, gl.y - f * 0.4);
+        g.stroke();
+    }
+}
+
+// ---- Ton ----------------------------------------------------------------------------------------
+let audioOn = false, actx = null, seaGain = null, carveGain = null;
+function ensureAudio() {
+    if (actx) return;
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const len = actx.sampleRate * 2;
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = actx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    const lp = actx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 0.6;
+    seaGain = actx.createGain(); seaGain.gain.value = 0;
+    src.connect(lp).connect(seaGain).connect(actx.destination);
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 1100; bp.Q.value = 1.2;
+    carveGain = actx.createGain(); carveGain.gain.value = 0;
+    src.connect(bp).connect(carveGain).connect(actx.destination);
+    src.start();
+}
+const soundBtn = document.getElementById('soundBtn');
+soundBtn.addEventListener('click', () => {
+    audioOn = !audioOn;
+    soundBtn.innerHTML = audioOn ? '&#128266; Ton an' : '&#128263; Ton aus';
+    if (audioOn) { ensureAudio(); actx.resume(); }
+    else if (actx) { seaGain.gain.value = 0; carveGain.gain.value = 0; }
+});
+
+// ---- Hauptschleife --------------------------------------------------------------------------------
+let last = performance.now();
+function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    tGlobal += dt;
+
+    const nd = new Date();
+    const sec = nd.getSeconds() + nd.getMilliseconds() / 1000;
+    const p = waveP(sec);
+
+    // Schreiber starten
+    if (sec >= WRITE_START && writtenFor !== minuteKey(nd) && !writer) {
+        writer = buildWriter(fmt(nd));
+        writtenFor = minuteKey(nd);
+    }
+    if (writer) stepWriter(dt);
+    stepGulls(dt);
+
+    // Unter Wasser: Ritzungen auflösen, Nässe auftragen, Schaum ablegen
+    if (p > 0.02) {
+        cctx.save();
+        cctx.globalCompositeOperation = 'destination-out';
+        wctx.fillStyle = `rgba(70,50,25,${Math.min(0.6, dt * 26)})`;
+        for (let x = 0; x < W; x += 36) {
+            const fy = frontY(x + 18, sec);
+            cctx.fillStyle = `rgba(0,0,0,${Math.min(1, dt * 4.5)})`;
+            cctx.fillRect(x, 0, 36, fy);
+            wctx.fillRect(x, Math.max(0, fy - 60), 36, 64);
+        }
+        cctx.restore();
+        // Schaumflocken an der Front (dt-basiert, unabhängig von der Bildrate)
+        const nFoam = Math.min(10, Math.round(dt * 150 + Math.random()));
+        for (let i = 0; i < nFoam; i++) {
+            const x = Math.random() * W;
+            const fy = frontY(x, sec);
+            fctx.fillStyle = `rgba(250,252,250,${0.22 + Math.random() * 0.35})`;
+            fctx.beginPath();
+            fctx.arc(x, fy - Math.random() * 14, 1.2 + Math.random() * 3, 0, Math.PI * 2);
+            fctx.fill();
+        }
+    }
+    // Schaum & Nässe langsam vergehen lassen
+    fctx.globalCompositeOperation = 'destination-out';
+    fctx.fillStyle = `rgba(0,0,0,${dt * 0.5})`;
+    fctx.fillRect(0, 0, W, H);
+    fctx.globalCompositeOperation = 'source-over';
+    wctx.globalCompositeOperation = 'destination-out';
+    wctx.fillStyle = `rgba(0,0,0,${dt * 0.05})`;
+    wctx.fillRect(0, 0, W, H);
+    wctx.globalCompositeOperation = 'source-over';
+
+    // ---- Zeichnen ------------------------------------------------------------
+    ctx.drawImage(sand, 0, 0);
+    ctx.globalAlpha = 0.35;
+    ctx.drawImage(wet, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.drawImage(carve, 0, 0);
+    ctx.drawImage(foam, 0, 0);
+
+    // Wasser
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, frontY(0, sec));
+    for (let x = 0; x <= W; x += 22) ctx.lineTo(x, frontY(x, sec));
+    ctx.lineTo(W, 0);
+    ctx.closePath();
+    const wg = ctx.createLinearGradient(0, 0, 0, MAX_REACH());
+    wg.addColorStop(0, 'rgba(38,98,120,0.96)');
+    wg.addColorStop(0.5, 'rgba(60,130,150,0.72)');
+    wg.addColorStop(1, 'rgba(130,190,200,0.38)');
+    ctx.fillStyle = wg;
+    ctx.fill();
+    // Schwell-Linien im Wasser
+    ctx.save();
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+    ctx.lineWidth = 3;
+    for (let k = 0; k < 4; k++) {
+        const yy = SEA_BASE() * (0.24 + k * 0.2) + Math.sin(tGlobal * 0.8 + k * 2) * 7;
+        ctx.beginPath();
+        for (let x = 0; x <= W; x += 30) {
+            const y2 = yy + Math.sin(x * 0.009 + tGlobal * 1.3 + k) * 5;
+            if (x === 0) ctx.moveTo(x, y2); else ctx.lineTo(x, y2);
+        }
+        ctx.stroke();
+    }
+    ctx.restore();
+    // Schaumkante
+    ctx.strokeStyle = 'rgba(252,254,252,0.92)';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    for (let x = 0; x <= W; x += 14) {
+        const y = frontY(x, sec) + Math.sin(x * 0.09 + tGlobal * 6) * 2;
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(252,254,252,0.4)';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    for (let x = 0; x <= W; x += 14) {
+        const y = frontY(x, sec) - 5 + Math.sin(x * 0.05 - tGlobal * 4) * 3;
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    drawCart(ctx, dt);
+    drawGulls(ctx);
+
+    // Ton nachführen
+    if (audioOn && actx) {
+        const t = actx.currentTime;
+        seaGain.gain.setTargetAtTime(0.05 + p * 0.16 + Math.sin(tGlobal * 0.7) * 0.012, t, 0.1);
+        carveGain.gain.setTargetAtTime(writer && !cart.armUp ? 0.045 : 0, t, 0.05);
+    }
+
+    requestAnimationFrame(frame);
+}
+
+resize();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

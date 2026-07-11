@@ -21,6 +21,7 @@ Dann <http://localhost:3000> öffnen. Die Startseite verlinkt auf alle Projekte.
 | [drivesim](drivesim/) | Nachtfahrt auf regennasser Autobahn (WebGL-Shader) |
 | [llmsim](llmsim/) | Transformer-Simulator: Texterzeugung Wort für Wort, Attention, Wissens-Ebenen und KV-Cache als Symbole statt Mathematik |
 | [pinsim](pinsim/) | Pinsetter-Simulator: Blick ins Innere eines Bowling-Automaten mit 3D-Physik (three.js + Rapier), Kehrwerk, Greifertisch, Pin-Aufzug und Karussell-Magazin |
+| [uhrengalerie](uhrengalerie/) | Uhrengalerie: zwölf Uhren-Simulationen — Bahnhofsuhr, Fallblattwecker, Solari-Weltzeituhr, Wortuhr, Nixie, Räderwerk, Kugel- und Wasseruhr, Kreidetafel, Bleistift & Zettel, Strandschreiber, Vogelschwarm |
 
 ## Neues Projekt hinzufügen
 

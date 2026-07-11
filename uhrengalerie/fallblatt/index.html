@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fallblattwecker</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        overflow: hidden;
+        /* Schlafzimmer bei Nacht: warmer Lampenschein von links oben */
+        background:
+            radial-gradient(90% 70% at 32% 26%, rgba(255,178,102,0.20), rgba(255,178,102,0) 60%),
+            radial-gradient(130% 100% at 50% 30%, #2b2320 0%, #1c1714 55%, #120f0d 100%);
+    }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #e8e2d8; background: rgba(20,16,14,0.6);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .back:hover { background: rgba(40,32,28,0.8); }
+    .soundbtn {
+        position: fixed; top: 1rem; right: 1rem; z-index: 10;
+        background: rgba(20,16,14,0.6); color: #e8e2d8;
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .soundbtn:hover { background: rgba(40,32,28,0.8); }
+
+    /* Nachttisch */
+    .table {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 26vh;
+        background:
+            linear-gradient(180deg, #6a4a2e 0%, #55391f 8%, #3d2a17 60%, #2a1d10 100%);
+    }
+    .table::before {
+        content: '';
+        position: absolute; inset: 0;
+        background: repeating-linear-gradient(92deg,
+            rgba(0,0,0,0) 0px, rgba(0,0,0,0.06) 3px, rgba(0,0,0,0) 7px, rgba(60,30,5,0.05) 13px);
+    }
+
+    .stage {
+        position: fixed; inset: 0;
+        display: flex; align-items: flex-end; justify-content: center;
+    }
+    .clock {
+        position: relative;
+        margin-bottom: calc(26vh - 4.5vmin);
+        width: 66vmin; height: 36vmin;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+    }
+    /* Kontaktschatten auf dem Tisch */
+    .clock::after {
+        content: '';
+        position: absolute; left: 3%; right: 3%; bottom: -5vmin; height: 7vmin;
+        background: radial-gradient(50% 55% at 50% 40%, rgba(0,0,0,0.55), rgba(0,0,0,0) 75%);
+    }
+    .body {
+        position: absolute; inset: 0;
+        border-radius: 5.5vmin;
+        background:
+            radial-gradient(120% 90% at 30% 12%, rgba(255,214,170,0.34), rgba(255,214,170,0) 45%),
+            linear-gradient(180deg, #e8622a 0%, #d54e1c 40%, #a83a12 85%, #8f300e 100%);
+        box-shadow:
+            inset 0 0.5vmin 1.2vmin rgba(255,236,210,0.35),
+            inset 0 -1.2vmin 2.2vmin rgba(60,15,0,0.55),
+            0 2.5vmin 5vmin rgba(0,0,0,0.5);
+    }
+    .foot {
+        position: absolute; bottom: -1.3vmin; width: 9vmin; height: 2.6vmin;
+        border-radius: 1.3vmin;
+        background: linear-gradient(180deg, #d8d8dc, #85858c 60%, #55555c);
+        box-shadow: 0 0.5vmin 1vmin rgba(0,0,0,0.45);
+    }
+    .foot.l { left: 8vmin; }
+    .foot.r { right: 8vmin; }
+    .knob {
+        position: absolute; top: -2.3vmin; right: 12vmin;
+        width: 8vmin; height: 3vmin; border-radius: 1.2vmin 1.2vmin 0 0;
+        background: linear-gradient(180deg, #f0b088, #c05a28);
+        box-shadow: inset 0 0.4vmin 0.6vmin rgba(255,255,255,0.35);
+    }
+
+    .panel {
+        position: absolute; inset: 4.5vmin 5vmin 5.5vmin;
+        border-radius: 2.6vmin;
+        background: linear-gradient(180deg, #17181c, #101114);
+        box-shadow: inset 0 0.6vmin 1.8vmin rgba(0,0,0,0.85), inset 0 -0.3vmin 0.8vmin rgba(255,255,255,0.05);
+        display: flex; align-items: center; justify-content: center;
+        gap: 2.2vmin;
+    }
+
+    .flap {
+        position: relative;
+        width: 20vmin; height: 24vmin;
+        perspective: 90vmin;
+        font-family: 'Helvetica Neue', 'Segoe UI', Arial, sans-serif;
+    }
+    .flap .half {
+        position: absolute; left: 0; width: 100%; height: 50%;
+        overflow: hidden;
+        background: linear-gradient(180deg, #26272d 0%, #1b1c21 100%);
+        will-change: transform;
+    }
+    .flap .half.top    { top: 0; border-radius: 1.6vmin 1.6vmin 0 0;
+                         box-shadow: inset 0 0.35vmin 0.5vmin rgba(255,255,255,0.10); }
+    .flap .half.bottom { bottom: 0; border-radius: 0 0 1.6vmin 1.6vmin;
+                         background: linear-gradient(180deg, #202127 0%, #16171b 100%);
+                         box-shadow: inset 0 -0.4vmin 0.8vmin rgba(0,0,0,0.55); }
+    .flap .half span {
+        position: absolute; left: 0; width: 100%; height: 200%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 17vmin; font-weight: 600; color: #f2f1ec;
+        letter-spacing: -0.02em;
+        text-shadow: 0 0.2vmin 0.4vmin rgba(0,0,0,0.6);
+        font-variant-numeric: tabular-nums;
+    }
+    .flap .half.top span    { top: 0; }
+    .flap .half.bottom span { top: -100%; }
+    .flap .half.anim { display: none; z-index: 3; }
+    .flap .half.anim.top    { transform-origin: 50% 100%; }
+    .flap .half.anim.bottom { transform-origin: 50% 0%; }
+    /* Spalt + Achsstifte */
+    .flap::before {
+        content: '';
+        position: absolute; top: calc(50% - 0.2vmin); left: 0; right: 0; height: 0.4vmin;
+        background: #000; z-index: 4; opacity: 0.9;
+    }
+    .flap .pin {
+        position: absolute; top: 50%; width: 1.3vmin; height: 3.4vmin; z-index: 5;
+        transform: translateY(-50%);
+        background: linear-gradient(180deg, #3a3b41, #191a1e);
+        border-radius: 0.4vmin;
+    }
+    .flap .pin.l { left: -0.7vmin; }
+    .flap .pin.r { right: -0.7vmin; }
+
+    .colon {
+        display: flex; flex-direction: column; gap: 4vmin;
+        animation: blink 2s ease-in-out infinite;
+    }
+    .colon i {
+        width: 1.7vmin; height: 1.7vmin; border-radius: 50%;
+        background: #e8e5dc;
+        box-shadow: 0 0 1.2vmin rgba(255,240,200,0.35);
+    }
+    @keyframes blink { 0%, 45% { opacity: 0.95; } 60%, 85% { opacity: 0.25; } 100% { opacity: 0.95; } }
+
+    /* kleine Tag/Datum-Klappen */
+    .dayrow {
+        position: absolute; bottom: 1.4vmin; left: 0; right: 0;
+        display: flex; justify-content: center; gap: 1vmin;
+    }
+    .flap.small { width: 7vmin; height: 5.4vmin; }
+    .flap.small .half span { font-size: 3.4vmin; font-weight: 600; color: #ddd8cc; }
+    .flap.small::before { height: 0.25vmin; }
+    .flap.small .pin { display: none; }
+
+    .brand {
+        position: absolute; bottom: 1.7vmin; right: 3vmin;
+        color: rgba(255,235,215,0.5); font-size: 1.7vmin; letter-spacing: 0.34em;
+        user-select: none;
+    }
+    .caption {
+        position: fixed; bottom: 1.1rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(232,220,205,0.5);
+        font-size: 0.82rem;
+        pointer-events: none;
+    }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+    <button class="soundbtn" id="soundBtn" title="Klappengeräusch an/aus">&#128263; Ton aus</button>
+
+    <div class="table"></div>
+    <div class="stage">
+        <div class="clock" id="clock" title="Klick: Klappen einmal durchblättern">
+            <div class="body"></div>
+            <div class="knob"></div>
+            <div class="foot l"></div>
+            <div class="foot r"></div>
+            <div class="panel">
+                <div class="flap" id="flapH"></div>
+                <div class="colon"><i></i><i></i></div>
+                <div class="flap" id="flapM"></div>
+            </div>
+            <div class="dayrow">
+                <div class="flap small" id="flapDay"></div>
+                <div class="flap small" id="flapDate"></div>
+            </div>
+            <div class="brand">FLIP&nbsp;24</div>
+        </div>
+    </div>
+    <div class="caption">Jede Minute fällt ein Blatt. Klick auf den Wecker blättert einmal durch alle Klappen.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Fallblattwecker — Klappzahlen im Stil der 70er
+//  - Jedes Modul: zwei feste Halbkarten + zwei Klapp-Halbkarten.
+//    Beim Wechsel klappt die obere Hälfte (alt) nach unten, dann fällt die
+//    untere Hälfte (neu) hinterher und federt kurz nach.
+//  - Beim Laden und auf Klick blättern die Module einmal durch.
+// ============================================================================
+
+const FOLD_MS = 150;   // obere Hälfte klappt weg
+const DROP_MS = 210;   // untere Hälfte fällt nach (mit Nachfedern)
+
+// ---- Klappen-Sound ---------------------------------------------------------
+let audioOn = false, actx = null;
+function ensureCtx() {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+}
+function tick(vol, freq) {
+    if (!audioOn) return;
+    ensureCtx();
+    const t = actx.currentTime;
+    const len = Math.floor(actx.sampleRate * 0.03);
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = 1.1;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.045);
+    src.connect(bp).connect(g).connect(actx.destination);
+    src.start(t);
+}
+const klackAb = () => tick(0.10, 4200);          // Blatt löst sich
+const klackAuf = () => tick(0.22, 1900);         // Blatt schlägt auf
+
+const soundBtn = document.getElementById('soundBtn');
+soundBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    audioOn = !audioOn;
+    soundBtn.innerHTML = audioOn ? '&#128266; Ton an' : '&#128263; Ton aus';
+    if (audioOn) klackAuf();
+});
+
+// ---- Klappmodul ------------------------------------------------------------
+class Flap {
+    constructor(el) {
+        this.el = el;
+        el.innerHTML =
+            '<div class="half top static"><span></span></div>' +
+            '<div class="half bottom static"><span></span></div>' +
+            '<div class="half top anim"><span></span></div>' +
+            '<div class="half bottom anim"><span></span></div>' +
+            '<div class="pin l"></div><div class="pin r"></div>';
+        this.topS = el.children[0];
+        this.botS = el.children[1];
+        this.topA = el.children[2];
+        this.botA = el.children[3];
+        this.value = null;
+        this.busy = Promise.resolve();
+    }
+    show(half, v) { half.firstChild.textContent = v; }
+    set(v) {
+        // ohne Animation stellen
+        this.value = v;
+        this.show(this.topS, v);
+        this.show(this.botS, v);
+        this.topA.style.display = this.botA.style.display = 'none';
+    }
+    flipTo(v) {
+        // in Warteschlange, damit schnelle Folgen sauber nacheinander laufen
+        this.busy = this.busy.then(() => this._flip(v));
+        return this.busy;
+    }
+    _flip(v) {
+        if (v === this.value) return Promise.resolve();
+        const old = this.value;
+        this.value = v;
+        return new Promise((resolve) => {
+            // hinter der Klappe liegt schon der neue Wert
+            this.show(this.topS, v);
+            this.show(this.botS, old);
+            this.show(this.topA, old);
+            this.show(this.botA, v);
+            this.topA.style.display = 'block';
+            klackAb();
+            const a1 = this.topA.animate(
+                [
+                    { transform: 'rotateX(0deg)', filter: 'brightness(1)' },
+                    { transform: 'rotateX(-88deg)', filter: 'brightness(0.45)' }
+                ],
+                { duration: FOLD_MS, easing: 'cubic-bezier(0.55, 0, 0.85, 0.4)', fill: 'forwards' }
+            );
+            a1.onfinish = () => {
+                this.topA.style.display = 'none';
+                this.botA.style.display = 'block';
+                const a2 = this.botA.animate(
+                    [
+                        { transform: 'rotateX(88deg)', filter: 'brightness(0.5)', offset: 0 },
+                        { transform: 'rotateX(-9deg)', filter: 'brightness(1.06)', offset: 0.62 },
+                        { transform: 'rotateX(4deg)', offset: 0.82 },
+                        { transform: 'rotateX(0deg)', filter: 'brightness(1)', offset: 1 }
+                    ],
+                    { duration: DROP_MS, easing: 'linear', fill: 'forwards' }
+                );
+                klackAuf();
+                a2.onfinish = () => {
+                    this.show(this.botS, v);
+                    this.botA.style.display = 'none';
+                    resolve();
+                };
+            };
+        });
+    }
+    // einmal über mehrere Zwischenwerte zum Ziel blättern
+    roll(values) {
+        values.forEach(v => this.flipTo(v));
+        return this.busy;
+    }
+}
+
+const flapH = new Flap(document.getElementById('flapH'));
+const flapM = new Flap(document.getElementById('flapM'));
+const flapDay = new Flap(document.getElementById('flapDay'));
+const flapDate = new Flap(document.getElementById('flapDate'));
+
+const DAYS = ['SO', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA'];
+const p2 = n => String(n).padStart(2, '0');
+
+function nowParts() {
+    const d = new Date();
+    return {
+        h: p2(d.getHours()),
+        m: p2(d.getMinutes()),
+        day: DAYS[d.getDay()],
+        date: p2(d.getDate()) + '.'
+    };
+}
+
+// ---- Anblättern beim Start / auf Klick -------------------------------------
+function rollAll() {
+    const t = nowParts();
+    const seqNum = (finalStr, count, mod) => {
+        const out = [];
+        const end = parseInt(finalStr, 10);
+        for (let i = count; i > 0; i--) out.push(p2(((end - i) % mod + mod) % mod));
+        out.push(finalStr);
+        return out;
+    };
+    flapH.roll(seqNum(t.h, 5, 24));
+    flapM.roll(seqNum(t.m, 8, 60));
+    const di = DAYS.indexOf(t.day);
+    flapDay.roll([DAYS[(di + 5) % 7], DAYS[(di + 6) % 7], t.day]);
+    flapDate.roll([t.date]);
+}
+
+// Startwerte setzen, dann einmal durchblättern
+{
+    const t = nowParts();
+    flapH.set(t.h); flapM.set(t.m); flapDay.set(t.day); flapDate.set(t.date);
+    setTimeout(rollAll, 500);
+}
+
+document.getElementById('clock').addEventListener('click', rollAll);
+
+// ---- Uhrwerk: auf Minutenwechsel prüfen -------------------------------------
+setInterval(() => {
+    const t = nowParts();
+    if (t.m !== flapM.value) flapM.flipTo(t.m);
+    if (t.h !== flapH.value) setTimeout(() => flapH.flipTo(t.h), 130);
+    if (t.day !== flapDay.value) { flapDay.flipTo(t.day); flapDate.flipTo(t.date); }
+}, 250);
+
+})();
+</script>
+</body>
+</html>

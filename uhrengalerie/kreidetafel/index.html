@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kreidetafel-Uhr</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        overflow: hidden;
+        background:
+            radial-gradient(120% 100% at 50% 30%, #2c2721 0%, #1d1a16 60%, #14110e 100%);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #e8e2d5; background: rgba(25,20,16,0.65);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .back:hover { background: rgba(50,42,34,0.85); }
+    .soundbtn {
+        position: fixed; top: 1rem; right: 1rem; z-index: 10;
+        background: rgba(25,20,16,0.65); color: #e8e2d5;
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .soundbtn:hover { background: rgba(50,42,34,0.85); }
+
+    .frame {
+        padding: 1.9vmin;
+        border-radius: 1.2vmin;
+        background:
+            linear-gradient(100deg, rgba(255,230,190,0.16), rgba(0,0,0,0.12) 40%, rgba(255,230,190,0.06) 75%),
+            repeating-linear-gradient(85deg, rgba(60,30,8,0.12) 0 0.7vmin, rgba(0,0,0,0) 0.7vmin 2.4vmin),
+            linear-gradient(180deg, #8a6238 0%, #6f4c28 60%, #573a1e 100%);
+        box-shadow:
+            0 3vmin 7vmin rgba(0,0,0,0.65),
+            inset 0 0.25vmin 0.5vmin rgba(255,240,210,0.35),
+            inset 0 -0.35vmin 0.7vmin rgba(0,0,0,0.5);
+    }
+    canvas { display: block; border-radius: 0.5vmin; }
+
+    .caption {
+        position: fixed; bottom: 1.0rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(220,210,190,0.42);
+        font-size: 0.8rem;
+        pointer-events: none;
+    }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+    <button class="soundbtn" id="soundBtn" title="Kreide- und Schwammger&auml;usch an/aus">&#128263; Ton aus</button>
+
+    <div class="frame"><canvas id="canvas"></canvas></div>
+    <div class="caption">Der Schwamm wischt nur die Ziffern, die sich &auml;ndern &mdash; die Strichliste z&auml;hlt die Sekunden bis zur n&auml;chsten Minute.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Kreidetafel-Uhr
+//  - Uhrzeit HH:MM groß in Kreide-Handschrift, darunter eine Strichliste,
+//    die jede Sekunde einen Strich bekommt (5er-Bündel mit Querstrich).
+//  - Beim Minutenwechsel wischt der Schwamm nur die geänderten Ziffern
+//    und die Strichliste; feuchte Wischspuren bleiben zurück und trocknen
+//    in die Tafelpatina ein.
+//  - Kreide und Schwamm ruhen zwischen den Einsätzen auf der Kreideablage.
+// ============================================================================
+
+const W = 1680, H = 1050;                   // logische Tafelgröße
+const BOARD = { x: 0, y: 0, w: W, h: 920 }; // Tafelfläche
+const LEDGE = { y: 920, h: 130 };           // Kreideablage
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+// Nachlaufende Zeichenfläche für Kreide & Patina
+const board = document.createElement('canvas');
+board.width = W; board.height = H;
+const bctx = board.getContext('2d');
+
+// Hintergrund (Tafelgrund + Korn + Ablage), einmalig gerendert
+const bg = document.createElement('canvas');
+bg.width = W; bg.height = H;
+{
+    const g = bg.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#33473b');
+    grad.addColorStop(0.55, '#2c4034');
+    grad.addColorStop(1, '#253829');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, W, H);
+    // Korn
+    for (let i = 0; i < 9000; i++) {
+        const x = Math.random() * W, y = Math.random() * BOARD.h;
+        g.fillStyle = Math.random() < 0.5
+            ? `rgba(255,255,240,${Math.random() * 0.022})`
+            : `rgba(0,20,10,${Math.random() * 0.05})`;
+        g.fillRect(x, y, 1.6, 1.6);
+    }
+    // Vignette
+    const v = g.createRadialGradient(W / 2, BOARD.h * 0.45, H * 0.25, W / 2, BOARD.h * 0.55, H * 0.85);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(0,10,5,0.35)');
+    g.fillStyle = v;
+    g.fillRect(0, 0, W, BOARD.h);
+    // Kreideablage
+    const lg = g.createLinearGradient(0, LEDGE.y, 0, H);
+    lg.addColorStop(0, '#96693c');
+    lg.addColorStop(0.12, '#7c5530');
+    lg.addColorStop(1, '#5a3c20');
+    g.fillStyle = lg;
+    g.fillRect(0, LEDGE.y, W, LEDGE.h);
+    g.fillStyle = 'rgba(0,0,0,0.35)';
+    g.fillRect(0, LEDGE.y, W, 10);
+    // Kreidestaub auf der Ablage
+    for (let i = 0; i < 900; i++) {
+        const x = Math.random() * W, y = LEDGE.y + 18 + Math.random() * 90;
+        g.fillStyle = `rgba(240,236,220,${Math.random() * 0.10})`;
+        g.fillRect(x, y, 2 + Math.random() * 3, 1.5);
+    }
+}
+
+// ---- Anzeige-Skalierung ------------------------------------------------------
+function resize() {
+    const availW = window.innerWidth * 0.92;
+    const availH = window.innerHeight * 0.86;
+    const s = Math.min(availW / W, availH / H);
+    canvas.style.width = (W * s) + 'px';
+    canvas.style.height = (H * s) + 'px';
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(W * s * dpr);
+    canvas.height = Math.round(H * s * dpr);
+    ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---- Handschrift-Ziffern (normierte Polylinien, Box 0..1) --------------------
+const GLYPHS = {
+    '0': [[[0.62,0.06],[0.34,0.10],[0.16,0.38],[0.14,0.72],[0.30,0.96],[0.58,0.98],[0.78,0.78],[0.84,0.42],[0.74,0.12],[0.62,0.06]]],
+    '1': [[[0.22,0.32],[0.58,0.06],[0.58,0.98]]],
+    '2': [[[0.20,0.30],[0.28,0.10],[0.52,0.04],[0.74,0.14],[0.76,0.36],[0.56,0.62],[0.32,0.82],[0.16,0.96],[0.50,0.93],[0.84,0.92]]],
+    '3': [[[0.22,0.16],[0.44,0.04],[0.68,0.10],[0.72,0.30],[0.52,0.45],[0.42,0.47],[0.64,0.52],[0.76,0.72],[0.60,0.92],[0.34,0.98],[0.18,0.86]]],
+    '4': [[[0.58,0.04],[0.16,0.62],[0.80,0.60]],[[0.64,0.06],[0.64,0.98]]],
+    '5': [[[0.72,0.06],[0.34,0.06],[0.30,0.42]],[[0.30,0.42],[0.54,0.36],[0.74,0.46],[0.79,0.68],[0.62,0.92],[0.34,0.96],[0.18,0.82]]],
+    '6': [[[0.66,0.04],[0.42,0.22],[0.24,0.52],[0.20,0.78],[0.36,0.96],[0.60,0.94],[0.72,0.76],[0.67,0.57],[0.44,0.50],[0.28,0.62]]],
+    '7': [[[0.16,0.10],[0.50,0.05],[0.82,0.06],[0.56,0.50],[0.38,0.98]],[[0.28,0.55],[0.68,0.52]]],
+    '8': [[[0.55,0.04],[0.30,0.12],[0.28,0.32],[0.50,0.46],[0.71,0.58],[0.75,0.80],[0.52,0.97],[0.29,0.88],[0.30,0.66],[0.52,0.50],[0.68,0.36],[0.68,0.14],[0.55,0.04]]],
+    '9': [[[0.72,0.28],[0.60,0.09],[0.36,0.07],[0.21,0.27],[0.27,0.46],[0.50,0.52],[0.68,0.42],[0.72,0.28],[0.70,0.60],[0.58,0.98]]],
+    ':': [[[0.5,0.30]],[[0.5,0.72]]],
+};
+
+// Catmull-Rom-Glättung zu dichter Punktfolge
+function smooth(pts, step) {
+    if (pts.length === 1) return [pts[0]];
+    const out = [];
+    const P = (i) => pts[Math.max(0, Math.min(pts.length - 1, i))];
+    for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+        const d = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+        const n = Math.max(2, Math.ceil(d / step));
+        for (let j = 0; j < n; j++) {
+            const t = j / n, t2 = t * t, t3 = t2 * t;
+            out.push([
+                0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+                0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
+            ]);
+        }
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+}
+
+// Glyph -> Weltkoordinaten-Strokes mit Handschrift-Jitter
+function layoutGlyph(ch, x, y, w, h) {
+    const strokes = GLYPHS[ch];
+    const rot = (Math.random() - 0.5) * 0.05;
+    const cos = Math.cos(rot), sin = Math.sin(rot);
+    return strokes.map(stroke => {
+        const jittered = stroke.map(([px, py]) => {
+            const jx = px + (Math.random() - 0.5) * 0.045;
+            const jy = py + (Math.random() - 0.5) * 0.045;
+            // leichte Rotation um Glyphenmitte
+            const dx = (jx - 0.5) * w, dy = (jy - 0.5) * h;
+            return [x + w / 2 + dx * cos - dy * sin, y + h / 2 + dx * sin + dy * cos];
+        });
+        return smooth(jittered, 0.012 * Math.max(w, h));
+    });
+}
+
+// ---- Layout -------------------------------------------------------------------
+const TIME_Y = 150, TIME_H = 330, CHAR_W = 190, ADV = 240, COLON_W = 90;
+// Slots für H H : M M, zentriert
+const slotW = [CHAR_W, CHAR_W, COLON_W, CHAR_W, CHAR_W];
+const totalW = ADV * 4 + CHAR_W;
+const timeX0 = (W - totalW) / 2;
+const slotX = [0, 1, 2, 3, 4].map(i => timeX0 + ADV * i + (i > 2 ? (COLON_W - CHAR_W) : 0) * 0);
+
+const TALLY = { x0: 300, y0: 620, rowH: 130, markH: 92, markGap: 24, groupGap: 46, perRow: 6 };
+
+function tallyPos(i) {   // i = 0..59 -> Position des Strichs
+    const group = Math.floor(i / 5), inGroup = i % 5;
+    const row = Math.floor(group / TALLY.perRow), col = group % TALLY.perRow;
+    const groupW = TALLY.markGap * 4 + TALLY.groupGap;
+    const gx = TALLY.x0 + col * (TALLY.markGap * 4 + TALLY.groupGap + 40);
+    const gy = TALLY.y0 + row * TALLY.rowH;
+    return { gx, gy, inGroup, x: gx + Math.min(inGroup, 3.5) * TALLY.markGap };
+}
+
+// ---- Kreidestrich aufs Board stempeln -------------------------------------------
+function chalkDab(x, y, width, alpha) {
+    bctx.globalCompositeOperation = 'source-over';
+    for (let i = 0; i < 3; i++) {
+        const r = width * (0.30 + Math.random() * 0.42);
+        const ox = (Math.random() - 0.5) * width * 0.85;
+        const oy = (Math.random() - 0.5) * width * 0.85;
+        bctx.fillStyle = `rgba(243,238,224,${alpha * (0.16 + Math.random() * 0.26)})`;
+        bctx.beginPath();
+        bctx.arc(x + ox, y + oy, r, 0, Math.PI * 2);
+        bctx.fill();
+    }
+}
+
+function eraseDab(x, y, r, strength) {
+    bctx.globalCompositeOperation = 'destination-out';
+    const g = bctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(0,0,0,${strength})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    bctx.fillStyle = g;
+    bctx.beginPath();
+    bctx.arc(x, y, r, 0, Math.PI * 2);
+    bctx.fill();
+    bctx.globalCompositeOperation = 'source-over';
+}
+
+function smear(x, y, dirX, dirY, len) {
+    bctx.globalCompositeOperation = 'source-over';
+    bctx.strokeStyle = `rgba(235,235,225,${0.012 + Math.random() * 0.02})`;
+    bctx.lineWidth = 26 + Math.random() * 46;
+    bctx.lineCap = 'round';
+    bctx.beginPath();
+    bctx.moveTo(x - dirX * len / 2, y - dirY * len / 2);
+    bctx.lineTo(x + dirX * len / 2, y + dirY * len / 2);
+    bctx.stroke();
+}
+
+// Alte Patina beim Start
+for (let i = 0; i < 26; i++) {
+    smear(200 + Math.random() * (W - 400), 120 + Math.random() * 680,
+          Math.cos(Math.random() * 0.6 - 0.3), Math.sin(Math.random() * 0.6 - 0.3),
+          220 + Math.random() * 320);
+}
+
+// ---- Staubpartikel ---------------------------------------------------------------
+const dust = [];
+function puff(x, y, n, spread, up) {
+    for (let i = 0; i < n; i++) {
+        dust.push({
+            x: x + (Math.random() - 0.5) * spread,
+            y: y + (Math.random() - 0.5) * spread * 0.5,
+            vx: (Math.random() - 0.5) * 40,
+            vy: (up ? -20 : 10) + Math.random() * 30,
+            r: 0.8 + Math.random() * 2.0,
+            a: 0.25 + Math.random() * 0.3,
+            life: 0.8 + Math.random() * 1.2,
+        });
+    }
+}
+
+// ---- Werkzeuge (Kreide & Schwamm) -------------------------------------------------
+const chalk = { x: 430, y: LEDGE.y + 46, a: 0.25, idleX: 430, idleY: LEDGE.y + 46, idleA: 0.25 };
+const sponge = { x: 1240, y: LEDGE.y + 52, a: 0, idleX: 1240, idleY: LEDGE.y + 52, idleA: 0 };
+
+function drawChalk(g) {
+    g.save();
+    g.translate(chalk.x, chalk.y);
+    g.rotate(chalk.a);
+    g.fillStyle = 'rgba(0,0,0,0.25)';
+    g.fillRect(-9, 6, 66, 10);
+    const grad = g.createLinearGradient(0, -9, 0, 9);
+    grad.addColorStop(0, '#fbf8ee');
+    grad.addColorStop(0.5, '#e8e2d0');
+    grad.addColorStop(1, '#c9c2ae');
+    g.fillStyle = grad;
+    g.beginPath();
+    if (g.roundRect) g.roundRect(-6, -9, 68, 18, 5); else g.rect(-6, -9, 68, 18);
+    g.fill();
+    g.fillStyle = 'rgba(160,150,130,0.5)';
+    g.fillRect(-6, -9, 5, 18);
+    g.restore();
+}
+
+function drawSponge(g) {
+    g.save();
+    g.translate(sponge.x, sponge.y);
+    g.rotate(sponge.a);
+    g.fillStyle = 'rgba(0,0,0,0.3)';
+    g.fillRect(-62, 26, 124, 12);
+    const grad = g.createLinearGradient(0, -34, 0, 34);
+    grad.addColorStop(0, '#8fa0b5');
+    grad.addColorStop(0.55, '#71829a');
+    grad.addColorStop(0.62, '#5d6c82');
+    grad.addColorStop(1, '#4c5869');
+    g.fillStyle = grad;
+    g.beginPath();
+    if (g.roundRect) g.roundRect(-64, -34, 128, 68, 12); else g.rect(-64, -34, 128, 68);
+    g.fill();
+    // Poren
+    for (let i = 0; i < 26; i++) {
+        g.fillStyle = `rgba(30,40,55,${0.10 + Math.random() * 0.12})`;
+        g.beginPath();
+        g.arc(-52 + Math.random() * 104, -24 + Math.random() * 48, 1.5 + Math.random() * 3.4, 0, Math.PI * 2);
+        g.fill();
+    }
+    g.restore();
+}
+
+// ---- Ton ----------------------------------------------------------------------
+let audioOn = false, actx = null, scratchGain = null, swooshGain = null;
+function ensureAudio() {
+    if (actx) return;
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const len = actx.sampleRate * 2;
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = actx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    const bp1 = actx.createBiquadFilter();
+    bp1.type = 'bandpass'; bp1.frequency.value = 2400; bp1.Q.value = 2.5;
+    scratchGain = actx.createGain(); scratchGain.gain.value = 0;
+    src.connect(bp1).connect(scratchGain).connect(actx.destination);
+    const bp2 = actx.createBiquadFilter();
+    bp2.type = 'bandpass'; bp2.frequency.value = 500; bp2.Q.value = 0.8;
+    swooshGain = actx.createGain(); swooshGain.gain.value = 0;
+    src.connect(bp2).connect(swooshGain).connect(actx.destination);
+    src.start();
+}
+function setTone(scratch, swoosh) {
+    if (!actx || !audioOn) return;
+    const t = actx.currentTime;
+    scratchGain.gain.setTargetAtTime(scratch, t, 0.03);
+    swooshGain.gain.setTargetAtTime(swoosh, t, 0.05);
+}
+const soundBtn = document.getElementById('soundBtn');
+soundBtn.addEventListener('click', () => {
+    audioOn = !audioOn;
+    soundBtn.innerHTML = audioOn ? '&#128266; Ton an' : '&#128263; Ton aus';
+    if (audioOn) { ensureAudio(); actx.resume(); }
+    else if (actx) { scratchGain.gain.value = 0; swooshGain.gain.value = 0; }
+});
+
+// ---- Aktions-Warteschlange -------------------------------------------------------
+// Aktionen: {type:'write', strokes, width, speed} | {type:'wipe', rect} | {type:'pause', ms}
+const queue = [];
+let current = null;
+
+function startAction(a) {
+    current = a;
+    if (a.type === 'write') {
+        a.stroke = 0; a.t = 0;
+        a.pts = a.strokes[0];
+    } else if (a.type === 'wipe') {
+        // Zickzack-Pfad über das Rechteck
+        const r = a.rect, path = [];
+        if (r.w >= r.h) {
+            const rows = Math.max(2, Math.ceil(r.h / 90));
+            for (let i = 0; i <= rows; i++) {
+                const y = r.y + (r.h * i) / rows;
+                path.push([i % 2 ? r.x + r.w : r.x, y]);
+                path.push([i % 2 ? r.x : r.x + r.w, y]);
+            }
+        } else {
+            const cols = Math.max(2, Math.ceil(r.w / 110));
+            for (let i = 0; i <= cols; i++) {
+                const x = r.x + (r.w * i) / cols;
+                path.push([x, i % 2 ? r.y + r.h : r.y]);
+                path.push([x, i % 2 ? r.y : r.y + r.h]);
+            }
+        }
+        a.pts = smooth(path, 26);
+        a.i = 0;
+    } else if (a.type === 'pause') {
+        a.left = a.ms;
+    }
+}
+
+function processQueue(dt) {
+    if (!current) {
+        if (queue.length === 0) return false;
+        startAction(queue.shift());
+    }
+    const a = current;
+    if (a.type === 'pause') {
+        a.left -= dt * 1000;
+        if (a.left <= 0) current = null;
+        return true;
+    }
+    if (a.type === 'write') {
+        // Kreide anheben und zum Strichanfang führen geschieht implizit:
+        // wir stempeln entlang der Punktfolge mit fester Geschwindigkeit.
+        // Zeitbudget-Formulierung: jede Runde schließt entweder ein Segment
+        // exakt ab (t wird ganzzahlig) oder setzt das Budget exakt auf 0 —
+        // so kann sich kein Fließkomma-Rest festfressen.
+        const speed = a.speed || 1300;         // Einheiten/s
+        let remaining = dt;
+        while (remaining > 0 && a.stroke < a.strokes.length) {
+            const pts = a.strokes[a.stroke];
+            if (pts.length === 1) {
+                // Punkt (Doppelpunkt): dicker Tupfer
+                for (let k = 0; k < 9; k++) chalkDab(pts[0][0], pts[0][1], a.width * 1.1, 1);
+                chalk.x = pts[0][0] + 26; chalk.y = pts[0][1] + 14;
+                a.stroke++; a.t = 0;
+                remaining -= 30 / speed;
+                continue;
+            }
+            if (a.t >= pts.length - 1) { a.stroke++; a.t = 0; continue; }
+            const i = Math.floor(a.t);
+            const frac = a.t - i;
+            const p = pts[i], q = pts[i + 1];
+            const segLen = Math.hypot(q[0] - p[0], q[1] - p[1]) || 0.5;
+            const need = (1 - frac) * segLen / speed;   // Zeit bis Segmentende
+            let nf;
+            if (remaining >= need) {
+                nf = 1;
+                remaining -= need;
+            } else {
+                nf = frac + remaining * speed / segLen;
+                remaining = 0;
+            }
+            const nx = p[0] + (q[0] - p[0]) * nf;
+            const ny = p[1] + (q[1] - p[1]) * nf;
+            chalkDab(nx, ny, a.width, 1);
+            if (Math.random() < 0.10) puff(nx, ny + 8, 1, 10, false);
+            chalk.x = nx + 26; chalk.y = ny + 14; chalk.a = -0.6;
+            a.t = nf >= 1 ? i + 1 : i + nf;
+        }
+        setTone(0.035 + Math.random() * 0.02, 0);
+        if (a.stroke >= a.strokes.length) { current = null; setTone(0, 0); }
+        return true;
+    }
+    if (a.type === 'wipe') {
+        const speed = 2400;
+        let dist = speed * dt;
+        while (dist > 0 && a.i < a.pts.length - 1) {
+            const p = a.pts[a.i], q = a.pts[a.i + 1];
+            const segLen = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+            eraseDab(p[0], p[1], 92, 0.55);
+            eraseDab(p[0], p[1], 60, 0.8);
+            if (Math.random() < 0.5) {
+                smear(p[0], p[1], (q[0] - p[0]) / segLen, (q[1] - p[1]) / segLen, 130);
+            }
+            if (Math.random() < 0.25) puff(p[0], p[1], 2, 60, true);
+            sponge.x = p[0]; sponge.y = p[1];
+            sponge.a = Math.sin(performance.now() / 130) * 0.06;
+            dist -= segLen;
+            a.i++;
+        }
+        setTone(0, 0.07);
+        if (a.i >= a.pts.length - 1) { current = null; setTone(0, 0); }
+        return true;
+    }
+    return true;
+}
+
+// ---- Uhrzustand -------------------------------------------------------------------
+let shownTime = null;      // z. B. "12:34" (was auf der Tafel steht/entsteht)
+let shownTallies = 0;      // wie viele Striche schon beauftragt sind
+
+function timeString(d) {
+    const p2 = n => String(n).padStart(2, '0');
+    return p2(d.getHours()) + ':' + p2(d.getMinutes());
+}
+
+function enqueueChar(i, ch, speed) {
+    const w = slotW[i];
+    const x = timeX0 + ADV * i + (w < CHAR_W ? (CHAR_W - w) / 2 : 0);
+    queue.push({
+        type: 'write',
+        strokes: layoutGlyph(ch, x, TIME_Y, w, TIME_H),
+        width: 9,
+        speed: speed || 950,
+    });
+}
+
+function enqueueTally(i, fast) {
+    const { gx, gy, inGroup } = tallyPos(i);
+    let strokes;
+    if (inGroup < 4) {
+        const x = gx + inGroup * TALLY.markGap;
+        strokes = [smooth([
+            [x + (Math.random() - 0.5) * 6, gy + (Math.random() - 0.5) * 6],
+            [x + (Math.random() - 0.5) * 8, gy + TALLY.markH + (Math.random() - 0.5) * 6],
+        ], 6)];
+    } else {
+        strokes = [smooth([
+            [gx - 14, gy + TALLY.markH * 0.82],
+            [gx + TALLY.markGap * 3 + 16, gy + TALLY.markH * 0.16],
+        ], 8)];
+    }
+    queue.push({ type: 'write', strokes, width: 6.5, speed: fast ? 2600 : 1500 });
+}
+
+function slotRect(i) {
+    const x = timeX0 + ADV * i;
+    return { x: x - 30, y: TIME_Y - 40, w: CHAR_W + 60, h: TIME_H + 80 };
+}
+const tallyRect = {
+    x: TALLY.x0 - 60, y: TALLY.y0 - 50,
+    w: W - 2 * (TALLY.x0 - 60), h: TALLY.rowH + TALLY.markH + 100,
+};
+
+function checkClock() {
+    if (current || queue.length) return;   // erst fertig arbeiten
+    const now = new Date();
+    const ts = timeString(now);
+    const sec = now.getSeconds();
+
+    if (shownTime === null) {
+        // Erstbeschriftung: zügig alles hinschreiben
+        for (let i = 0; i < 5; i++) enqueueChar(i, ts[i], 1600);
+        for (let i = 0; i < sec; i++) enqueueTally(i, true);
+        shownTime = ts;
+        shownTallies = sec;
+        return;
+    }
+    if (ts !== shownTime) {
+        // Nur geänderte Ziffern wischen & neu schreiben, Strichliste immer
+        queue.push({ type: 'wipe', rect: tallyRect });
+        for (let i = 0; i < 5; i++) {
+            if (ts[i] !== shownTime[i]) queue.push({ type: 'wipe', rect: slotRect(i) });
+        }
+        queue.push({ type: 'pause', ms: 220 });
+        for (let i = 0; i < 5; i++) {
+            if (ts[i] !== shownTime[i]) enqueueChar(i, ts[i]);
+        }
+        shownTime = ts;
+        shownTallies = 0;
+        return;
+    }
+    if (shownTallies < sec) {
+        const behind = sec - shownTallies;
+        enqueueTally(shownTallies, behind > 2);
+        shownTallies++;
+    }
+}
+
+// ---- Hauptschleife -----------------------------------------------------------------
+let last = performance.now();
+function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.06);
+    last = now;
+
+    checkClock();
+    const busy = processQueue(dt);
+    if (!busy) {
+        // Werkzeuge zur Ablage zurückgleiten lassen
+        chalk.x += (chalk.idleX - chalk.x) * Math.min(1, dt * 3);
+        chalk.y += (chalk.idleY - chalk.y) * Math.min(1, dt * 3);
+        chalk.a += (chalk.idleA - chalk.a) * Math.min(1, dt * 3);
+        sponge.x += (sponge.idleX - sponge.x) * Math.min(1, dt * 2.5);
+        sponge.y += (sponge.idleY - sponge.y) * Math.min(1, dt * 2.5);
+        sponge.a += (sponge.idleA - sponge.a) * Math.min(1, dt * 2.5);
+        setTone(0, 0);
+    }
+
+    // Staub
+    for (let i = dust.length - 1; i >= 0; i--) {
+        const p = dust[i];
+        p.life -= dt;
+        if (p.life <= 0) { dust.splice(i, 1); continue; }
+        p.vy += 260 * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+    }
+
+    // Zeichnen
+    ctx.drawImage(bg, 0, 0);
+    ctx.drawImage(board, 0, 0);
+    for (const p of dust) {
+        ctx.fillStyle = `rgba(240,236,222,${Math.max(0, p.a * p.life)})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    drawSponge(ctx);
+    drawChalk(ctx);
+
+    requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

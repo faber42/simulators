@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kugeluhr</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        overflow: hidden;
+        background: radial-gradient(120% 100% at 50% 20%, #33383f 0%, #24282e 55%, #17191d 100%);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #e8eaed; background: rgba(20,22,26,0.7);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .back:hover { background: rgba(45,50,58,0.9); }
+    .soundbtn {
+        position: fixed; top: 1rem; right: 1rem; z-index: 10;
+        background: rgba(20,22,26,0.7); color: #e8eaed;
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .soundbtn:hover { background: rgba(45,50,58,0.9); }
+    canvas { display: block; }
+    .demo {
+        position: fixed; bottom: 3.2rem; right: 1rem; z-index: 10;
+        display: flex; flex-direction: column; gap: 0.4rem;
+        align-items: stretch;
+    }
+    .demo span { color: #9aa0a6; font-size: 0.75rem; text-align: right; }
+    .demo button {
+        background: rgba(20,22,26,0.75); color: #e8eaed;
+        border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+        padding: 0.35rem 0.7rem; font-size: 0.8rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .demo button:hover { border-color: #c9a86a; }
+    .demo button.active { border-color: #c9a86a; color: #e8c885; }
+    .caption {
+        position: fixed; bottom: 1.0rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(200,205,214,0.45);
+        font-size: 0.8rem;
+        pointer-events: none;
+    }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+    <button class="soundbtn" id="soundBtn" title="Kugelklackern an/aus">&#128263; Ton aus</button>
+
+    <canvas id="canvas"></canvas>
+
+    <div class="demo">
+        <span>Vorf&uuml;hren:</span>
+        <button data-demo="minute">Minutenwechsel</button>
+        <button data-demo="hour">Stundenwechsel</button>
+        <button data-demo="midnight">Mitternacht</button>
+    </div>
+    <div class="caption">Jede Sekunde f&auml;llt eine Kugel in die oberste Wanne. Wird eine Wanne zu voll, kippt sie: die erste Kugel tr&auml;gt eine Stelle weiter nach unten, der Rest rollt zur&uuml;ck ins Reservoir.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Kugeluhr — dezimale Kugellaufuhr
+//  - Kettenaufzug hebt Kugeln zum Zulaufkanal, ein Taktschieber lässt
+//    jede Sekunde genau eine Kugel in die Sekunden-Einer-Wanne.
+//  - Wannen (Kapazität 9/5/9/5/9/2) kippen beim Überlauf: Kugel Nr. 1
+//    fällt in den Übertragtrichter zur nächsten Stelle, der Rest fliegt
+//    über die geschlossene Trichterklappe in den Rückführkanal.
+//  - Mitternachtsauslöser: erreicht das Stundenwerk 2/4 (= 24 h),
+//    entleeren beide Stundenwannen komplett ins Reservoir.
+//  - Anzeige = Kugelzahl je Wanne; die Digitalanzeige oben liest nur ab.
+// ============================================================================
+
+const W = 1400, H = 1050;
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+    const s = Math.min(window.innerWidth * 0.96 / W, window.innerHeight * 0.92 / H);
+    canvas.style.width = (W * s) + 'px';
+    canvas.style.height = (H * s) + 'px';
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(W * s * dpr);
+    canvas.height = Math.round(H * s * dpr);
+    ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---- Geometrie ----------------------------------------------------------------
+const BALL_R = 12, SLOT = 26;
+const CAPS = [9, 5, 9, 5, 9, 2];                    // Sek-E, Sek-Z, Min-E, Min-Z, Std-E, Std-Z
+const NAMES = [['Sekunden', 'Einer'], ['Sekunden', 'Zehner'], ['Minuten', 'Einer'],
+               ['Minuten', 'Zehner'], ['Stunden', 'Einer'], ['Stunden', 'Zehner']];
+const TOTAL = 74;
+
+const DUCT_L = 205, DUCT_R = 1120;                  // Rückführkanäle
+const RES = { x: 330, y: 952, w: 760, h: 72 };      // Reservoir
+const LIFT_X = 1258, LIFT_TOP = 82, LIFT_BOT = 940;
+const FEED_Y = 90, GATE_X = 1002;                   // Zulaufkanal & Taktschieber
+const FEED_MAX = 8;
+
+// Wannen: Einlauf gegenüber der Kipplippe, Lippen wechseln die Seite
+const troughs = [];
+{
+    let entryX = 980;                               // unter der Schieberkante
+    for (let i = 0; i < 6; i++) {
+        const dir = (i % 2 === 0) ? -1 : 1;         // Kippseite: -1 = links
+        const len = (CAPS[i] + 1) * SLOT + 46;
+        const cx = entryX + dir * len / 2;
+        const cy = 190 + i * 126;
+        troughs.push({
+            i, dir, len, cx, cy,
+            count: 0,
+            angle: 0,                                // aktuelle Neigung
+            tip: null,                               // {t}
+        });
+        entryX = cx + dir * len / 2;                 // Lippe = Einlauf der nächsten
+    }
+}
+const trough = (i) => troughs[i];
+const lipX = (tr) => tr.cx + tr.dir * tr.len / 2;
+const entX = (tr) => tr.cx - tr.dir * tr.len / 2;
+
+// Slotposition (lokal von der Lippe her gezählt), Weltkoordinaten
+function slotPos(tr, k) {
+    const off = tr.dir * (tr.len / 2 - 18 - k * SLOT);
+    const sin = Math.sin(tr.angle), cos = Math.cos(tr.angle);
+    return { x: tr.cx + off * cos, y: tr.cy - 10 + off * sin };
+}
+
+// ---- Bestand -------------------------------------------------------------------
+let reservoir = TOTAL;
+let feeder = 0;                                     // Kugeln im Zulaufkanal
+let feederSlide = 0;                                // Nachrutsch-Animation
+const flights = [];                                 // fliegende Kugeln
+const buckets = [];                                 // Aufzugsbecher
+const BUCKET_N = 8, BUCKET_GAP = (LIFT_BOT - LIFT_TOP + 160) / BUCKET_N;
+for (let i = 0; i < BUCKET_N; i++) buckets.push({ pos: i * BUCKET_GAP, ball: false });
+
+// ---- Sound -----------------------------------------------------------------------
+let audioOn = false, actx = null, lastKlack = 0;
+function klack(vol, freq) {
+    if (!audioOn) return;
+    const nowMs = performance.now();
+    if (nowMs - lastKlack < 18) return;
+    lastKlack = nowMs;
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const t = actx.currentTime;
+    const len = Math.floor(actx.sampleRate * 0.025);
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = freq * (0.85 + Math.random() * 0.3);
+    bp.Q.value = 1.6;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    src.connect(bp).connect(g).connect(actx.destination);
+    src.start(t);
+}
+const soundBtn = document.getElementById('soundBtn');
+soundBtn.addEventListener('click', () => {
+    audioOn = !audioOn;
+    soundBtn.innerHTML = audioOn ? '&#128266; Ton an' : '&#128263; Ton aus';
+    if (audioOn) klack(0.2, 2000);
+});
+
+// ---- Kugelflüge -------------------------------------------------------------------
+function spawnFlight(pts, opts) {
+    const f = {
+        pts, seg: 0, t: 0,
+        delay: (opts && opts.delay) || 0,
+        onArrive: opts && opts.onArrive,
+        vanishInDuct: opts && opts.vanishInDuct,
+    };
+    flights.push(f);
+    return f;
+}
+
+function stepFlights(dt) {
+    for (let i = flights.length - 1; i >= 0; i--) {
+        const f = flights[i];
+        if (f.delay > 0) { f.delay -= dt; continue; }
+        let dist = dt * 0;
+        // Geschwindigkeit je Segment: rollen ~460, fallen bis ~1150
+        let remaining = dt;
+        while (remaining > 0 && f.seg < f.pts.length - 1) {
+            const p = f.pts[f.seg], q = f.pts[f.seg + 1];
+            const dx = q[0] - p[0], dy = q[1] - p[1];
+            const segLen = Math.hypot(dx, dy) || 1;
+            const steep = Math.max(0, dy / segLen);
+            const v = 430 + 820 * steep;
+            const need = (1 - f.t) * segLen / v;
+            if (remaining >= need) {
+                remaining -= need;
+                f.seg++; f.t = 0;
+            } else {
+                f.t += remaining * v / segLen;
+                remaining = 0;
+            }
+        }
+        if (f.seg >= f.pts.length - 1) {
+            flights.splice(i, 1);
+            if (f.onArrive) f.onArrive();
+        }
+    }
+}
+function flightPos(f) {
+    if (f.delay > 0) return f.pts[0];
+    const p = f.pts[f.seg], q = f.pts[Math.min(f.seg + 1, f.pts.length - 1)];
+    return [p[0] + (q[0] - p[0]) * f.t, p[1] + (q[1] - p[1]) * f.t];
+}
+
+// ---- Mechanik ----------------------------------------------------------------------
+function ductFor(dir) { return dir < 0 ? DUCT_L : DUCT_R; }
+
+function arriveAt(ti) {
+    const tr = trough(ti);
+    tr.count++;
+    klack(0.15, 1500 - ti * 90);
+    // Mitternachtsauslöser: Stundenwerk zeigt 24
+    if (ti === 4 && tr.count === 4 && trough(5).count === 2) {
+        tipTrough(4, true);
+        tipTrough(5, true);
+        return;
+    }
+    if (tr.count === CAPS[ti] + 1) tipTrough(ti, false);
+}
+
+function tipTrough(ti, dumpAll) {
+    const tr = trough(ti);
+    if (tr.tip) return;
+    const n = tr.count;
+    tr.tip = { t: 0 };
+    tr.count = 0;
+    klack(0.3, 700);
+
+    const lx = lipX(tr), d = tr.dir;
+    // Positionen bei voller Neigung als Startpunkte
+    const tilted = { ...tr, angle: d * 0.30 };
+    for (let k = 0; k < n; k++) {
+        const start = slotPos(tilted, k);
+        const delay = 0.30 + k * 0.085;
+        if (k === 0 && !dumpAll && ti < 5) {
+            // Übertragkugel: durch den Trichter zur nächsten Wanne
+            const nxt = trough(ti + 1);
+            const ex = entX(nxt);
+            spawnFlight([
+                [start.x, start.y],
+                [lx + d * 20, tr.cy + 4],
+                [lx + d * 20, tr.cy + 46],
+                [ex, nxt.cy - 52],
+                slotXY(nxt, 'incoming'),
+            ], { delay, onArrive: () => arriveAt(ti + 1) });
+        } else {
+            // zurück ins Reservoir über den Rückführkanal
+            const duct = ductFor(d);
+            spawnFlight([
+                [start.x, start.y],
+                [lx + d * 52, tr.cy - 26],
+                [duct, tr.cy + 6],
+                [duct, RES.y - 20],
+                [RES.x + RES.w * (0.2 + Math.random() * 0.6), RES.y + 18],
+            ], { delay, onArrive: () => { reservoir++; klack(0.08, 2400); } });
+        }
+    }
+}
+
+function slotXY(tr, mode) {
+    // Zielslot für eine ankommende Kugel (hinter der aktuellen Schlange)
+    const k = mode === 'incoming' ? tr.count : Math.max(0, tr.count - 1);
+    const p = slotPos({ ...tr, angle: 0 }, Math.min(k, CAPS[tr.i]));
+    return [p.x, p.y];
+}
+
+// Taktschieber: eine Kugel aus dem Zulauf in Wanne 0
+let gateAnim = 0;
+function releaseBall() {
+    if (feeder <= 0) return;
+    feeder--;
+    feederSlide = 1;
+    gateAnim = 1;
+    klack(0.1, 3000);
+    const tr = trough(0);
+    spawnFlight([
+        [GATE_X - 14, FEED_Y],
+        [GATE_X - 42, FEED_Y + 2],
+        [entX(tr), tr.cy - 52],
+        slotXY(tr, 'incoming'),
+    ], { onArrive: () => arriveAt(0) });
+}
+
+// ---- Aufzug ----------------------------------------------------------------------------
+let liftIncoming = 0;   // Kugeln unterwegs Richtung Zulauf (Becher + Flüge)
+function stepLift(dt) {
+    for (const b of buckets) {
+        const prev = b.pos;
+        b.pos += dt * 136;                          // liefert ~1,07 Kugeln/s — knapp über dem Verbrauch
+        if (b.pos >= LIFT_BOT - LIFT_TOP + 160) b.pos -= LIFT_BOT - LIFT_TOP + 160;
+        const y = LIFT_BOT - b.pos;
+        const prevY = LIFT_BOT - prev;
+        // unten beladen
+        if (!b.ball && prevY > LIFT_BOT - 30 && y <= LIFT_BOT - 30 &&
+            reservoir > 0 && feeder + liftIncoming < FEED_MAX) {
+            b.ball = true;
+            reservoir--;
+            liftIncoming++;
+        }
+        // oben in den Zulauf kippen
+        if (b.ball && prevY > LIFT_TOP + 24 && y <= LIFT_TOP + 24) {
+            b.ball = false;
+            const slot = feeder;
+            spawnFlight([
+                [LIFT_X - 24, LIFT_TOP + 14],
+                [GATE_X + 20 + slot * SLOT, FEED_Y],
+            ], {
+                onArrive: () => { feeder++; liftIncoming--; klack(0.06, 2600); },
+            });
+        }
+    }
+}
+
+// ---- Virtuelle Uhr ----------------------------------------------------------------------
+function wallSeconds() {
+    const d = new Date();
+    return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() + d.getMilliseconds() / 1000;
+}
+let live = true;
+let simT = wallSeconds();
+let lastWhole = Math.floor(simT);
+let demoUntil = 0;
+
+function resync(t) {
+    const s = Math.floor(t) % 86400;
+    const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
+    flights.length = 0;
+    const digits = [ss % 10, Math.floor(ss / 10), mm % 10, Math.floor(mm / 10), hh % 10, Math.floor(hh / 10)];
+    troughs.forEach((tr, i) => { tr.count = digits[i]; tr.tip = null; tr.angle = 0; });
+    feeder = 5;
+    liftIncoming = 0;
+    let inBuckets = 0;
+    buckets.forEach((b, i) => { b.ball = i % 2 === 0; if (b.ball) inBuckets++; });
+    liftIncoming = inBuckets;
+    reservoir = TOTAL - digits.reduce((a, b) => a + b, 0) - feeder - inBuckets;
+}
+
+function stepClock(dt) {
+    if (live) {
+        simT = wallSeconds();
+        // Mitternachtssprung der Echtzeit abfangen
+        if (simT + 1 < lastWhole) { resync(simT); lastWhole = Math.floor(simT); return; }
+    } else {
+        simT += dt;
+        if (simT >= demoUntil) {
+            live = true;
+            document.querySelectorAll('.demo button').forEach(b => b.classList.remove('active'));
+            simT = wallSeconds();
+            resync(simT);
+            lastWhole = Math.floor(simT);
+            return;
+        }
+    }
+    let pending = Math.floor(simT) - lastWhole;
+    if (pending < 0 || pending > 3) {               // Tab war im Hintergrund o. Ä.
+        resync(simT);
+        lastWhole = Math.floor(simT);
+        return;
+    }
+    while (pending-- > 0) {
+        lastWhole++;
+        releaseBall();
+    }
+
+    // Sicherheitsnetz: hinkt die Sekundenanzeige anhaltend hinterher
+    // (z. B. leergelaufener Zulauf), wird hart nachgestellt.
+    if (live) {
+        const secOfMin = Math.floor(simT) % 60;
+        const displayed = trough(0).count + trough(1).count * 10;
+        if (secOfMin > 8 && secOfMin < 52 && Math.abs(secOfMin - displayed) > 6) {
+            driftT += dt;
+            if (driftT > 3) {
+                resync(simT);
+                lastWhole = Math.floor(simT);
+                driftT = 0;
+            }
+        } else {
+            driftT = 0;
+        }
+    }
+}
+let driftT = 0;
+
+// ---- Vorführmodus --------------------------------------------------------------------------
+document.querySelectorAll('.demo button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const now = new Date();
+        let target;
+        if (btn.dataset.demo === 'minute') {
+            target = now.getHours() * 3600 + now.getMinutes() * 60 + 55;
+        } else if (btn.dataset.demo === 'hour') {
+            target = now.getHours() * 3600 + 59 * 60 + 55;
+        } else {
+            target = 23 * 3600 + 59 * 60 + 54;
+        }
+        live = false;
+        simT = target;
+        demoUntil = target + 16;
+        lastWhole = Math.floor(simT);
+        resync(simT);
+        document.querySelectorAll('.demo button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    });
+});
+
+// ---- Zeichnen -------------------------------------------------------------------------------
+function ball(g, x, y, r) {
+    const grad = g.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.15, x, y, r);
+    grad.addColorStop(0, '#f2f5f8');
+    grad.addColorStop(0.45, '#b9c0c8');
+    grad.addColorStop(1, '#6a7078');
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+}
+
+function drawTrough(g, tr) {
+    g.save();
+    g.translate(tr.cx, tr.cy);
+    g.rotate(tr.angle);
+    // Trog
+    const L = tr.len / 2;
+    const brass = g.createLinearGradient(0, -18, 0, 16);
+    brass.addColorStop(0, '#d9b96a');
+    brass.addColorStop(0.5, '#b08e42');
+    brass.addColorStop(1, '#7c5f26');
+    g.fillStyle = brass;
+    g.fillRect(-L, 2, tr.len, 12);                    // Boden
+    const entrySide = tr.dir > 0 ? -L : L - 8;
+    g.fillRect(entrySide, -22, 8, 36);                // Wand Einlaufseite
+    const lipSide = tr.dir > 0 ? L - 8 : -L;
+    g.fillRect(lipSide, -14, 8, 28);                  // niedrige Lippe (Kippseite)
+    g.fillStyle = 'rgba(0,0,0,0.25)';
+    g.fillRect(-L, 2, tr.len, 3);
+    g.restore();
+
+    // Drehlager
+    ctx.fillStyle = '#3c4046';
+    ctx.beginPath();
+    ctx.arc(tr.cx, tr.cy + 14, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#82878e';
+    ctx.beginPath();
+    ctx.arc(tr.cx, tr.cy + 14, 3, 0, Math.PI * 2);
+    ctx.fill();
+    // Wandhalter
+    ctx.fillStyle = '#31353b';
+    ctx.fillRect(tr.cx - 4, tr.cy + 14, 8, 34);
+    ctx.beginPath();
+    ctx.arc(tr.cx, tr.cy + 52, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Kugeln im Trog
+    for (let k = 0; k < tr.count; k++) {
+        const p = slotPos(tr, k);
+        ball(ctx, p.x, p.y, BALL_R);
+    }
+
+    // Übertragtrichter an der Lippe (außer letzter Wanne)
+    if (tr.i < 5) {
+        const lx = lipX(tr), d = tr.dir;
+        ctx.strokeStyle = '#9a7b3a';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(lx + d * 4, tr.cy - 2);
+        ctx.lineTo(lx + d * 34, tr.cy + 14);
+        ctx.lineTo(lx + d * 34, tr.cy + 40);
+        ctx.stroke();
+        const nxt = trough(tr.i + 1);
+        const ex = entX(nxt);
+        ctx.strokeStyle = 'rgba(154,123,58,0.55)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(lx + d * 20, tr.cy + 44);
+        ctx.lineTo(ex, nxt.cy - 54);
+        ctx.stroke();
+    }
+
+    // Zählerschild an der Einlaufseite
+    const px = entX(tr) - tr.dir * 66;
+    ctx.fillStyle = '#efe9d8';
+    ctx.strokeStyle = '#5b5648';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(px - 34, tr.cy - 38, 68, 70, 6);
+    else ctx.rect(px - 34, tr.cy - 38, 68, 70);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#23262b';
+    ctx.font = '700 34px Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(tr.count), px, tr.cy + 2);
+    ctx.fillStyle = 'rgba(35,38,43,0.7)';
+    ctx.font = '10px system-ui, sans-serif';
+    ctx.fillText(NAMES[tr.i][0], px, tr.cy + 15);
+    ctx.fillText(NAMES[tr.i][1], px, tr.cy + 27);
+}
+
+// Reservoir-Haufenpositionen vorberechnen
+const heap = [];
+{
+    let n = 0;
+    for (let row = 0; row < 4 && n < 66; row++) {
+        const y = RES.y + RES.h - 16 - row * 20;
+        const count = 30 - row * 2;
+        for (let c = 0; c < count && n < 66; c++, n++) {
+            heap.push([RES.x + 26 + c * ((RES.w - 52) / (count - 1)) + (row % 2) * 6, y]);
+        }
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Rückwand der Maschine
+    ctx.fillStyle = 'rgba(255,255,255,0.025)';
+    ctx.fillRect(140, 50, W - 220, H - 90);
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.strokeRect(140, 50, W - 220, H - 90);
+
+    // Digitalanzeige (liest die Wannen ab)
+    const t5 = trough(5).count, t4 = trough(4).count, t3 = trough(3).count;
+    const t2 = trough(2).count, t1 = trough(1).count, t0 = trough(0).count;
+    ctx.fillStyle = '#e8e2d0';
+    ctx.font = '700 58px Consolas, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${t5}${t4}:${t3}${t2}:${t1}${t0}`, 170, 130);
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(232,226,208,0.5)';
+    ctx.fillText(live ? 'abgelesen aus den Wannen' : 'VORFÜHRUNG — danach zurück zur Echtzeit', 172, 152);
+
+    // Rückführkanäle
+    for (const x of [DUCT_L, DUCT_R]) {
+        ctx.strokeStyle = '#4a4f56';
+        ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.moveTo(x - 18, 150); ctx.lineTo(x - 18, RES.y - 6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + 18, 150); ctx.lineTo(x + 18, RES.y - 6); ctx.stroke();
+    }
+
+    // Aufzug
+    ctx.strokeStyle = '#4a4f56';
+    ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(LIFT_X, LIFT_TOP - 26); ctx.lineTo(LIFT_X, LIFT_BOT + 26); ctx.stroke();
+    ctx.strokeStyle = '#666c74';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([7, 9]);
+    const dashOff = -(performance.now() / 12) % 16;
+    ctx.lineDashOffset = dashOff;
+    ctx.beginPath(); ctx.moveTo(LIFT_X - 14, LIFT_BOT + 20); ctx.lineTo(LIFT_X - 14, LIFT_TOP - 20); ctx.stroke();
+    ctx.setLineDash([]);
+    for (const c of [[LIFT_X, LIFT_TOP - 26], [LIFT_X, LIFT_BOT + 26]]) {
+        ctx.fillStyle = '#31353b';
+        ctx.beginPath(); ctx.arc(c[0], c[1], 20, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#82878e';
+        ctx.beginPath(); ctx.arc(c[0], c[1], 7, 0, Math.PI * 2); ctx.fill();
+    }
+    for (const b of buckets) {
+        const y = LIFT_BOT - b.pos;
+        if (y < LIFT_TOP - 10 || y > LIFT_BOT + 14) continue;
+        ctx.fillStyle = '#5c626b';
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(LIFT_X - 30, y - 6, 34, 20, 5);
+        else ctx.rect(LIFT_X - 30, y - 6, 34, 20);
+        ctx.fill();
+        if (b.ball) ball(ctx, LIFT_X - 13, y - 2, BALL_R - 1);
+    }
+
+    // Zulaufkanal + Taktschieber
+    ctx.strokeStyle = '#4a4f56';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(GATE_X - 24, FEED_Y + BALL_R + 4);
+    ctx.lineTo(LIFT_X - 20, FEED_Y + BALL_R + 4);
+    ctx.stroke();
+    const gateY = FEED_Y - 20 + (gateAnim > 0 ? 26 * Math.sin(Math.min(gateAnim, 1) * Math.PI) : 0);
+    ctx.fillStyle = '#c9a86a';
+    ctx.fillRect(GATE_X - 4, gateY - 14, 8, 30);
+    for (let i = 0; i < feeder; i++) {
+        const x = GATE_X + 16 + (i + feederSlide) * SLOT;
+        ball(ctx, x, FEED_Y, BALL_R);
+    }
+
+    // Wannen
+    for (const tr of troughs) drawTrough(ctx, tr);
+
+    // Reservoir
+    ctx.fillStyle = '#2a2e34';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(RES.x, RES.y, RES.w, RES.h, 12);
+    else ctx.rect(RES.x, RES.y, RES.w, RES.h);
+    ctx.fill();
+    ctx.strokeStyle = '#4a4f56';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    const shown = Math.min(reservoir, heap.length);
+    for (let i = 0; i < shown; i++) ball(ctx, heap[i][0], heap[i][1], BALL_R - 1);
+    ctx.fillStyle = 'rgba(232,226,208,0.55)';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Reservoir: ${reservoir} Kugeln`, RES.x + RES.w / 2, RES.y + RES.h + 20);
+
+    // fliegende Kugeln
+    for (const f of flights) {
+        const p = flightPos(f);
+        ball(ctx, p[0], p[1], BALL_R);
+    }
+}
+
+// ---- Hauptschleife ---------------------------------------------------------------------------
+resync(wallSeconds());
+let last = performance.now();
+function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+
+    stepClock(dt);
+    stepLift(dt);
+    stepFlights(dt);
+    if (gateAnim > 0) gateAnim -= dt * 5;
+    if (feederSlide > 0) feederSlide = Math.max(0, feederSlide - dt * 7);
+
+    for (const tr of troughs) {
+        if (tr.tip) {
+            tr.tip.t += dt;
+            const t = tr.tip.t;
+            const peak = tr.dir * 0.30;
+            if (t < 0.28) tr.angle = peak * (t / 0.28);
+            else if (t < 1.05) tr.angle = peak;
+            else if (t < 1.4) tr.angle = peak * (1 - (t - 1.05) / 0.35);
+            else { tr.angle = 0; tr.tip = null; }
+        }
+    }
+
+    draw();
+    requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

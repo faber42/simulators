@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vogelschwarm-Uhr</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { overflow: hidden; background: #1c2438; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; cursor: pointer; }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #f0ede6; background: rgba(20,24,36,0.55);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+        border: 1px solid rgba(255,255,255,0.10);
+    }
+    .back:hover { background: rgba(40,46,66,0.8); }
+    .caption {
+        position: fixed; bottom: 1.0rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(240,235,225,0.5);
+        font-size: 0.8rem;
+        pointer-events: none;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+    <canvas id="canvas"></canvas>
+    <div class="caption">Zum Minutenwechsel formiert sich der Schwarm zur Uhrzeit &mdash; ein Klick in den Himmel ruft ihn sofort zusammen.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Vogelschwarm-Uhr — Murmuration am Abendhimmel
+//  - Boids mit Separation/Ausrichtung/Kohäsion über ein räumliches Gitter.
+//  - Zum Minutenwechsel bekommt jeder Vogel einen Zielpunkt aus dem
+//    gerasterten Schriftzug HH:MM, sammelt sich (gather), hält die
+//    Formation (hold) und stiebt wieder auseinander (release).
+//  - Alle Bewegungen dt-basiert, unabhängig von der Bildwiederholrate.
+// ============================================================================
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    buildSky();
+    buildTreeline();
+    if (mode !== 'flock') buildTargets(formedTime);
+}
+window.addEventListener('resize', resize);
+
+// ---- Himmel & Horizont (vorgerendert) ---------------------------------------------
+let sky = null, treePath = null;
+function buildSky() {
+    sky = document.createElement('canvas');
+    sky.width = Math.max(2, Math.round(W * DPR));
+    sky.height = Math.max(2, Math.round(H * DPR));
+    const g = sky.getContext('2d');
+    g.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const grad = g.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#1f2a45');
+    grad.addColorStop(0.45, '#41415f');
+    grad.addColorStop(0.72, '#8a5f63');
+    grad.addColorStop(0.92, '#d98a52');
+    grad.addColorStop(1, '#e8a45e');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, W, H);
+    // Sonne
+    const sx = W * 0.72, sy = H * 0.88;
+    const sun = g.createRadialGradient(sx, sy, 4, sx, sy, H * 0.3);
+    sun.addColorStop(0, 'rgba(255,214,150,0.95)');
+    sun.addColorStop(0.12, 'rgba(255,190,110,0.6)');
+    sun.addColorStop(1, 'rgba(255,180,100,0)');
+    g.fillStyle = sun;
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = '#ffe1ac';
+    g.beginPath();
+    g.arc(sx, sy, H * 0.045, 0, Math.PI * 2);
+    g.fill();
+    // schmale Abendwolken
+    for (let i = 0; i < 5; i++) {
+        const y = H * (0.30 + i * 0.13), w = W * (0.24 + Math.random() * 0.4);
+        const x = Math.random() * W;
+        const cl = g.createLinearGradient(x - w / 2, 0, x + w / 2, 0);
+        cl.addColorStop(0, 'rgba(60,50,70,0)');
+        cl.addColorStop(0.5, `rgba(58,48,66,${0.18 + i * 0.05})`);
+        cl.addColorStop(1, 'rgba(60,50,70,0)');
+        g.fillStyle = cl;
+        g.beginPath();
+        g.ellipse(x, y, w / 2, 6 + i * 2.4, 0, 0, Math.PI * 2);
+        g.fill();
+    }
+}
+function buildTreeline() {
+    treePath = new Path2D();
+    treePath.moveTo(0, H);
+    let x = 0;
+    let y = H - 20 - Math.random() * 30;
+    treePath.lineTo(0, y);
+    while (x < W) {
+        x += 14 + Math.random() * 30;
+        const isTree = Math.random() < 0.4;
+        y = H - 18 - (isTree ? 30 + Math.random() * 46 : Math.random() * 22);
+        treePath.lineTo(x, y);
+    }
+    treePath.lineTo(W, H);
+    treePath.closePath();
+}
+
+// ---- Boids ----------------------------------------------------------------------------
+const N = 850;
+const px = new Float32Array(N), py = new Float32Array(N);
+const vx = new Float32Array(N), vy = new Float32Array(N);
+const tx = new Float32Array(N), ty = new Float32Array(N);   // Formationsziel
+const flap = new Float32Array(N);                            // Flügelschlag-Phase
+
+function initBirds() {
+    const cx = W * 0.5, cy = H * 0.4;
+    for (let i = 0; i < N; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.random() * Math.min(W, H) * 0.25;
+        px[i] = cx + Math.cos(a) * r;
+        py[i] = cy + Math.sin(a) * r * 0.6;
+        const va = Math.random() * Math.PI * 2;
+        vx[i] = Math.cos(va) * 120;
+        vy[i] = Math.sin(va) * 120;
+        flap[i] = Math.random() * Math.PI * 2;
+    }
+}
+
+// räumliches Gitter
+const CELL = 60;
+let gridW = 0, gridH = 0, gridHead = null, gridNext = new Int32Array(N);
+function rebuildGrid() {
+    gridW = Math.max(1, Math.ceil(W / CELL));
+    gridH = Math.max(1, Math.ceil(H / CELL));
+    if (!gridHead || gridHead.length < gridW * gridH) gridHead = new Int32Array(gridW * gridH);
+    gridHead.fill(-1);
+    for (let i = 0; i < N; i++) {
+        let cx = Math.floor(px[i] / CELL), cy = Math.floor(py[i] / CELL);
+        cx = Math.max(0, Math.min(gridW - 1, cx));
+        cy = Math.max(0, Math.min(gridH - 1, cy));
+        const c = cy * gridW + cx;
+        gridNext[i] = gridHead[c];
+        gridHead[c] = i;
+    }
+}
+
+// ---- Formation ---------------------------------------------------------------------------
+let mode = 'flock';            // flock | gather | hold | release
+let modeT = 0;
+let formedTime = '';
+let lastMinute = new Date().getMinutes();
+
+function buildTargets(text) {
+    const off = document.createElement('canvas');
+    off.width = 900; off.height = 260;
+    const og = off.getContext('2d');
+    og.fillStyle = '#000';
+    og.fillRect(0, 0, off.width, off.height);
+    og.fillStyle = '#fff';
+    og.font = '700 210px "Segoe UI", system-ui, sans-serif';
+    og.textAlign = 'center';
+    og.textBaseline = 'middle';
+    og.fillText(text, off.width / 2, off.height / 2 + 8);
+    const data = og.getImageData(0, 0, off.width, off.height).data;
+    const pts = [];
+    for (let y = 0; y < off.height; y += 5) {
+        for (let x = 0; x < off.width; x += 5) {
+            if (data[(y * off.width + x) * 4] > 128) {
+                pts.push([x + (Math.random() - 0.5) * 3, y + (Math.random() - 0.5) * 3]);
+            }
+        }
+    }
+    // in den Himmel skalieren
+    const scale = Math.min(W * 0.86 / off.width, H * 0.5 / off.height);
+    const ox = (W - off.width * scale) / 2;
+    const oy = H * 0.36 - off.height * scale / 2;
+    // mischen und zuweisen
+    for (let i = pts.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pts[i], pts[j]] = [pts[j], pts[i]];
+    }
+    for (let i = 0; i < N; i++) {
+        const p = pts[i % pts.length];
+        tx[i] = ox + p[0] * scale + (Math.random() - 0.5) * 4;
+        ty[i] = oy + p[1] * scale + (Math.random() - 0.5) * 4;
+    }
+}
+
+function startFormation(text) {
+    formedTime = text;
+    buildTargets(text);
+    mode = 'gather';
+    modeT = 0;
+}
+
+canvas.addEventListener('click', () => {
+    if (mode === 'flock') {
+        const d = new Date();
+        const p2 = n => String(n).padStart(2, '0');
+        startFormation(p2(d.getHours()) + ':' + p2(d.getMinutes()));
+    }
+});
+
+// ---- Schwarmattraktor (freies Fliegen) --------------------------------------------------------
+let wanderT = Math.random() * 100;
+
+// ---- Simulation ----------------------------------------------------------------------------------
+function step(dt) {
+    wanderT += dt;
+    modeT += dt;
+
+    // Minutenwechsel → Formation
+    const d = new Date();
+    if (d.getMinutes() !== lastMinute) {
+        lastMinute = d.getMinutes();
+        if (mode === 'flock') {
+            const p2 = n => String(n).padStart(2, '0');
+            startFormation(p2(d.getHours()) + ':' + p2(d.getMinutes()));
+        }
+    }
+    if (mode === 'gather' && modeT > 4.5) { mode = 'hold'; modeT = 0; }
+    else if (mode === 'hold' && modeT > 9) {
+        mode = 'release'; modeT = 0;
+        for (let i = 0; i < N; i++) {
+            const a = Math.random() * Math.PI * 2;
+            vx[i] += Math.cos(a) * 190;
+            vy[i] += Math.sin(a) * 190;
+        }
+    }
+    else if (mode === 'release' && modeT > 2.2) { mode = 'flock'; modeT = 0; }
+
+    rebuildGrid();
+
+    const ax = W * (0.5 + 0.30 * Math.sin(wanderT * 0.11));
+    const ay = H * (0.40 + 0.16 * Math.sin(wanderT * 0.173 + 1.7));
+
+    const formStrength = mode === 'gather' ? Math.min(1, modeT / 1.6)
+                       : mode === 'hold' ? 1 : 0;
+    const maxSpd = mode === 'hold' ? 150 : (mode === 'gather' ? 330 : 235);
+
+    for (let i = 0; i < N; i++) {
+        let sepX = 0, sepY = 0, aliX = 0, aliY = 0, cohX = 0, cohY = 0, nb = 0;
+        const cellX = Math.max(0, Math.min(gridW - 1, Math.floor(px[i] / CELL)));
+        const cellY = Math.max(0, Math.min(gridH - 1, Math.floor(py[i] / CELL)));
+        for (let gy = Math.max(0, cellY - 1); gy <= Math.min(gridH - 1, cellY + 1); gy++) {
+            for (let gx = Math.max(0, cellX - 1); gx <= Math.min(gridW - 1, cellX + 1); gx++) {
+                let j = gridHead[gy * gridW + gx];
+                while (j >= 0 && nb < 12) {
+                    if (j !== i) {
+                        const dx = px[j] - px[i], dy = py[j] - py[i];
+                        const d2 = dx * dx + dy * dy;
+                        if (d2 < 56 * 56 && d2 > 0.01) {
+                            const dd = Math.sqrt(d2);
+                            if (dd < 22) { sepX -= dx / dd * (22 - dd); sepY -= dy / dd * (22 - dd); }
+                            aliX += vx[j]; aliY += vy[j];
+                            cohX += px[j]; cohY += py[j];
+                            nb++;
+                        }
+                    }
+                    j = gridNext[j];
+                }
+            }
+        }
+        let fx = 0, fy = 0;
+        if (nb > 0) {
+            // In der Formation tritt das Schwarmverhalten zurück, sonst
+            // drückt die Separation die Vögel von den dichten Zielpunkten weg
+            const fs = 1 - 0.85 * formStrength;
+            fx += sepX * 9 * fs;
+            fy += sepY * 9 * fs;
+            fx += (aliX / nb - vx[i]) * 1.4 * fs;
+            fy += (aliY / nb - vy[i]) * 1.4 * fs;
+            fx += (cohX / nb - px[i]) * 1.6 * fs;
+            fy += (cohY / nb - py[i]) * 1.6 * fs;
+        }
+        if (formStrength > 0) {
+            const dx = tx[i] - px[i], dy = ty[i] - py[i];
+            // nahezu kritisch gedämpfte Feder: setzen statt orbitieren
+            const pull = formStrength * (mode === 'hold' ? 12 : 7);
+            const damp = formStrength * (mode === 'hold' ? 5.5 : 1.2);
+            fx += dx * pull - vx[i] * damp;
+            fy += dy * pull - vy[i] * damp;
+        } else {
+            // freier Flug: sanft zum wandernden Attraktor
+            fx += (ax - px[i]) * 0.55;
+            fy += (ay - py[i]) * 0.55;
+            // Böen
+            fx += Math.sin(wanderT * 0.9 + i * 0.13) * 26;
+            fy += Math.cos(wanderT * 1.1 + i * 0.29) * 22;
+        }
+        // Ränder meiden
+        const M = 60;
+        if (px[i] < M) fx += (M - px[i]) * 4;
+        if (px[i] > W - M) fx -= (px[i] - (W - M)) * 4;
+        if (py[i] < M) fy += (M - py[i]) * 4;
+        if (py[i] > H - 120) fy -= (py[i] - (H - 120)) * 4;
+
+        vx[i] += fx * dt;
+        vy[i] += fy * dt;
+        const spd = Math.hypot(vx[i], vy[i]) || 0.001;
+        const minSpd = formStrength > 0.5 ? 12 : 70;
+        if (spd > maxSpd) { vx[i] *= maxSpd / spd; vy[i] *= maxSpd / spd; }
+        else if (spd < minSpd) { vx[i] *= minSpd / spd; vy[i] *= minSpd / spd; }
+        px[i] += vx[i] * dt;
+        py[i] += vy[i] * dt;
+        flap[i] += dt * (6 + spd * 0.05);
+    }
+}
+
+// ---- Zeichnen ----------------------------------------------------------------------------------------
+function draw() {
+    ctx.drawImage(sky, 0, 0, W, H);
+
+    ctx.strokeStyle = 'rgba(22,24,30,0.9)';
+    ctx.lineWidth = 1.7;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let i = 0; i < N; i++) {
+        const spd = Math.hypot(vx[i], vy[i]) || 1;
+        const dx = vx[i] / spd, dy = vy[i] / spd;
+        const s = 4.6;
+        const wing = Math.sin(flap[i]) * 0.55 + 0.25;
+        // zwei Flügelstriche relativ zur Flugrichtung
+        const wx = -dy, wy = dx;
+        ctx.moveTo(px[i], py[i]);
+        ctx.lineTo(px[i] - dx * s * 0.8 + wx * s * wing, py[i] - dy * s * 0.8 + wy * s * wing);
+        ctx.moveTo(px[i], py[i]);
+        ctx.lineTo(px[i] - dx * s * 0.8 - wx * s * wing, py[i] - dy * s * 0.8 - wy * s * wing);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = '#14161c';
+    ctx.fill(treePath);
+}
+
+// ---- Hauptschleife --------------------------------------------------------------------------------------
+resize();
+initBirds();
+let lastT = performance.now();
+function frame(now) {
+    let dt = (now - lastT) / 1000;
+    lastT = now;
+    dt = Math.min(dt, 0.045);
+    step(dt);
+    draw();
+    requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

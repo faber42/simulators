@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wortuhr</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        overflow: hidden;
+        background:
+            radial-gradient(70% 55% at 50% 46%, #2a2c31 0%, #1a1b1f 55%, #101114 100%);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #e8eaed; background: rgba(20,22,28,0.7);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .back:hover { background: rgba(40,44,52,0.9); }
+    .variantbtn {
+        position: fixed; top: 1rem; right: 1rem; z-index: 10;
+        background: rgba(20,22,28,0.7); color: #e8eaed;
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .variantbtn:hover { background: rgba(40,44,52,0.9); }
+
+    .panel {
+        position: relative;
+        width: min(82vmin, 720px);
+        aspect-ratio: 1;
+        border-radius: 1.6vmin;
+        background:
+            linear-gradient(155deg, rgba(255,255,255,0.05), rgba(255,255,255,0) 30%),
+            linear-gradient(180deg, #131418 0%, #0d0e11 100%);
+        box-shadow:
+            0 3vmin 7vmin rgba(0,0,0,0.65),
+            inset 0 0 0 0.22vmin rgba(255,255,255,0.05),
+            inset 0 0.3vmin 1.4vmin rgba(0,0,0,0.7);
+        padding: 9%;
+    }
+    /* Halo an der Wand hinter der Uhr */
+    .panel::before {
+        content: '';
+        position: absolute; inset: -14%;
+        z-index: -1;
+        background: radial-gradient(50% 50% at 50% 50%, rgba(255,244,214,0.05), rgba(255,244,214,0) 70%);
+    }
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(11, 1fr);
+        grid-template-rows: repeat(10, 1fr);
+        width: 100%; height: 100%;
+    }
+    .grid span {
+        display: flex; align-items: center; justify-content: center;
+        font-size: min(4.1vmin, 36px);
+        font-weight: 500;
+        color: #26272c;
+        transition: color 0.9s ease, text-shadow 0.9s ease;
+        user-select: none;
+    }
+    .grid span.on {
+        color: #f6f2e4;
+        text-shadow:
+            0 0 1.1vmin rgba(255,246,214,0.55),
+            0 0 3.2vmin rgba(255,246,214,0.22);
+    }
+    .dot {
+        position: absolute;
+        width: 1.15vmin; height: 1.15vmin; border-radius: 50%;
+        background: #26272c;
+        transition: background 0.9s ease, box-shadow 0.9s ease;
+    }
+    .dot.on {
+        background: #f6f2e4;
+        box-shadow: 0 0 1.4vmin rgba(255,246,214,0.6);
+    }
+    .dot.tl { top: 4%; left: 4%; }
+    .dot.tr { top: 4%; right: 4%; }
+    .dot.br { bottom: 4%; right: 4%; }
+    .dot.bl { bottom: 4%; left: 4%; }
+
+    .caption {
+        position: fixed; bottom: 1.1rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(200,205,214,0.4);
+        font-size: 0.8rem;
+        pointer-events: none;
+    }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+    <button class="variantbtn" id="variantBtn" title="Sprachvariante f&uuml;r Viertelstunden">Variante: viertel vor</button>
+
+    <div class="panel">
+        <div class="grid" id="grid"></div>
+        <div class="dot tl"></div>
+        <div class="dot tr"></div>
+        <div class="dot br"></div>
+        <div class="dot bl"></div>
+    </div>
+    <div class="caption">Die vier Eckpunkte z&auml;hlen die Minuten zwischen den F&uuml;nf-Minuten-Schritten.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Wortuhr — deutsches 11x10-Buchstabenraster
+//  - Klassisches Layout (ES IST ... UHR), Eckpunkte für +1..+4 Minuten.
+//  - Umschaltbar: "viertel vor zehn" oder schwäbisch "dreiviertel zehn".
+// ============================================================================
+
+const LAYOUT = [
+    'ESKISTAFÜNF',
+    'ZEHNZWANZIG',
+    'DREIVIERTEL',
+    'VORFUNKNACH',
+    'HALBAELFÜNF',
+    'EINSXAMZWEI',
+    'DREIPMJVIER',
+    'SECHSNLACHT',
+    'SIEBENZWÖLF',
+    'ZEHNEUNKUHR',
+];
+
+// Wort -> [Zeile, Startspalte, Länge]
+const W = {
+    ES:        [0, 0, 2],  IST:      [0, 3, 3],  MFUENF:  [0, 7, 4],
+    MZEHN:     [1, 0, 4],  ZWANZIG:  [1, 4, 7],
+    DREIVIERTEL: [2, 0, 11], VIERTEL: [2, 4, 7],
+    VOR:       [3, 0, 3],  NACH:     [3, 7, 4],
+    HALB:      [4, 0, 4],  ELF:      [4, 5, 3],  FUENF:   [4, 7, 4],
+    EIN:       [5, 0, 3],  EINS:     [5, 0, 4],  ZWEI:    [5, 7, 4],
+    DREI:      [6, 0, 4],  VIER:     [6, 7, 4],
+    SECHS:     [7, 0, 5],  ACHT:     [7, 7, 4],
+    SIEBEN:    [8, 0, 6],  ZWOELF:   [8, 6, 5],
+    ZEHN:      [9, 0, 4],  NEUN:     [9, 3, 4],  UHR:     [9, 8, 3],
+};
+const HOURS = ['ZWOELF', 'EINS', 'ZWEI', 'DREI', 'VIER', 'FUENF',
+               'SECHS', 'SIEBEN', 'ACHT', 'NEUN', 'ZEHN', 'ELF'];
+
+// ---- Raster aufbauen --------------------------------------------------------
+const grid = document.getElementById('grid');
+const cells = [];
+LAYOUT.forEach(row => {
+    for (const ch of row) {
+        const s = document.createElement('span');
+        s.textContent = ch;
+        grid.appendChild(s);
+        cells.push(s);
+    }
+});
+const dots = ['tl', 'tr', 'br', 'bl'].map(c => document.querySelector('.dot.' + c));
+
+let dreiviertel = false;
+const variantBtn = document.getElementById('variantBtn');
+variantBtn.addEventListener('click', () => {
+    dreiviertel = !dreiviertel;
+    variantBtn.textContent = dreiviertel ? 'Variante: dreiviertel' : 'Variante: viertel vor';
+    lastKey = '';
+    update();
+});
+
+// ---- Zeit in Worte ----------------------------------------------------------
+function words(h24, m) {
+    const block = Math.floor(m / 5) * 5;
+    const list = ['ES', 'IST'];
+    let hour = h24 % 12;
+    const next = () => (hour + 1) % 12;
+
+    switch (block) {
+        case 0:  break;
+        case 5:  list.push('MFUENF', 'NACH'); break;
+        case 10: list.push('MZEHN', 'NACH'); break;
+        case 15:
+            if (dreiviertel) { list.push('VIERTEL'); hour = next(); }
+            else list.push('VIERTEL', 'NACH');
+            break;
+        case 20: list.push('ZWANZIG', 'NACH'); break;
+        case 25: list.push('MFUENF', 'VOR', 'HALB'); hour = next(); break;
+        case 30: list.push('HALB'); hour = next(); break;
+        case 35: list.push('MFUENF', 'NACH', 'HALB'); hour = next(); break;
+        case 40: list.push('ZWANZIG', 'VOR'); hour = next(); break;
+        case 45:
+            if (dreiviertel) { list.push('DREIVIERTEL'); hour = next(); }
+            else { list.push('VIERTEL', 'VOR'); hour = next(); }
+            break;
+        case 50: list.push('MZEHN', 'VOR'); hour = next(); break;
+        case 55: list.push('MFUENF', 'VOR'); hour = next(); break;
+    }
+    if (block === 0) {
+        // Punkt volle Stunde: "EIN UHR" statt "EINS UHR"
+        list.push(hour === 1 ? 'EIN' : HOURS[hour], 'UHR');
+    } else {
+        list.push(HOURS[hour]);
+    }
+    return list;
+}
+
+// ---- Anzeigen -----------------------------------------------------------------
+let lastKey = '';
+function update() {
+    const now = new Date();
+    const h = now.getHours(), m = now.getMinutes();
+    const key = h + ':' + m + ':' + dreiviertel;
+    if (key === lastKey) return;
+    lastKey = key;
+
+    const on = new Set();
+    for (const w of words(h, m)) {
+        const [row, col, len] = W[w];
+        for (let i = 0; i < len; i++) on.add(row * 11 + col + i);
+    }
+    cells.forEach((cell, i) => {
+        const lit = on.has(i);
+        if (lit && !cell.classList.contains('on')) {
+            cell.style.transitionDelay = (Math.random() * 0.25) + 's';
+        } else if (!lit) {
+            cell.style.transitionDelay = '0s';
+        }
+        cell.classList.toggle('on', lit);
+    });
+    const rest = m % 5;
+    dots.forEach((d, i) => d.classList.toggle('on', i < rest));
+}
+
+update();
+setInterval(update, 1000);
+
+})();
+</script>
+</body>
+</html>

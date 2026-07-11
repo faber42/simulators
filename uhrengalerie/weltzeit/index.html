@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solari-Weltzeituhr</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        overflow: hidden;
+        background:
+            radial-gradient(120% 90% at 50% 0%, #23262e 0%, #16181d 55%, #0e0f12 100%);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #e8eaed; background: rgba(20,22,28,0.7);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .back:hover { background: rgba(40,44,52,0.9); }
+    .soundbtn {
+        position: fixed; top: 1rem; right: 1rem; z-index: 10;
+        background: rgba(20,22,28,0.7); color: #e8eaed;
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .soundbtn:hover { background: rgba(40,44,52,0.9); }
+
+    .board {
+        --fs: min(2.75vw, 4.15vh);
+        font-size: var(--fs);
+        background: linear-gradient(180deg, #121317 0%, #0c0d10 100%);
+        border: 0.45em solid #23262d;
+        border-radius: 0.5em;
+        box-shadow:
+            0 2.2em 4em rgba(0,0,0,0.6),
+            inset 0 0.12em 0.5em rgba(255,255,255,0.06),
+            inset 0 -0.4em 1.2em rgba(0,0,0,0.7);
+        padding: 0.9em 1.3em 0.8em;
+        position: relative;
+    }
+    .board .screw {
+        position: absolute; width: 0.42em; height: 0.42em; border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, #b9bdc3, #5c6067 70%);
+        box-shadow: inset 0 -0.06em 0.1em rgba(0,0,0,0.6);
+    }
+    .screw.tl { top: -0.24em; left: -0.24em; }
+    .screw.tr { top: -0.24em; right: -0.24em; }
+    .screw.bl { bottom: -0.24em; left: -0.24em; }
+    .screw.br { bottom: -0.24em; right: -0.24em; }
+
+    .title {
+        color: #b9bdc4; text-align: center;
+        font-size: 0.52em; letter-spacing: 0.75em; text-indent: 0.75em;
+        margin-bottom: 0.9em;
+        user-select: none;
+    }
+    .row {
+        display: flex; align-items: center;
+        gap: 0.55em;
+        margin: 0.30em 0;
+    }
+    .grp { display: flex; gap: 0.10em; }
+    .mod {
+        position: relative;
+        width: 1.06em; height: 1.5em;
+        perspective: 22em;
+        border-radius: 0.14em;
+    }
+    .mod .h {
+        position: absolute; left: 0; width: 100%; height: 50%;
+        overflow: hidden;
+        background: linear-gradient(180deg, #272931 0%, #1d1f26 100%);
+        will-change: transform;
+    }
+    .mod .h.top { top: 0; border-radius: 0.14em 0.14em 0 0;
+                  box-shadow: inset 0 0.05em 0.09em rgba(255,255,255,0.09); }
+    .mod .h.bot { bottom: 0; border-radius: 0 0 0.14em 0.14em;
+                  background: linear-gradient(180deg, #22242b 0%, #17181e 100%);
+                  box-shadow: inset 0 -0.07em 0.12em rgba(0,0,0,0.5); }
+    .mod .h span {
+        position: absolute; left: 0; width: 100%; height: 200%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.02em; font-weight: 600; color: #eceae2;
+        font-variant-numeric: tabular-nums;
+    }
+    .mod .h.top span { top: 0; }
+    .mod .h.bot span { top: -100%; }
+    .mod .h.anim { z-index: 3; visibility: hidden; }
+    .mod .h.anim.top { transform-origin: 50% 100%; }
+    .mod .h.anim.bot { transform-origin: 50% 0%; }
+    .mod::after {
+        content: '';
+        position: absolute; top: calc(50% - 0.022em); left: 0; right: 0; height: 0.044em;
+        background: rgba(0,0,0,0.92); z-index: 4;
+    }
+    .grp.city .mod .h span { color: #e5bd58; font-size: 0.94em; }
+    .grp.day  .mod .h span { color: #9aa0a8; font-size: 0.94em; }
+    .grp.icon .mod .h span { font-size: 0.88em; }
+    .mod.sun .h span  { color: #f0d27a; }
+    .mod.moon .h span { color: #9fb6d8; }
+
+    .colon {
+        display: flex; flex-direction: column; gap: 0.30em;
+        padding: 0 0.06em;
+    }
+    .colon i { width: 0.13em; height: 0.13em; border-radius: 50%; background: #cfd3da; opacity: 0.8; }
+
+    .legend {
+        margin-top: 0.8em;
+        color: #6b7078; text-align: center;
+        font-size: 0.42em; letter-spacing: 0.18em;
+        user-select: none;
+    }
+    .caption {
+        position: fixed; bottom: 1.0rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(200,205,214,0.42);
+        font-size: 0.8rem;
+        pointer-events: none;
+    }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+    <button class="soundbtn" id="soundBtn" title="Blättergeräusch an/aus">&#128263; Ton aus</button>
+
+    <div class="board" id="board">
+        <div class="screw tl"></div><div class="screw tr"></div>
+        <div class="screw bl"></div><div class="screw br"></div>
+        <div class="title">W E L T Z E I T</div>
+        <div id="rows"></div>
+        <div class="legend">ORTSZEIT &nbsp;&middot;&nbsp; &#9728; TAG &nbsp;/&nbsp; &#9790; NACHT</div>
+    </div>
+    <div class="caption">Fallblatt-Anzeige nach dem Solari-Prinzip: Jedes Modul blättert durch seinen Zeichensatz, bis das Zielzeichen oben liegt. Klick auf die Tafel blättert alles neu an.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Solari-Weltzeituhr — Split-Flap-Tafel mit acht Städten
+//  - Jedes Modul kennt einen Zeichensatz und blättert zyklisch vorwärts,
+//    bis das Zielzeichen erreicht ist (wie beim Original, daher auch der
+//    kurze Blank-Durchlauf bei 9 -> 0).
+//  - Ein zentraler rAF-Animator treibt alle aktiven Module (dt-basiert,
+//    unabhängig von der Bildwiederholrate).
+// ============================================================================
+
+const AZ = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const D09 = ' 0123456789';
+const ICONS = ' ☀☾';                     // ☀ / ☾
+const STEP_MS = 92;                                // eine Blätterung
+const BOUNCE_MS = 80;
+
+const CITIES = [
+    { name: 'LOS ANGELES', tz: 'America/Los_Angeles' },
+    { name: 'NEW YORK',    tz: 'America/New_York' },
+    { name: 'SAO PAULO',   tz: 'America/Sao_Paulo' },
+    { name: 'LONDON',      tz: 'Europe/London' },
+    { name: 'BERLIN',      tz: 'Europe/Berlin' },
+    { name: 'DUBAI',       tz: 'Asia/Dubai' },
+    { name: 'TOKIO',       tz: 'Asia/Tokyo' },
+    { name: 'SYDNEY',      tz: 'Australia/Sydney' },
+];
+const CITY_LEN = Math.max(...CITIES.map(c => c.name.length));
+
+// ---- Sound -----------------------------------------------------------------
+let audioOn = false, actx = null, lastTick = 0;
+function tickSound(vol, freq) {
+    if (!audioOn) return;
+    const nowMs = performance.now();
+    if (nowMs - lastTick < 22) return;             // Geklacker drosseln
+    lastTick = nowMs;
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const t = actx.currentTime;
+    const len = Math.floor(actx.sampleRate * 0.02);
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = freq * (0.9 + Math.random() * 0.25);
+    bp.Q.value = 1.3;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.035);
+    src.connect(bp).connect(g).connect(actx.destination);
+    src.start(t);
+}
+
+// ---- Split-Flap-Modul ------------------------------------------------------
+const active = new Set();
+
+class Mod {
+    constructor(parent, charset, extraClass) {
+        this.charset = charset;
+        this.el = document.createElement('div');
+        this.el.className = 'mod' + (extraClass ? ' ' + extraClass : '');
+        this.el.innerHTML =
+            '<div class="h top"><span></span></div>' +
+            '<div class="h bot"><span></span></div>' +
+            '<div class="h top anim"><span></span></div>' +
+            '<div class="h bot anim"><span></span></div>';
+        parent.appendChild(this.el);
+        [this.topS, this.botS, this.topA, this.botA] = this.el.children;
+        this.value = charset[Math.floor(Math.random() * charset.length)];
+        this.target = this.value;
+        this.phase = -1;                            // -1 = ruhig
+        this.delay = 0;
+        this.paint(this.topS, this.value);
+        this.paint(this.botS, this.value);
+    }
+    paint(half, ch) {
+        half.firstChild.textContent = ch === ' ' ? ' ' : ch;
+        if (this.charset === ICONS) {
+            this.el.classList.toggle('sun', ch === '☀');
+            this.el.classList.toggle('moon', ch === '☾');
+        }
+    }
+    setTarget(t, delay) {
+        this.target = t;
+        this.delay = delay || 0;
+        if (this.phase < 0 && this.value !== this.target) {
+            this.phase = 0;
+            this.stepReady = false;
+            active.add(this);
+        }
+    }
+    beginStep() {
+        const i = this.charset.indexOf(this.value);
+        this.next = this.charset[(i + 1) % this.charset.length];
+        this.paint(this.topS, this.next);
+        this.paint(this.botS, this.value);
+        this.paint(this.topA, this.value);
+        this.paint(this.botA, this.next);
+        this.topA.style.visibility = 'visible';
+        this.topA.style.transform = 'rotateX(0deg)';
+        this.botA.style.visibility = 'hidden';
+        this.stepReady = true;
+        tickSound(0.05, 3600);
+    }
+    tick(dt) {
+        if (this.delay > 0) { this.delay -= dt; return; }
+        if (!this.stepReady) this.beginStep();
+        this.phase += dt / STEP_MS;
+        if (this.phase < 0.5) {
+            this.topA.style.visibility = 'visible';
+            this.botA.style.visibility = 'hidden';
+            this.topA.style.transform = `rotateX(${-this.phase * 2 * 90}deg)`;
+        } else if (this.phase < 1) {
+            this.topA.style.visibility = 'hidden';
+            this.botA.style.visibility = 'visible';
+            this.botA.style.transform = `rotateX(${(1 - (this.phase - 0.5) * 2) * 90}deg)`;
+        } else if (this.phase < 1 + BOUNCE_MS / STEP_MS) {
+            // Zeichen ist gelandet
+            if (this.next !== null) {
+                this.value = this.next;
+                this.next = null;
+                this.paint(this.botS, this.value);
+                if (this.value === this.target) tickSound(0.11, 1800);
+            }
+            if (this.value !== this.target) {
+                // sofort weiterblättern
+                this.phase = 0;
+                this.beginStep();
+                return;
+            }
+            // Nachfedern der unteren Klappe
+            const pb = (this.phase - 1) / (BOUNCE_MS / STEP_MS);
+            this.botA.style.visibility = 'visible';
+            this.botA.style.transform = `rotateX(${-6 * Math.sin(Math.min(pb, 1) * Math.PI)}deg)`;
+        } else {
+            this.topA.style.visibility = 'hidden';
+            this.botA.style.visibility = 'hidden';
+            this.phase = -1;
+            active.delete(this);
+        }
+    }
+}
+
+// ---- Tafel aufbauen ---------------------------------------------------------
+const rowsEl = document.getElementById('rows');
+const rows = CITIES.map((city) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const mk = (cls) => {
+        const g = document.createElement('div');
+        g.className = 'grp ' + cls;
+        row.appendChild(g);
+        return g;
+    };
+    const gCity = mk('city');
+    const cityMods = [];
+    for (let i = 0; i < CITY_LEN; i++) cityMods.push(new Mod(gCity, AZ));
+    const gDay = mk('day');
+    const dayMods = [new Mod(gDay, AZ), new Mod(gDay, AZ)];
+    const gTime = mk('time');
+    const h1 = new Mod(gTime, D09), h2 = new Mod(gTime, D09);
+    const colon = document.createElement('div');
+    colon.className = 'colon';
+    colon.innerHTML = '<i></i><i></i>';
+    gTime.appendChild(colon);
+    const m1 = new Mod(gTime, D09), m2 = new Mod(gTime, D09);
+    const gIcon = mk('icon');
+    const iconMod = new Mod(gIcon, ICONS);
+    rowsEl.appendChild(row);
+
+    const fmt = new Intl.DateTimeFormat('de-DE', {
+        timeZone: city.tz, hour: '2-digit', minute: '2-digit',
+        weekday: 'short', hourCycle: 'h23',
+    });
+    return { city, cityMods, dayMods, mods: [h1, h2, m1, m2], iconMod, fmt };
+});
+
+// ---- Animator ----------------------------------------------------------------
+let last = performance.now();
+function loop(now) {
+    const dt = Math.min(now - last, 50);
+    last = now;
+    for (const m of [...active]) m.tick(dt);
+    requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ---- Zeiten stellen -----------------------------------------------------------
+function apply(stagger) {
+    rows.forEach((r, ri) => {
+        const parts = Object.fromEntries(
+            r.fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
+        const hh = parts.hour, mm = parts.minute;
+        const day = parts.weekday.replace('.', '').toUpperCase().slice(0, 2).padEnd(2, ' ');
+        const hNum = parseInt(hh, 10);
+        const icon = (hNum >= 6 && hNum < 20) ? '☀' : '☾';
+        const base = stagger ? ri * 110 : 0;
+        const jitter = () => base + (stagger ? Math.random() * 160 : 0);
+        r.cityMods.forEach((mod, i) =>
+            mod.setTarget((r.city.name[i] || ' '), jitter()));
+        r.dayMods[0].setTarget(day[0], jitter());
+        r.dayMods[1].setTarget(day[1], jitter());
+        [hh[0], hh[1], mm[0], mm[1]].forEach((ch, i) =>
+            r.mods[i].setTarget(ch, jitter()));
+        r.iconMod.setTarget(icon, jitter());
+    });
+}
+
+apply(true);
+setInterval(() => apply(false), 1000);
+
+// Klick: alles einmal neu anblättern (Module auf Zufallszeichen, dann stellen)
+document.getElementById('board').addEventListener('click', () => {
+    rows.forEach(r => {
+        [...r.cityMods, ...r.dayMods, ...r.mods, r.iconMod].forEach(m => {
+            m.value = m.charset[Math.floor(Math.random() * m.charset.length)];
+            m.paint(m.topS, m.value);
+            m.paint(m.botS, m.value);
+        });
+    });
+    apply(true);
+});
+
+const soundBtn = document.getElementById('soundBtn');
+soundBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    audioOn = !audioOn;
+    soundBtn.innerHTML = audioOn ? '&#128266; Ton an' : '&#128263; Ton aus';
+});
+
+})();
+</script>
+</body>
+</html>

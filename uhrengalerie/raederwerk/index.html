@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Räderwerk</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        overflow: hidden;
+        background: radial-gradient(90% 80% at 50% 38%, #33302a 0%, #23211c 55%, #161512 100%);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #ece6d8; background: rgba(22,20,16,0.7);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .back:hover { background: rgba(45,42,34,0.9); }
+    .soundbtn {
+        position: fixed; top: 1rem; right: 1rem; z-index: 10;
+        background: rgba(22,20,16,0.7); color: #ece6d8;
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .soundbtn:hover { background: rgba(45,42,34,0.9); }
+    canvas { display: block; }
+    .caption {
+        position: fixed; bottom: 1.0rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(230,222,205,0.42);
+        font-size: 0.8rem;
+        pointer-events: none;
+    }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+    <button class="soundbtn" id="soundBtn" title="Tick-Tack an/aus">&#128263; Ton aus</button>
+    <canvas id="canvas"></canvas>
+    <div class="caption">Sekundenpendel, Ankerhemmung und Gehwerk offen aufgebaut: Hemmungsrad 1&nbsp;U/min &rarr; 1:8 &rarr; 1:7,5 &rarr; Minutenrad 1&nbsp;U/h &rarr; Wechselrad 1:4 &middot; 1:3 &rarr; Stundenrad 1&nbsp;U/12&nbsp;h.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Räderwerk — Skelettuhr mit sichtbarem Gehwerk
+//  - Sekundenpendel (Halbschwingung = 1 s), Anker wippt mit, das
+//    Hemmungsrad (30 Zähne) springt pro Schwingung um 6°.
+//  - Übersetzungen: Hemmungsrad-Trieb 8 -> Rad A 64 (1 U / 8 min),
+//    Trieb 10 -> Minutenrad B 75 (1 U/h); Wechselwerk 12->48 und 15->45
+//    ergibt das Stundenrad (1 U / 12 h) konzentrisch zum Minutenrad.
+//  - Alle Winkel werden direkt aus der Uhrzeit hergeleitet — das Werk
+//    kann also nie falsch gehen, nur schön ticken.
+// ============================================================================
+
+const W = 1200, H = 1000;
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+    const s = Math.min(window.innerWidth * 0.96 / W, window.innerHeight * 0.92 / H);
+    canvas.style.width = (W * s) + 'px';
+    canvas.style.height = (H * s) + 'px';
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(W * s * dpr);
+    canvas.height = Math.round(H * s * dpr);
+    ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---- Achspositionen -----------------------------------------------------------
+const E = { x: 600, y: 330 };      // Hemmungsrad + Sekundenzeiger
+const A = { x: 462, y: 372 };      // Rad A (64) + Trieb 10
+const B = { x: 632, y: 372 };      // Minutenrad (75) + Stundenrohr
+const M = { x: 548, y: 458 };      // Wechselrad (48) + Trieb 15
+const ANCHOR = { x: 600, y: 236 }; // Ankerarbor & Pendelaufhängung
+const BARREL = { x: 356, y: 585 }; // Seiltrommel
+const PULLEY = { x: 268, y: 168 }; // Umlenkrolle
+const BOB_LEN = 545;
+
+// ---- Zahnrad-Sprites ------------------------------------------------------------
+function gearSprite(rPitch, teeth, opts) {
+    const o = Object.assign({ spokes: 5, rim: 14, hub: 12, tooth: 9, solid: false }, opts);
+    const rOut = rPitch + o.tooth * 0.55;
+    const size = Math.ceil(rOut * 2 + 6);
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const g = c.getContext('2d');
+    g.translate(size / 2, size / 2);
+    const brassL = '#d9b878', brassM = '#b8933f', brassD = '#7c5f22';
+    // Zähne
+    g.fillStyle = brassM;
+    for (let i = 0; i < teeth; i++) {
+        const a = (i / teeth) * Math.PI * 2;
+        g.save();
+        g.rotate(a);
+        const tw = Math.max(3, (2 * Math.PI * rPitch) / teeth * 0.44);
+        g.fillRect(-tw / 2, -rOut, tw, o.tooth * 1.15);
+        g.restore();
+    }
+    // Radkörper
+    if (o.solid) {
+        g.fillStyle = brassM;
+        g.beginPath();
+        g.arc(0, 0, rPitch - o.tooth * 0.4, 0, Math.PI * 2);
+        g.fill();
+        g.strokeStyle = brassD;
+        g.lineWidth = 2;
+        g.stroke();
+    } else {
+        g.strokeStyle = brassM;
+        g.lineWidth = o.rim;
+        g.beginPath();
+        g.arc(0, 0, rPitch - o.tooth * 0.4 - o.rim / 2, 0, Math.PI * 2);
+        g.stroke();
+        g.strokeStyle = brassD;
+        g.lineWidth = 1.6;
+        g.beginPath();
+        g.arc(0, 0, rPitch - o.tooth * 0.4, 0, Math.PI * 2);
+        g.stroke();
+        g.beginPath();
+        g.arc(0, 0, rPitch - o.tooth * 0.4 - o.rim, 0, Math.PI * 2);
+        g.stroke();
+        // Speichen
+        g.strokeStyle = brassM;
+        for (let i = 0; i < o.spokes; i++) {
+            const a = (i / o.spokes) * Math.PI * 2;
+            g.save();
+            g.rotate(a);
+            g.lineWidth = 10;
+            g.beginPath();
+            g.moveTo(0, -o.hub + 2);
+            g.lineTo(0, -(rPitch - o.tooth * 0.4 - o.rim + 2));
+            g.stroke();
+            g.restore();
+        }
+    }
+    // Nabe
+    g.fillStyle = brassL;
+    g.beginPath();
+    g.arc(0, 0, o.hub, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = brassD;
+    g.lineWidth = 2;
+    g.stroke();
+    return { c, size };
+}
+
+const gEscape = gearSprite(60, 30, { spokes: 4, rim: 9, hub: 9, tooth: 12 });
+const gA = gearSprite(128, 64, { spokes: 5, rim: 13 });
+const gB = gearSprite(150, 75, { spokes: 6, rim: 14 });
+const gM = gearSprite(96, 48, { spokes: 4, rim: 11 });
+const gH = gearSprite(90, 45, { spokes: 4, rim: 12, hub: 16, tooth: 8 });
+const gP8 = gearSprite(16, 8, { solid: true, hub: 6, tooth: 7 });
+const gP10 = gearSprite(20, 10, { solid: true, hub: 6, tooth: 7 });
+const gP12 = gearSprite(24, 12, { solid: true, hub: 7, tooth: 7 });
+const gP15 = gearSprite(30, 15, { solid: true, hub: 7, tooth: 7 });
+const gBarrel = gearSprite(72, 36, { spokes: 4, rim: 12, tooth: 8 });
+
+function blit(spr, x, y, angleDeg, alpha) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angleDeg * Math.PI / 180);
+    if (alpha !== undefined) ctx.globalAlpha = alpha;
+    ctx.drawImage(spr.c, -spr.size / 2, -spr.size / 2);
+    ctx.restore();
+}
+
+// ---- Ticken -----------------------------------------------------------------------
+let audioOn = false, actx = null, tickAlt = false;
+function tickSound() {
+    if (!audioOn) return;
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const t = actx.currentTime;
+    tickAlt = !tickAlt;
+    const len = Math.floor(actx.sampleRate * 0.018);
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = tickAlt ? 2600 : 1900;
+    bp.Q.value = 2.2;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.22, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    src.connect(bp).connect(g).connect(actx.destination);
+    src.start(t);
+}
+const soundBtn = document.getElementById('soundBtn');
+soundBtn.addEventListener('click', () => {
+    audioOn = !audioOn;
+    soundBtn.innerHTML = audioOn ? '&#128266; Ton an' : '&#128263; Ton aus';
+    if (audioOn) tickSound();
+});
+
+// ---- Zifferring -----------------------------------------------------------------------
+function drawChapterRing() {
+    const cx = B.x, cy = B.y, rOut = 208, rIn = 174;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, rOut, 0, Math.PI * 2);
+    ctx.arc(cx, cy, rIn, 0, Math.PI * 2, true);
+    const ring = ctx.createRadialGradient(cx, cy, rIn, cx, cy, rOut);
+    ring.addColorStop(0, 'rgba(244,240,226,0.80)');
+    ring.addColorStop(1, 'rgba(226,219,198,0.86)');
+    ctx.fillStyle = ring;
+    ctx.fill();
+    ctx.strokeStyle = '#8a6d2f';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, cy, rOut, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, rIn, 0, Math.PI * 2); ctx.stroke();
+    // Minuterie & Ziffern
+    for (let i = 0; i < 60; i++) {
+        const a = i * 6 * Math.PI / 180;
+        const big = i % 5 === 0;
+        ctx.strokeStyle = '#2c2820';
+        ctx.lineWidth = big ? 3 : 1.4;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.sin(a) * (rOut - 6), cy - Math.cos(a) * (rOut - 6));
+        ctx.lineTo(cx + Math.sin(a) * (rOut - (big ? 20 : 13)), cy - Math.cos(a) * (rOut - (big ? 20 : 13)));
+        ctx.stroke();
+    }
+    ctx.fillStyle = '#2c2820';
+    ctx.font = '600 30px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let n = 1; n <= 12; n++) {
+        const a = n * 30 * Math.PI / 180;
+        ctx.fillText(String(n), cx + Math.sin(a) * (rOut - 38), cy - Math.cos(a) * (rOut - 38));
+    }
+    ctx.restore();
+}
+
+function drawSecondsRing() {
+    const cx = E.x, cy = E.y, r = 46;
+    ctx.strokeStyle = 'rgba(236,230,213,0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < 12; i++) {
+        const a = i * 30 * Math.PI / 180;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.sin(a) * r, cy - Math.cos(a) * r);
+        ctx.lineTo(cx + Math.sin(a) * (r - 6), cy - Math.cos(a) * (r - 6));
+        ctx.stroke();
+    }
+}
+
+function hand(cx, cy, angleDeg, len, tail, w, color) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angleDeg * Math.PI / 180);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(-w, tail);
+    ctx.lineTo(-w * 0.55, -len * 0.75);
+    ctx.lineTo(0, -len);
+    ctx.lineTo(w * 0.55, -len * 0.75);
+    ctx.lineTo(w, tail);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 0, w * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+}
+
+// ---- Hauptschleife -----------------------------------------------------------------------
+let lastStepSec = -1;
+
+function frame() {
+    const now = new Date();
+    const h = now.getHours() % 12;
+    const m = now.getMinutes();
+    const s = now.getSeconds() + now.getMilliseconds() / 1000;
+
+    // Hemmungsschritt kurz nach dem Nulldurchgang des Pendels
+    const frac = s - Math.floor(s);
+    const f = Math.max(0, Math.min(1, (frac - 0.03) / 0.11));
+    const stepSmooth = f * f * (3 - 2 * f);
+    if (Math.floor(s) !== lastStepSec && frac >= 0.03) {
+        lastStepSec = Math.floor(s);
+        tickSound();
+    }
+
+    const escAngle = (Math.floor(s) + stepSmooth) * 6;              // 1 U/min
+    const accumB = ((h * 60 + m) * 60 + s) / 3600 * 360;            // Minutenrad seit 12 Uhr
+    const angleA = -accumB * 60 / 8;                                 // 1:8 rückwärts
+    const angleM = -accumB / 4;                                      // 12->48
+    const angleH = accumB / 12;                                      // Stundenrad
+    const pend = 8.4 * Math.sin(Math.PI * s) * Math.PI / 180;        // Halbschwingung 1 s
+    const anchorRock = -pend * 0.5;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Rückplatte
+    ctx.fillStyle = 'rgba(255,248,230,0.035)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(220, 90, 760, 660, 40);
+    else ctx.rect(220, 90, 760, 660);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(217,184,120,0.25)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    for (const p of [[254, 124], [946, 124], [254, 716], [946, 716]]) {
+        ctx.fillStyle = '#b8933f';
+        ctx.beginPath(); ctx.arc(p[0], p[1], 9, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#7c5f22';
+        ctx.beginPath(); ctx.moveTo(p[0] - 5, p[1] - 5); ctx.lineTo(p[0] + 5, p[1] + 5); ctx.stroke();
+    }
+
+    // Gewichtszug: Trommel, Seil, Gewicht
+    const hourFrac = (h + m / 60) / 12;
+    const weightY = 300 + 380 * hourFrac;
+    ctx.strokeStyle = '#8a7a5a';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(BARREL.x, BARREL.y);
+    ctx.lineTo(PULLEY.x, PULLEY.y);
+    ctx.moveTo(PULLEY.x, PULLEY.y);
+    ctx.lineTo(PULLEY.x - 22, weightY);
+    ctx.stroke();
+    blit(gBarrel, BARREL.x, BARREL.y, -accumB / 6);
+    ctx.fillStyle = '#b8933f';
+    ctx.beginPath(); ctx.arc(PULLEY.x, PULLEY.y, 16, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#7c5f22';
+    ctx.beginPath(); ctx.arc(PULLEY.x, PULLEY.y, 5, 0, Math.PI * 2); ctx.fill();
+    // Gewicht
+    const wg = ctx.createLinearGradient(PULLEY.x - 40, 0, PULLEY.x - 4, 0);
+    wg.addColorStop(0, '#d9b878');
+    wg.addColorStop(0.5, '#a8853a');
+    wg.addColorStop(1, '#6e5520');
+    ctx.fillStyle = wg;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(PULLEY.x - 40, weightY, 36, 92, 8);
+    else ctx.rect(PULLEY.x - 40, weightY, 36, 92);
+    ctx.fill();
+
+    // Pendel (hinter dem Werk)
+    ctx.save();
+    ctx.translate(ANCHOR.x, ANCHOR.y);
+    ctx.rotate(pend);
+    ctx.strokeStyle = '#9a8a68';
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, BOB_LEN);
+    ctx.stroke();
+    const bg2 = ctx.createRadialGradient(-14, BOB_LEN - 12, 4, 0, BOB_LEN, 58);
+    bg2.addColorStop(0, '#e8cd8e');
+    bg2.addColorStop(0.55, '#b8933f');
+    bg2.addColorStop(1, '#6e5520');
+    ctx.fillStyle = bg2;
+    ctx.beginPath();
+    ctx.ellipse(0, BOB_LEN, 56, 56, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#5a4518';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    // Regulierungsmutter
+    ctx.fillStyle = '#b8933f';
+    ctx.fillRect(-10, BOB_LEN + 62, 20, 12);
+    ctx.restore();
+
+    // Räderwerk (hinten -> vorn)
+    blit(gB, B.x, B.y, accumB);
+    blit(gA, A.x, A.y, angleA);
+    blit(gM, M.x, M.y, angleM);
+    blit(gH, B.x, B.y, angleH, 0.96);
+    blit(gP12, B.x, B.y, accumB);
+    blit(gP15, M.x, M.y, angleM);
+    blit(gP10, A.x, A.y, angleA);
+    blit(gEscape, E.x, E.y, escAngle);
+    blit(gP8, E.x, E.y, escAngle);
+
+    // Anker
+    ctx.save();
+    ctx.translate(ANCHOR.x, ANCHOR.y);
+    ctx.rotate(anchorRock);
+    ctx.strokeStyle = '#c9a24a';
+    ctx.lineWidth = 13;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(0, E.y - ANCHOR.y, 82, -Math.PI * 0.78, -Math.PI * 0.22);
+    ctx.stroke();
+    // Paletten
+    for (const sgn of [-1, 1]) {
+        const ax = Math.cos(-Math.PI * 0.5 + sgn * Math.PI * 0.28) * 82;
+        const ay = (E.y - ANCHOR.y) + Math.sin(-Math.PI * 0.5 + sgn * Math.PI * 0.28) * 82;
+        ctx.save();
+        ctx.translate(ax, ay);
+        ctx.rotate(sgn * 0.5);
+        ctx.fillStyle = '#e2c072';
+        ctx.fillRect(-5, -2, 10, 26);
+        ctx.restore();
+    }
+    // Arm zum Arbor
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, E.y - ANCHOR.y - 70);
+    ctx.stroke();
+    ctx.fillStyle = '#e2c072';
+    ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    // Zifferring & Zeiger
+    drawChapterRing();
+    drawSecondsRing();
+    hand(E.x, E.y, escAngle, 40, 12, 2.2, '#8a2a20');
+    hand(B.x, B.y, angleH % 360, 118, 20, 6, '#20242c');
+    hand(B.x, B.y, accumB % 360, 172, 26, 4.5, '#20242c');
+    ctx.fillStyle = '#c9a24a';
+    ctx.beginPath(); ctx.arc(B.x, B.y, 7, 0, Math.PI * 2); ctx.fill();
+
+    requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

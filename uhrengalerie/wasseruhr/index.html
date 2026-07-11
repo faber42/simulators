@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wasseruhr</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        overflow: hidden;
+        background: radial-gradient(120% 100% at 50% 15%, #2b3a3e 0%, #1e2b2f 55%, #131c1f 100%);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #e4ecec; background: rgba(15,25,28,0.7);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .back:hover { background: rgba(35,55,60,0.9); }
+    canvas { display: block; }
+    .demo {
+        position: fixed; bottom: 3.2rem; right: 1rem; z-index: 10;
+        display: flex; flex-direction: column; gap: 0.4rem;
+    }
+    .demo span { color: #8fa5a5; font-size: 0.75rem; text-align: right; }
+    .demo button {
+        background: rgba(15,25,28,0.75); color: #e4ecec;
+        border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+        padding: 0.35rem 0.7rem; font-size: 0.8rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .demo button:hover { border-color: #6fb3c9; }
+    .demo button.active { border-color: #6fb3c9; color: #a7d9ec; }
+    .caption {
+        position: fixed; bottom: 1.0rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(200,220,220,0.42);
+        font-size: 0.8rem;
+        pointer-events: none;
+    }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+
+    <canvas id="canvas"></canvas>
+
+    <div class="demo">
+        <span>Vorf&uuml;hren:</span>
+        <button data-demo="minute">Minutenwechsel</button>
+        <button data-demo="hour">Stundenwechsel</button>
+        <button data-demo="midnight">Mitternacht</button>
+    </div>
+    <div class="caption">Der Wasserstand ist die Uhrzeit: Die Sekundenr&ouml;hre kippt ihren Inhalt per Siphon jede Minute ins Minutengef&auml;&szlig;, dieses st&uuml;ndlich ins Stundengef&auml;&szlig; &mdash; die Schnecke h&auml;lt den Kreislauf am Laufen.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Wasseruhr — Siphon-Kaskade mit geschlossenem Kreislauf
+//  - Alle Füllstände sind reine Funktionen der (virtuellen) Tageszeit t:
+//      Sekundenröhre  füllt sich in 60 s, Siphon leert sie in 1,6 s
+//      Minutengefäß   +1 Einheit pro Minute, Siphon leert es zur vollen Stunde
+//      Stundengefäß   +1 Einheit pro Stunde, Siphon leert es um Mitternacht
+//  - Dadurch gibt es keinerlei Drift: Tab-Wechsel, Vorführmodus und
+//    Echtzeit greifen alle auf dieselben Formeln zu.
+// ============================================================================
+
+const W = 1500, H = 1000;
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+    const s = Math.min(window.innerWidth * 0.96 / W, window.innerHeight * 0.92 / H);
+    canvas.style.width = (W * s) + 'px';
+    canvas.style.height = (H * s) + 'px';
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(W * s * dpr);
+    canvas.height = Math.round(H * s * dpr);
+    ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---- Geometrie ------------------------------------------------------------------
+const BENCH_Y = 770;                                   // Standfläche der Gefäße
+const SEC  = { x: 380, w: 64,  top: 250, bot: BENCH_Y };    // Sekundenröhre
+const MIN  = { x: 570, w: 170, top: 300, bot: BENCH_Y };    // Minutengefäß
+const HOUR = { x: 860, w: 250, top: 330, bot: BENCH_Y };    // Stundengefäß
+const RESV = { x: 180, y: 860, w: 1160, h: 100 };           // Reservoir
+const CHAN = { y: 150, x0: 430, x1: 1040 };                 // Zulaufrinne
+const SCREW = { x0: 1290, y0: 880, x1: 1060, y1: 150, r: 34 }; // Schnecke
+
+const SEC_D = 1.6, MIN_D = 3.2, HR_D = 5.0;            // Siphon-Entleerzeiten
+
+// ---- Virtuelle Uhr ------------------------------------------------------------------
+function wallSeconds() {
+    const d = new Date();
+    return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() + d.getMilliseconds() / 1000;
+}
+let live = true, simT = wallSeconds(), demoUntil = 0;
+
+document.querySelectorAll('.demo button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const now = new Date();
+        let target, dur = 18;
+        if (btn.dataset.demo === 'minute') {
+            target = now.getHours() * 3600 + now.getMinutes() * 60 + 54;
+        } else if (btn.dataset.demo === 'hour') {
+            target = now.getHours() * 3600 + 59 * 60 + 54;
+        } else {
+            target = 23 * 3600 + 59 * 60 + 54;
+            dur = 22;
+        }
+        live = false;
+        simT = target;
+        demoUntil = target + dur;
+        document.querySelectorAll('.demo button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    });
+});
+
+// ---- Füllstände als Funktion der Zeit --------------------------------------------------
+const clamp01 = v => Math.max(0, Math.min(1, v));
+
+function levels(t) {
+    t = ((t % 86400) + 86400) % 86400;
+    const s = t % 60;
+    const m = Math.floor(t / 60) % 60;
+    const h = Math.floor(t / 3600) % 24;
+
+    // Sekundenröhre
+    const sec = (s < SEC_D) ? Math.max(1 - s / SEC_D, s / 60) : s / 60;
+
+    // Minutengefäß
+    let min;
+    if (m === 0) {
+        if (s < SEC_D) min = (59 + clamp01(s / SEC_D)) / 60;
+        else min = Math.max(0, 1 - (s - SEC_D) / MIN_D);
+    } else {
+        min = (m - 1 + clamp01(s / SEC_D)) / 60;
+    }
+
+    // Stundengefäß
+    const minDrainProg = (m === 0) ? clamp01((s - SEC_D) / MIN_D) : 1;
+    let hour;
+    if (h === 0) {
+        if (m === 0) {
+            if (minDrainProg < 1) hour = (23 + minDrainProg) / 24;
+            else hour = Math.max(0, 1 - (s - SEC_D - MIN_D) / HR_D);
+        } else hour = 0;
+    } else {
+        hour = (h - 1 + (m === 0 ? minDrainProg : 1)) / 24;
+    }
+
+    return {
+        s, m, h, sec, min, hour,
+        secDraining:  s < SEC_D + 0.15 && sec > 0.02,
+        minDraining:  m === 0 && s >= SEC_D && s < SEC_D + MIN_D + 0.2,
+        hourDraining: h === 0 && m === 0 && s >= SEC_D + MIN_D && s < SEC_D + MIN_D + HR_D + 0.3,
+    };
+}
+
+// ---- Wasser-Deko: Tropfen, Spritzer, Blasen ------------------------------------------------
+const drops = [];
+function spawnDrop(x, y, vx, vy) {
+    if (drops.length > 260) return;
+    drops.push({ x, y, vx, vy, life: 1.4 });
+}
+const bubbles = [];
+function spawnBubble(x, y) {
+    if (bubbles.length > 90) return;
+    bubbles.push({ x, y, r: 1.5 + Math.random() * 3, life: 0.8 + Math.random() * 0.8 });
+}
+
+// ---- Zeichnen ---------------------------------------------------------------------------------
+const WATER = 'rgba(90,170,210,0.62)';
+const WATER_DARK = 'rgba(45,110,150,0.72)';
+let wavePhase = 0;
+
+function waterSurfaceY(vessel, level, inset) {
+    const innerTop = vessel.top + 14;
+    const innerBot = vessel.bot - 10;
+    return innerBot - (innerBot - innerTop) * level;
+}
+
+function drawVessel(g, v, level, label, ticks, tickEvery, labelEvery, agitated) {
+    const x = v.x, w = v.w;
+    // Wasser
+    const surf = waterSurfaceY(v, level);
+    if (level > 0.002) {
+        const grad = g.createLinearGradient(0, surf, 0, v.bot);
+        grad.addColorStop(0, WATER);
+        grad.addColorStop(1, WATER_DARK);
+        g.fillStyle = grad;
+        g.beginPath();
+        const amp = (agitated ? 3.2 : 1.1) + level * 0.4;
+        g.moveTo(x + 3, surf + Math.sin(wavePhase * 2.1) * amp);
+        const NSEG = 8;
+        for (let i = 1; i <= NSEG; i++) {
+            const px = x + 3 + (w - 6) * i / NSEG;
+            g.lineTo(px, surf + Math.sin(wavePhase * 2.1 + i * 1.7) * amp);
+        }
+        g.lineTo(x + w - 3, v.bot - 4);
+        g.lineTo(x + 3, v.bot - 4);
+        g.closePath();
+        g.fill();
+        // Oberflächenglanz
+        g.strokeStyle = 'rgba(220,245,255,0.5)';
+        g.lineWidth = 2;
+        g.beginPath();
+        for (let i = 0; i <= NSEG; i++) {
+            const px = x + 3 + (w - 6) * i / NSEG;
+            const py = surf + Math.sin(wavePhase * 2.1 + i * 1.7) * amp;
+            if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+        }
+        g.stroke();
+    }
+    // Glaswand
+    g.strokeStyle = 'rgba(210,235,240,0.85)';
+    g.lineWidth = 4;
+    g.beginPath();
+    g.moveTo(x, v.top);
+    g.lineTo(x, v.bot);
+    g.lineTo(x + w, v.bot);
+    g.lineTo(x + w, v.top);
+    g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,0.16)';
+    g.lineWidth = 7;
+    g.beginPath();
+    g.moveTo(x + 9, v.top + 16);
+    g.lineTo(x + 9, v.bot - 16);
+    g.stroke();
+    // Skala
+    g.fillStyle = '#cfe0e2';
+    g.strokeStyle = '#cfe0e2';
+    g.lineWidth = 2;
+    g.font = '13px system-ui, sans-serif';
+    g.textAlign = 'right';
+    const innerTop = v.top + 14, innerBot = v.bot - 10;
+    for (let i = 0; i <= ticks; i += tickEvery) {
+        const y = innerBot - (innerBot - innerTop) * (i / ticks);
+        const major = (i % labelEvery === 0);
+        g.beginPath();
+        g.moveTo(x - 6, y);
+        g.lineTo(x - (major ? 18 : 11), y);
+        g.stroke();
+        if (major) g.fillText(String(i), x - 24, y + 4);
+    }
+    // Schild
+    g.fillStyle = '#b0703a';
+    g.beginPath();
+    if (g.roundRect) g.roundRect(x + w / 2 - 62, v.bot + 26, 124, 30, 6);
+    else g.rect(x + w / 2 - 62, v.bot + 26, 124, 30);
+    g.fill();
+    g.fillStyle = '#2b1d10';
+    g.font = '600 15px system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.fillText(label, x + w / 2, v.bot + 46);
+}
+
+function stream(g, pts, width, flow) {
+    // fließendes Band mit wandernden Perlen
+    g.strokeStyle = 'rgba(120,195,230,0.55)';
+    g.lineWidth = width;
+    g.lineCap = 'round';
+    g.beginPath();
+    pts.forEach((p, i) => { if (i === 0) g.moveTo(p[0], p[1]); else g.lineTo(p[0], p[1]); });
+    g.stroke();
+    g.strokeStyle = 'rgba(225,248,255,0.65)';
+    g.lineWidth = Math.max(1.4, width * 0.35);
+    g.setLineDash([6, 14]);
+    g.lineDashOffset = -flow;
+    g.beginPath();
+    pts.forEach((p, i) => { if (i === 0) g.moveTo(p[0], p[1]); else g.lineTo(p[0], p[1]); });
+    g.stroke();
+    g.setLineDash([]);
+}
+
+function siphonPipe(g, from, over, to, active, flow) {
+    const pts = [from, [from[0], over[1]], over, [to[0], over[1]], to];
+    g.strokeStyle = '#8a5a2e';
+    g.lineWidth = 12;
+    g.lineJoin = 'round';
+    g.beginPath();
+    pts.forEach((p, i) => { if (i === 0) g.moveTo(p[0], p[1]); else g.lineTo(p[0], p[1]); });
+    g.stroke();
+    g.strokeStyle = '#c98d4f';
+    g.lineWidth = 8;
+    g.beginPath();
+    pts.forEach((p, i) => { if (i === 0) g.moveTo(p[0], p[1]); else g.lineTo(p[0], p[1]); });
+    g.stroke();
+    if (active) {
+        g.strokeStyle = 'rgba(150,215,245,0.9)';
+        g.lineWidth = 4.5;
+        g.setLineDash([9, 13]);
+        g.lineDashOffset = -flow * 2;
+        g.beginPath();
+        pts.forEach((p, i) => { if (i === 0) g.moveTo(p[0], p[1]); else g.lineTo(p[0], p[1]); });
+        g.stroke();
+        g.setLineDash([]);
+    }
+}
+
+// ---- Hauptschleife -------------------------------------------------------------------------------
+let last = performance.now();
+let flow = 0;
+let screwPhase = 0;
+
+function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    wavePhase += dt * 2.2;
+    flow += dt * 90;
+    screwPhase += dt * 46;
+
+    if (live) {
+        simT = wallSeconds();
+    } else {
+        simT += dt;
+        if (simT >= demoUntil) {
+            live = true;
+            simT = wallSeconds();
+            document.querySelectorAll('.demo button').forEach(b => b.classList.remove('active'));
+        }
+    }
+    const L = levels(simT);
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Steinbank
+    ctx.fillStyle = '#4a4740';
+    ctx.fillRect(300, BENCH_Y, 860, 26);
+    ctx.fillStyle = '#3a3833';
+    ctx.fillRect(320, BENCH_Y + 26, 30, RESV.y - BENCH_Y - 26);
+    ctx.fillRect(1100, BENCH_Y + 26, 30, RESV.y - BENCH_Y - 26);
+
+    // Reservoir
+    ctx.fillStyle = '#3a3833';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(RESV.x - 14, RESV.y - 14, RESV.w + 28, RESV.h + 22, 10);
+    else ctx.rect(RESV.x - 14, RESV.y - 14, RESV.w + 28, RESV.h + 22);
+    ctx.fill();
+    const rg = ctx.createLinearGradient(0, RESV.y, 0, RESV.y + RESV.h);
+    rg.addColorStop(0, WATER);
+    rg.addColorStop(1, WATER_DARK);
+    ctx.fillStyle = rg;
+    ctx.beginPath();
+    ctx.moveTo(RESV.x, RESV.y + Math.sin(wavePhase) * 1.5);
+    for (let i = 1; i <= 20; i++) {
+        ctx.lineTo(RESV.x + RESV.w * i / 20, RESV.y + Math.sin(wavePhase + i) * 1.5);
+    }
+    ctx.lineTo(RESV.x + RESV.w, RESV.y + RESV.h);
+    ctx.lineTo(RESV.x, RESV.y + RESV.h);
+    ctx.closePath();
+    ctx.fill();
+
+    // Zulaufrinne
+    ctx.fillStyle = '#6e6a60';
+    ctx.fillRect(CHAN.x0 - 40, CHAN.y, CHAN.x1 - CHAN.x0 + 40, 16);
+    ctx.fillStyle = '#57544c';
+    ctx.fillRect(CHAN.x0 - 40, CHAN.y + 16, CHAN.x1 - CHAN.x0 + 40, 6);
+    // Wasser in der Rinne
+    ctx.fillStyle = 'rgba(120,195,230,0.7)';
+    ctx.fillRect(CHAN.x0 - 34, CHAN.y + 3, CHAN.x1 - CHAN.x0 + 34, 8);
+
+    // Schnecke (Archimedes)
+    {
+        const dx = SCREW.x1 - SCREW.x0, dy = SCREW.y1 - SCREW.y0;
+        const len = Math.hypot(dx, dy);
+        const ang = Math.atan2(dy, dx);
+        ctx.save();
+        ctx.translate(SCREW.x0, SCREW.y0);
+        ctx.rotate(ang);
+        ctx.fillStyle = '#5c5850';
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(-20, -SCREW.r, len + 30, SCREW.r * 2, SCREW.r);
+        else ctx.rect(-20, -SCREW.r, len + 30, SCREW.r * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#8a857a';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        // rotierende Wendel
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(-14, -SCREW.r + 6, len + 18, SCREW.r * 2 - 12);
+        ctx.clip();
+        ctx.strokeStyle = 'rgba(190,220,235,0.55)';
+        ctx.lineWidth = 7;
+        const period = 46;
+        for (let sx = -period + (screwPhase % period); sx < len + period; sx += period) {
+            ctx.beginPath();
+            ctx.moveTo(sx, SCREW.r - 6);
+            ctx.lineTo(sx + period * 0.55, -SCREW.r + 6);
+            ctx.stroke();
+        }
+        ctx.restore();
+        ctx.restore();
+        // Auslauf oben in die Rinne
+        stream(ctx, [[SCREW.x1 + 4, SCREW.y1 + 6], [CHAN.x1 - 4, CHAN.y + 4]], 7, flow);
+    }
+
+    // Zulauf in die Sekundenröhre (dünner Dauerstrahl)
+    const secSurf = waterSurfaceY(SEC, L.sec);
+    stream(ctx, [[CHAN.x0 - 30, CHAN.y + 10], [SEC.x + SEC.w / 2, CHAN.y + 30], [SEC.x + SEC.w / 2, secSurf - 2]], 4.5, flow);
+    if (Math.random() < dt * 21) {
+        spawnDrop(SEC.x + SEC.w / 2 + (Math.random() - 0.5) * 8, secSurf - 6, (Math.random() - 0.5) * 30, -30 - Math.random() * 40);
+    }
+
+    // Gefäße
+    drawVessel(ctx, SEC, L.sec, 'SEKUNDEN', 60, 5, 15, true);
+    drawVessel(ctx, MIN, L.min, 'MINUTEN', 60, 5, 15, L.secDraining);
+    drawVessel(ctx, HOUR, L.hour, 'STUNDEN', 24, 1, 6, L.minDraining);
+
+    // Siphons
+    siphonPipe(ctx,
+        [SEC.x + SEC.w - 10, SEC.bot - 26],
+        [SEC.x + SEC.w + 30, SEC.top - 22],
+        [MIN.x + 34, MIN.top - 8],
+        L.secDraining, flow);
+    siphonPipe(ctx,
+        [MIN.x + MIN.w - 12, MIN.bot - 26],
+        [MIN.x + MIN.w + 32, MIN.top - 26],
+        [HOUR.x + 40, HOUR.top - 8],
+        L.minDraining, flow);
+    siphonPipe(ctx,
+        [HOUR.x + HOUR.w - 14, HOUR.bot - 26],
+        [HOUR.x + HOUR.w + 34, HOUR.top - 26],
+        [RESV.x + RESV.w - 90, RESV.y - 6],
+        L.hourDraining, flow);
+
+    // Einlauf-Gischt in den Zielgefäßen
+    if (L.secDraining) {
+        const y = waterSurfaceY(MIN, L.min);
+        if (Math.random() < dt * 70) spawnDrop(MIN.x + 34 + (Math.random() - 0.5) * 16, y - 4, (Math.random() - 0.5) * 60, -60 * Math.random());
+        if (Math.random() < dt * 36) spawnBubble(MIN.x + 30 + Math.random() * 30, y + 10 + Math.random() * 30);
+    }
+    if (L.minDraining) {
+        const y = waterSurfaceY(HOUR, L.hour);
+        if (Math.random() < dt * 70) spawnDrop(HOUR.x + 40 + (Math.random() - 0.5) * 18, y - 4, (Math.random() - 0.5) * 60, -60 * Math.random());
+        if (Math.random() < dt * 36) spawnBubble(HOUR.x + 36 + Math.random() * 34, y + 10 + Math.random() * 30);
+    }
+    if (L.hourDraining && Math.random() < dt * 48) {
+        spawnDrop(RESV.x + RESV.w - 90 + (Math.random() - 0.5) * 20, RESV.y - 2, (Math.random() - 0.5) * 70, -50 * Math.random());
+    }
+
+    // Tropfen & Blasen
+    for (let i = drops.length - 1; i >= 0; i--) {
+        const p = drops[i];
+        p.life -= dt;
+        p.vy += 700 * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        if (p.life <= 0 || p.y > RESV.y + RESV.h) { drops.splice(i, 1); continue; }
+        ctx.fillStyle = `rgba(170,220,245,${Math.min(0.8, p.life)})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+        const b = bubbles[i];
+        b.life -= dt;
+        b.y -= 26 * dt;
+        if (b.life <= 0) { bubbles.splice(i, 1); continue; }
+        ctx.strokeStyle = `rgba(225,248,255,${Math.min(0.5, b.life)})`;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    // Digitalanzeige
+    const p2 = n => String(n).padStart(2, '0');
+    ctx.fillStyle = '#dfe9e9';
+    ctx.font = '700 54px Consolas, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${p2(L.h)}:${p2(L.m)}:${p2(Math.floor(L.s))}`, 120, 100);
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(223,233,233,0.55)';
+    ctx.fillText(live ? 'Echtzeit — abgelesen an den Skalen' : 'VORFÜHRUNG — danach zurück zur Echtzeit', 122, 122);
+
+    requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
