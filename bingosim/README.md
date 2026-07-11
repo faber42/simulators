@@ -29,8 +29,10 @@ Originalgeräts abgestimmt — die folgenden Details sind verbindlich.
    2–3 s umher und fällt in eine der **14 Zahlentaschen**. Reihenfolge der
    Taschenziffern von links nach rechts:
    **4 1 3 2 4 3 1 4 2 4 3 1 2 4**
-4. Mit dem Taschentreffer **erlischt „SPIEL FREI“**, gleichzeitig leuchtet
-   die Ziffer im Zahlenfeld auf. Die Kugel fällt in den mittigen Halter,
+4. Der Taschensensor sitzt **am Eingang der Tasche**, direkt unter der
+   Ziffer: In dem Moment, in dem die Kugel die Zahl unterquert, **erlischt
+   „SPIEL FREI“** und die Ziffer leuchtet im Zahlenfeld auf — noch bevor
+   die Kugel den Taschenboden erreicht. Die Kugel fällt in den mittigen Halter,
    der Automat wartet ca. **3 Sekunden** (Programmwerk schaltet hörbar
    weiter) und gibt sie für den nächsten Wurf wieder frei — „SPIEL FREI“
    geht mit der Freigabe wieder an. Nach dem **dritten** Wurf bleibt die

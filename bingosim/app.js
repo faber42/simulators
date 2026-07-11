@@ -60,6 +60,7 @@ const POCKET_DIGITS = [4, 1, 3, 2, 4, 3, 1, 4, 2, 4, 3, 1, 2, 4];
 const PICKET_X0 = 142, PICKET_PITCH = 34, PICKET_N = 15;
 const PICKET_TOP = 600, PICKET_BOT = 688, PICKET_R = 4;
 const FLOOR_Y = 688;
+const SENSOR_Y = 632;   // Taschensensor am Eingang: löst aus, sobald die Kugel die Ziffer unterquert
 // Keile, die die äußersten Taschen zur Ringwand hin abdichten
 const WEDGES = [
     { x1: 152, y1: 568, x2: 142, y2: 602 },
@@ -408,6 +409,7 @@ function startRelease() {
     const b = S.ball;
     b.state = 'DROP';
     b.x = HOLE.x; b.y = HOLE.y; b.vx = 0; b.vy = 0;
+    b.pocket = -1;
     S.spielFrei = true;
 }
 function launch() {
@@ -638,11 +640,19 @@ function update(dt) {
             b.x += b.vx * dt;
             b.y += b.vy * dt;
             collideFree(b);
-            // Fangtasche erreicht?
+            // Taschensensor am Eingang: die Ziffer leuchtet in dem Moment auf,
+            // in dem die Kugel sie unterquert — nicht erst am Taschenboden
+            if (b.pocket < 0 && b.y >= SENSOR_Y && b.x > PICKET_X0 && b.x < PICKET_X0 + 14 * PICKET_PITCH) {
+                b.pocket = clamp(Math.floor((b.x - PICKET_X0) / PICKET_PITCH), 0, 13);
+                registerPocket(b.pocket);
+            }
+            // Taschenboden erreicht?
             if (b.y + BALL_R >= FLOOR_Y && b.vy >= -10) {
-                const idx = clamp(Math.floor((b.x - PICKET_X0) / PICKET_PITCH), 0, 13);
-                b.pocket = idx;
-                b.x = PICKET_X0 + PICKET_PITCH * (idx + 0.5);
+                if (b.pocket < 0) { // Sicherheitsnetz, falls der Sensor nicht auslöste
+                    b.pocket = clamp(Math.floor((b.x - PICKET_X0) / PICKET_PITCH), 0, 13);
+                    registerPocket(b.pocket);
+                }
+                b.x = PICKET_X0 + PICKET_PITCH * (b.pocket + 0.5);
                 b.y = FLOOR_Y - BALL_R;
                 b.vx = 0; b.vy = 0;
                 b.state = 'SETTLE';
@@ -663,7 +673,7 @@ function update(dt) {
         }
         case 'SETTLE': {
             if (S.mode === 'POCKETED' && S.timer <= 0) {
-                registerPocket(b.pocket);
+                // Ziffer wurde schon am Tascheneingang registriert
                 b.state = 'SINK'; b.sink = 0;
                 if (S.throwsDone.length >= 3) {
                     // Spielende: das Auszahlwerk fährt immer seine 10 Stufen ab
