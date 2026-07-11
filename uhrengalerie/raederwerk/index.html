@@ -43,7 +43,7 @@
     <a class="back" href="../">&larr; Uhrengalerie</a>
     <button class="soundbtn" id="soundBtn" title="Tick-Tack an/aus">&#128263; Ton aus</button>
     <canvas id="canvas"></canvas>
-    <div class="caption">Sekundenpendel, Ankerhemmung und Gehwerk offen aufgebaut: Hemmungsrad 1&nbsp;U/min &rarr; 1:8 &rarr; 1:7,5 &rarr; Minutenrad 1&nbsp;U/h &rarr; Wechselrad 1:4 &middot; 1:3 &rarr; Stundenrad 1&nbsp;U/12&nbsp;h.</div>
+    <div class="caption">Sekundenpendel, Ankerhemmung und Gehwerk offen aufgebaut: Gewichtstrommel 1&nbsp;U/5&nbsp;h &rarr; Minutenrad 1&nbsp;U/h &rarr; 1:7,5 &rarr; 1:8 &rarr; Hemmungsrad 1&nbsp;U/min; Wechselwerk 1:4 &middot; 1:3 &rarr; Stundenrad 1&nbsp;U/12&nbsp;h.</div>
 
 <script>
 (() => {
@@ -82,8 +82,8 @@ const A = { x: 462, y: 372 };      // Rad A (64) + Trieb 10
 const B = { x: 632, y: 372 };      // Minutenrad (75) + Stundenrohr
 const M = { x: 548, y: 458 };      // Wechselrad (48) + Trieb 15
 const ANCHOR = { x: 600, y: 236 }; // Ankerarbor & Pendelaufhängung
-const BARREL = { x: 356, y: 585 }; // Seiltrommel
-const PULLEY = { x: 268, y: 168 }; // Umlenkrolle
+const BARREL = { x: 690, y: 504 }; // Seiltrommel: Großrad 60 greift den Trieb 12 des Minutenrads (Abstand 144)
+const PULLEY = { x: 900, y: 148 }; // Umlenkrolle
 const BOB_LEN = 545;
 
 // ---- Zahnrad-Sprites ------------------------------------------------------------
@@ -163,7 +163,7 @@ const gP8 = gearSprite(16, 8, { solid: true, hub: 6, tooth: 7 });
 const gP10 = gearSprite(20, 10, { solid: true, hub: 6, tooth: 7 });
 const gP12 = gearSprite(24, 12, { solid: true, hub: 7, tooth: 7 });
 const gP15 = gearSprite(30, 15, { solid: true, hub: 7, tooth: 7 });
-const gBarrel = gearSprite(72, 36, { spokes: 4, rim: 12, tooth: 8 });
+const gBarrel = gearSprite(120, 60, { spokes: 5, rim: 12, tooth: 8, hub: 14 });
 
 function blit(spr, x, y, angleDeg, alpha) {
     ctx.save();
@@ -321,18 +321,24 @@ function frame() {
         ctx.beginPath(); ctx.moveTo(p[0] - 5, p[1] - 5); ctx.lineTo(p[0] + 5, p[1] + 5); ctx.stroke();
     }
 
-    // Gewichtszug: Trommel, Seil, Gewicht
+    // Gewichtszug: Trommelrad treibt den Minutenrad-Trieb (12 -> 60, 1 U/5 h)
     const hourFrac = (h + m / 60) / 12;
     const weightY = 300 + 380 * hourFrac;
     ctx.strokeStyle = '#8a7a5a';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(BARREL.x, BARREL.y);
+    ctx.moveTo(BARREL.x + 10, BARREL.y - 26);
     ctx.lineTo(PULLEY.x, PULLEY.y);
     ctx.moveTo(PULLEY.x, PULLEY.y);
     ctx.lineTo(PULLEY.x - 22, weightY);
     ctx.stroke();
-    blit(gBarrel, BARREL.x, BARREL.y, -accumB / 6);
+    blit(gBarrel, BARREL.x, BARREL.y, -accumB / 5);
+    // Seiltrommel auf der Radwelle
+    ctx.fillStyle = '#8a6c28';
+    ctx.beginPath(); ctx.arc(BARREL.x, BARREL.y, 28, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#5a4518';
+    ctx.lineWidth = 2;
+    ctx.stroke();
     ctx.fillStyle = '#b8933f';
     ctx.beginPath(); ctx.arc(PULLEY.x, PULLEY.y, 16, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#7c5f22';

@@ -263,7 +263,9 @@ function pencilDot(g, x, y) {
 }
 
 // ---- Bleistift-Sprite ----------------------------------------------------------------
-const pencil = { x: 240, y: 680, a: -2.25, idleX: 235, idleY: 690 };
+// Der Stift liegt wie in einer schreibenden rechten Hand: Spitze am
+// Strich, Schaft nach unten rechts — so verdeckt er das Geschriebene nicht.
+const pencil = { x: 240, y: 680, a: 0.32, idleX: 235, idleY: 690 };
 function drawPencil(g) {
     g.save();
     g.translate(pencil.x, pencil.y);
@@ -445,7 +447,7 @@ function stepWriting(dt) {
 function movePencilTo(pt) {
     pencil.x = SHEET.x + pt[0];
     pencil.y = SHEET.y + pt[1];
-    pencil.a = -2.28 + Math.sin(performance.now() / 300) * 0.03;
+    pencil.a = 0.32 + Math.sin(performance.now() / 300) * 0.03;
 }
 
 // ---- Uhrlogik ------------------------------------------------------------------------------
