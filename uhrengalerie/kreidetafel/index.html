@@ -563,10 +563,8 @@ function frame(now) {
     checkClock();
     const busy = processQueue(dt);
     if (!busy) {
-        // Werkzeuge zur Ablage zurückgleiten lassen
-        chalk.x += (chalk.idleX - chalk.x) * Math.min(1, dt * 3);
-        chalk.y += (chalk.idleY - chalk.y) * Math.min(1, dt * 3);
-        chalk.a += (chalk.idleA - chalk.a) * Math.min(1, dt * 3);
+        // Die Kreide verharrt, wo sie zuletzt geschrieben hat —
+        // nur der Schwamm gleitet zur Ablage zurück.
         sponge.x += (sponge.idleX - sponge.x) * Math.min(1, dt * 2.5);
         sponge.y += (sponge.idleY - sponge.y) * Math.min(1, dt * 2.5);
         sponge.a += (sponge.idleA - sponge.a) * Math.min(1, dt * 2.5);

@@ -530,9 +530,11 @@ function frame(now) {
             flip = null;
         }
     }
-    if (!writing && !flip) {
-        pencil.x += (pencil.idleX - pencil.x) * Math.min(1, dt * 3);
-        pencil.y += (pencil.idleY - pencil.y) * Math.min(1, dt * 3);
+    // Zwischen den Zeilen bleibt der Stift einfach stehen;
+    // nur beim Umblättern macht er Platz.
+    if (flip) {
+        pencil.x += (pencil.idleX - pencil.x) * Math.min(1, dt * 4);
+        pencil.y += (pencil.idleY - pencil.y) * Math.min(1, dt * 4);
     }
 
     // Zeichnen

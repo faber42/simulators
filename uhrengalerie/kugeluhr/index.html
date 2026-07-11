@@ -256,9 +256,9 @@ function tipTrough(ti, dumpAll) {
     const tilted = { ...tr, angle: d * 0.30 };
     for (let k = 0; k < n; k++) {
         const start = slotPos(tilted, k);
-        const delay = 0.30 + k * 0.085;
         if (k === 0 && !dumpAll && ti < 5) {
-            // Übertragkugel: durch den Trichter zur nächsten Wanne
+            // Übertragkugel: rollt erst los, wenn die übrigen gefallen sind,
+            // dann über die Lippe durch den Trichter zur nächsten Wanne
             const nxt = trough(ti + 1);
             const ex = entX(nxt);
             spawnFlight([
@@ -267,15 +267,13 @@ function tipTrough(ti, dumpAll) {
                 [lx + d * 20, tr.cy + 46],
                 [ex, nxt.cy - 52],
                 slotXY(nxt, 'incoming'),
-            ], { delay, onArrive: () => arriveAt(ti + 1) });
+            ], { delay: 0.30 + (n - 1) * 0.05 + 0.35, onArrive: () => arriveAt(ti + 1) });
         } else {
-            // seitlich über die Lippe und senkrecht an der Mechanik vorbei
-            // in die Sammelschale fallen
-            const fx = lx + d * (34 + Math.random() * 14);
+            // fällt sofort senkrecht aus der gekippten Wanne in die Schale
+            const delay = 0.30 + (dumpAll ? k : k - 1) * 0.05;
             spawnFlight([
                 [start.x, start.y],
-                [fx, tr.cy - 12],
-                [fx, RES.y + 16],
+                [start.x + (Math.random() - 0.5) * 6, RES.y + 16],
             ], { delay, onArrive: () => { reservoir++; klack(0.08, 2400); } });
         }
     }
@@ -641,8 +639,8 @@ function frame(now) {
             const t = tr.tip.t;
             const peak = tr.dir * 0.30;
             if (t < 0.28) tr.angle = peak * (t / 0.28);
-            else if (t < 1.05) tr.angle = peak;
-            else if (t < 1.4) tr.angle = peak * (1 - (t - 1.05) / 0.35);
+            else if (t < 1.25) tr.angle = peak;
+            else if (t < 1.6) tr.angle = peak * (1 - (t - 1.25) / 0.35);
             else { tr.angle = 0; tr.tip = null; }
         }
     }
