@@ -176,6 +176,15 @@ const TRACK_DROP_S = (() => {    // Bahnposition unter dem Kugelhalter
     }
     return TRACK.ss[best];
 })();
+// Rampenhöhe bzw. Bogenlänge an der Stelle x — fürs Aufkommen der
+// freigegebenen Kugel zwischen Bahnmulde und Schlagwerk
+function rampYAt(x) {
+    const t = (clamp(x, C.x, HAMMER.x) - C.x) / (HAMMER.x - C.x);
+    return (C.y + TRACK_R) + t * (HAMMER.y - (C.y + TRACK_R));
+}
+function rampSAt(x) {
+    return TRACK_DROP_S * (HAMMER.x - clamp(x, C.x, HAMMER.x)) / (HAMMER.x - C.x);
+}
 
 // ---- Spielzustand ------------------------------------------------------------
 const S = {
@@ -517,13 +526,22 @@ function update(dt) {
     switch (b.state) {
         case 'DROP': {
             b.vy += TUNE.G * dt;
+            b.x += b.vx * dt;
             b.y += b.vy * dt;
-            const target = trackPos(TRACK_DROP_S);
-            if (b.y >= target.y) {
-                b.state = 'TRACK';
-                b.s = TRACK_DROP_S;
-                b.v = -180;             // rollt zum Schlagwerk (abnehmendes s)
-                AudioFX.tick(0.15);
+            if (b.y >= rampYAt(b.x)) {
+                if (b.vy > 260) {
+                    // Aufkommen in der Bahnmulde: die Kugel springt kurz auf
+                    // und bekommt dabei ihren Impuls nach rechts mit
+                    b.y = rampYAt(b.x);
+                    b.vy = -b.vy * 0.45;
+                    b.vx = 130 + Math.random() * 30;
+                    AudioFX.tick(0.2);
+                } else {
+                    b.state = 'TRACK';
+                    b.s = rampSAt(b.x);
+                    b.v = -(b.vx + 170); // rollt die Schräge hinunter vors Schlagwerk
+                    AudioFX.tick(0.12);
+                }
             }
             break;
         }
@@ -1226,11 +1244,12 @@ function render(nowSec) {
         ctx.restore();
     }
 
-    // Schlagwerk-Hebel
-    const chargePull = (S.charging ? S.power : 0) * 0.5 + S.leverAnim * -0.7;
+    // Schlagwerk-Hebel: Aufladen drückt ihn nach rechts (ganz rechts = volle
+    // Kraft), beim Schlag schnellt er nach links gegen die Kugel
+    const leverAngle = -0.15 + (S.charging ? S.power : 0) * 0.75 - S.leverAnim * 0.5;
     ctx.save();
     ctx.translate(652, 986);
-    ctx.rotate(-0.5 - chargePull * 0.6);
+    ctx.rotate(leverAngle);
     roundRect(ctx, -5, -46, 10, 52, 5);
     ctx.fillStyle = '#8a6d2f'; ctx.fill();
     ctx.beginPath(); ctx.arc(0, -46, 8, 0, Math.PI * 2);

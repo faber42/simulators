@@ -9,11 +9,14 @@ Originalgeräts abgestimmt — die folgenden Details sind verbindlich.
 1. **Münzeinwurf (10 Pfennig):** Zuerst nullt der Automat das Zahlenfeld
    (siehe „Ruhezustand, KONTROLLE und Initialisierung“), dann gibt er die
    Kugel aus dem mittigen Kugelhalter frei (kleines Loch unter dem O von
-   BINGOLETT). Sie fällt unten in die Kreisbahn und rollt vor das
-   Schlagwerk — **genau in diesem Moment** leuchtet im Karo des Emblems
-   **„SPIEL FREI“** auf. Solange der Automat die Kugel festhält, ist
-   „SPIEL FREI“ dunkel.
-2. **Drei Durchgänge derselben Kugel:** Das Schlagwerk schleudert die Kugel
+   BINGOLETT). Sie fällt unten in die Kreisbahn, springt beim Aufkommen
+   kurz auf und rollt mit Rechtsimpuls die leichte Schräge hinunter vor
+   das Schlagwerk — **genau mit der Freigabe** leuchtet im Karo des
+   Emblems **„SPIEL FREI“** auf. Solange der Automat die Kugel festhält,
+   ist „SPIEL FREI“ dunkel.
+2. **Drei Durchgänge derselben Kugel:** Gespannt wird das Schlagwerk, indem
+   der Hebel **nach rechts** gedrückt wird — ganz rechts ist volle Kraft;
+   beim Loslassen schnellt er nach links gegen die Kugel. Es schleudert sie
    über die Abschussrampe — eine **waagerechte Tangente** an die Kreisbahn:
    Die Kugel fliegt flach die Rampe entlang und folgt dann der Kreisbahn,
    ohne einen Hügel zu überwinden. Sie läuft **im Uhrzeigersinn** — unten
