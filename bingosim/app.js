@@ -196,7 +196,8 @@ const S = {
     stuckTime: 0,
     ratchetT: 0,
     clatterT: 0,         // Schreibmaschinen-Klappern der Initialisierung
-    flicker: 0,          // Flacker-Fenster für gemischte Säulen
+    flicker: 0,          // Flacker-Fenster der Lampen
+    flickerScope: 'mixed', // 'mixed': nur gemischte Säulen (Init) | 'all': alles inkl. Gewinnfelder (Auszahlung)
     initPhase: null,     // show | fill | value | dark
     initFillTicks: 0,
     ball: {
@@ -259,12 +260,14 @@ function stepInit() {
             S.initFillTicks--;
             S.initPhase = 'fill';
             S.flicker = 0.18;
+            S.flickerScope = 'mixed';
             AudioFX.klack();
             S.timer = 0.3;
         } else {
             applyInitValue();
             S.initPhase = 'value';
             S.flicker = 0.18;
+            S.flickerScope = 'mixed';
             AudioFX.klack();
             S.timer = 0.35;
         }
@@ -315,17 +318,17 @@ const AudioFX = (() => {
         node.connect(g); g.connect(master);
         return g;
     }
-    function blip(freq, vol, dur, type) {
+    function blip(freq, vol, dur, type, delay) {
         if (!ensure() || muted) return;
-        const t0 = ac.currentTime;
+        const t0 = ac.currentTime + (delay || 0);
         const o = ac.createOscillator();
         o.type = type || 'square'; o.frequency.value = freq;
         env(o, t0, vol, dur);
         o.start(t0); o.stop(t0 + dur + 0.02);
     }
-    function noiseBurst(vol, dur, freq) {
+    function noiseBurst(vol, dur, freq, delay) {
         if (!ensure() || muted) return;
-        const t0 = ac.currentTime;
+        const t0 = ac.currentTime + (delay || 0);
         const len = Math.max(1, (ac.sampleRate * dur) | 0);
         const buf = ac.createBuffer(1, len, ac.sampleRate);
         const ch = buf.getChannelData(0);
@@ -348,6 +351,15 @@ const AudioFX = (() => {
         ratchet() { noiseBurst(0.12, 0.025, 1300); },                          // Programmwerk
         coin()    { noiseBurst(0.35, 0.1, 3400); blip(3000 + Math.random() * 500, 0.12, 0.09, 'triangle'); },
         typebar() { noiseBurst(0.16, 0.02, 2300 + Math.random() * 1500); if (Math.random() < 0.3) blip(2600 + Math.random() * 900, 0.05, 0.025, 'triangle'); },
+        kasching() {
+            // schwerer Auszahlhebel drückt die unterste Münze aus der Säule …
+            blip(85 + Math.random() * 20, 0.6, 0.11, 'sine');
+            noiseBurst(0.45, 0.05, 800);
+            // … und die Münzsäule rutscht klirrend um eine Münzbreite nach
+            noiseBurst(0.4, 0.07, 3100, 0.05);
+            blip(2300 + Math.random() * 700, 0.18, 0.07, 'triangle', 0.06);
+            noiseBurst(0.3, 0.06, 4300, 0.1);
+        },
         roll(v)   { if (rollGain && !muted) rollGain.gain.value = clamp(Math.abs(v) / 2600, 0, 1) * 0.22; },
         rollOff() { if (rollGain) rollGain.gain.value = 0; },
     };
@@ -441,6 +453,7 @@ function update(dt) {
         if (S.timer <= 0) {
             if (S.mode === 'RELEASE') startRelease();
             else if (S.mode === 'INIT') stepInit();
+            else if (S.mode === 'PAYOUT') setMode('ATTRACT');
             else if (S.mode === 'PROGRAM') {
                 if (S.throwsDone.length >= 3) {
                     // Spielende: Gewinn wurde schon beim Taschentreffer geschaltet
@@ -470,19 +483,22 @@ function update(dt) {
     }
     if (S.flicker > 0) S.flicker -= dt;
 
-    // Auszahlung: Münzen einzeln in die Schale
+    // Auszahlung: ein schwerer Hebel drückt alle ~300 ms die unterste Münze
+    // aus der Münzsäule — „Kasching“, die Lampen flackern bei jedem Hub
     if (S.coinQueue > 0) {
         S.coinDelay -= dt;
         if (S.coinDelay <= 0) {
-            S.coinDelay = 0.11;
+            S.coinDelay = 0.3;
             S.coinQueue--;
             S.coins.push({
                 x: 380 + (Math.random() - 0.5) * 50, y: 946,
                 vx: (Math.random() - 0.5) * 60, vy: 40 + Math.random() * 40,
                 rot: Math.random() * Math.PI, settled: false,
             });
-            AudioFX.coin();
-            if (S.coinQueue === 0 && S.mode === 'PAYOUT') setMode('ATTRACT');
+            AudioFX.kasching();
+            S.flicker = 0.2;
+            S.flickerScope = 'all';
+            if (S.coinQueue === 0 && S.mode === 'PAYOUT') S.timer = 0.8; // kurzer Nachklang
         }
     }
     for (const c of S.coins) {
@@ -1141,11 +1157,10 @@ function render(nowSec) {
         const col = COLUMNS[c2];
         const theme = COL_COLORS[col.color];
         const cx = CELL.x0 + c2 * CELL.pitch;
-        // Während der Initialisierung flackern die bereits leuchtenden
-        // Ziffern der gemischten Säulen im Takt der Schaltschritte mit
-        const flick = (S.flicker > 0 && !PURE[c2])
-            ? 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(nowSec * 78 + c2 * 2.3))
-            : 1;
+        // Flackern: bei der Initialisierung nur die gemischten Säulen, bei
+        // der Auszahlung sackt das Licht überall kurz ab (schwerer Hebel)
+        const fa = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(nowSec * 78 + c2 * 2.3));
+        const flick = (S.flicker > 0 && (S.flickerScope === 'all' || !PURE[c2])) ? fa : 1;
         for (let r = 0; r < 3; r++) {
             if (!S.lit[c2][r]) continue;
             const cy = CELL.y0 + r * CELL.rowPitch;
@@ -1165,11 +1180,13 @@ function render(nowSec) {
         }
         if (S.valueLit[c2]) {
             ctx.save();
+            if (S.flicker > 0 && S.flickerScope === 'all') ctx.globalAlpha = fa;
             ctx.shadowColor = theme.lit; ctx.shadowBlur = 20 * pulse;
             roundRect(ctx, cx, CELL.valueY, CELL.w, CELL.valueH, 6);
             ctx.fillStyle = theme.lit; ctx.fill();
-            ctx.restore();
+            ctx.shadowBlur = 0;
             drawValueText(ctx, c2, '#141414');
+            ctx.restore();
         }
     }
 

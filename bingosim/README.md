@@ -58,6 +58,13 @@ Originalgeräts abgestimmt — die folgenden Details sind verbindlich.
   Relais schalten den Gewinn direkt durch. Der Betrag wird in
   10-Pf-Stücken in die Schale ausgezahlt. (Mathematisch kann nie mehr als
   eine Säule gleichzeitig vollständig sein.)
+- **Auszahlung:** Ein schwerer Hebel drückt alle **~300 ms** die unterste
+  Münze aus der Münzsäule in den Auszahlschacht — pro 10 Pf ein
+  „Kasching“, die in der Säule nachrutschenden Münzen klirren hörbar
+  nach. Bei jedem Hub **flackern die Lampen** kurz, auch die
+  Gewinnfelder — ähnlich der Initialisierung, nur lauter. 20 Pf sind
+  zwei Hübe, der Hauptgewinn zehn: Dauer und Geräuschkulisse der
+  Auszahlung wachsen direkt mit dem Gewinn.
 
 ## Ruhezustand, KONTROLLE und Initialisierung
 
