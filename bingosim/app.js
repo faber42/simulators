@@ -1411,11 +1411,11 @@ canvas.addEventListener('pointerdown', ev => {
     AudioFX.unlock();
     try { canvas.setPointerCapture(ev.pointerId); } catch (e) { /* synthetische/abgelaufene Pointer */ }
     if (p.x > 715 && p.y > 320 && p.y < 490) { insertCoin(); return; }
-    if (Math.hypot(p.x - 150, p.y - 992) < 30) { S.kontrolle = true; AudioFX.klack(); return; }
+    if (Math.hypot(p.x - 150, p.y - 992) < 30) { S.kontrolle = true; return; } // KONTROLLE ist lautlos
     if (p.x > 540 && p.y > 930) { beginCharge(); return; }
     beginCharge(); // überall sonst: ebenfalls Schlagwerk (bequemer)
 });
-canvas.addEventListener('pointerup', () => { if (S.kontrolle) { S.kontrolle = false; AudioFX.klack(); } endCharge(); });
+canvas.addEventListener('pointerup', () => { S.kontrolle = false; endCharge(); });
 canvas.addEventListener('pointercancel', () => { S.kontrolle = false; S.charging = false; });
 canvas.addEventListener('pointermove', ev => {
     const p = canvasPos(ev);
