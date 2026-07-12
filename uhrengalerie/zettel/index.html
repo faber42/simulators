@@ -367,9 +367,12 @@ function entryPos(idx) {
 let pageStamp = null;     // "HH:MM" der laufenden Seite
 let entriesDone = 0;      // fertig beauftragte Zeilen dieser Seite
 
-function newPage(now) {
+function newPage(now, mitSymbol = true) {
     paintPaperBase(sctx, SHEET.w, SHEET.h);
-    // Kopfzeile: Datum, handschriftlich
+    // Kopfzeile: Datum, handschriftlich; dazu das Umschalt-Symbol oben rechts
+    if (mitSymbol) {
+        for (const s of iconItems('analog')) drawStrokesInstant(s);
+    }
     const dateText = p2(now.getDate()) + '.' + p2(now.getMonth() + 1) + '.' + now.getFullYear();
     for (const s of layoutText(dateText, 200, 26, 24)) drawStrokesInstant(s);
     sctx.strokeStyle = 'rgba(55,58,66,0.5)';
@@ -653,6 +656,8 @@ function startAnalog() {
     const items = dialItems();
     for (const s of handStrokes(hAng, HOUR_LEN, 22, 3)) items.push({ pts: s });
     for (const s of handStrokes(mAng, MIN_LEN, 28, 2)) items.push({ pts: s });
+    // zum Schluss zeichnet der Stift das Umschalt-Symbol (kleine Digitalanzeige)
+    for (const pts of iconItems('digital')) items.push({ pts });
     analog = {
         initial: { t0: Date.now(), job: mkJob(items) },
         mAng, hAng,
@@ -712,15 +717,15 @@ function analogTick() {
             // Hinweg radiert nur an (55 % der Zeit), der Rückweg macht sauber
             const p = Math.max(0, el) / c.dur;
             if (p < 0.55) {
-                stampEraseJob(c.erase.hin, c.erase.hin.total * (p / 0.55), 0.10);
+                stampEraseJob(c.erase.hin, c.erase.hin.total * (p / 0.55), 0.18);
             } else {
-                if (c.erase.hin.done < c.erase.hin.total) stampEraseJob(c.erase.hin, c.erase.hin.total, 0.10);
+                if (c.erase.hin.done < c.erase.hin.total) stampEraseJob(c.erase.hin, c.erase.hin.total, 0.18);
                 stampEraseJob(c.erase.rueck, c.erase.rueck.total * ((p - 0.55) / 0.45), 0.5);
             }
             setScribble(0.026);
         } else if (el < c.dur * 2) {
             if (c.erase.rueck.done < c.erase.rueck.total) {
-                stampEraseJob(c.erase.hin, c.erase.hin.total, 0.10);
+                stampEraseJob(c.erase.hin, c.erase.hin.total, 0.18);
                 stampEraseJob(c.erase.rueck, c.erase.rueck.total, 0.5);
             }
             stampPaintJob(c.paint, c.paint.total * (el - c.dur) / c.dur);
@@ -741,39 +746,33 @@ function analogTick() {
 // Analogmodus eine kleine Digitalanzeige. Klick darauf blättert um.
 const ICON = { x: 470, y: 24, w: 156, h: 128 };   // Blatt-lokale Klickzone
 
-function buildIcon(kind) {
-    const c = document.createElement('canvas');
-    c.width = ICON.w; c.height = ICON.h;
-    const g = c.getContext('2d');
-    const draw = (pts) => {
-        for (let i = 0; i < pts.length - 1; i++) {
-            pencilSeg(g, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
-        }
-    };
+// Strichfolgen des Umschalt-Symbols (Blatt-lokal) — der Stift zeichnet
+// sie beim Anlegen des Blatts bzw. beim Umschalten selbst
+function iconItems(kind) {
+    const out = [];
+    const X = ICON.x, Y = ICON.y;
     if (kind === 'analog') {
-        const cx = 78, cy = 64, r = 44;
+        const cx = X + 78, cy = Y + 64, r = 44;
         const circ = [];
         for (let a = 0; a <= 372; a += 12) {
             circ.push([cx + Math.cos(a * Math.PI / 180) * (r + (Math.random() - 0.5) * 2),
                        cy + Math.sin(a * Math.PI / 180) * (r + (Math.random() - 0.5) * 2)]);
         }
-        draw(smooth(circ, 4));
+        out.push(smooth(circ, 4));
         for (let i = 0; i < 4; i++) {
             const a = i * 90 * Math.PI / 180;
-            draw(smooth([[cx + Math.sin(a) * (r - 3), cy - Math.cos(a) * (r - 3)],
-                         [cx + Math.sin(a) * (r - 13), cy - Math.cos(a) * (r - 13)]], 3));
+            out.push(smooth([[cx + Math.sin(a) * (r - 3), cy - Math.cos(a) * (r - 3)],
+                             [cx + Math.sin(a) * (r - 13), cy - Math.cos(a) * (r - 13)]], 3));
         }
-        draw(sketchLine(cx, cy, cx + Math.sin(-1.05) * 24, cy - Math.cos(-1.05) * 24, 1.5));
-        draw(sketchLine(cx, cy, cx + Math.sin(0.52) * 36, cy - Math.cos(0.52) * 36, 1.5));
+        out.push(sketchLine(cx, cy, cx + Math.sin(-1.05) * 24, cy - Math.cos(-1.05) * 24, 1.5));
+        out.push(sketchLine(cx, cy, cx + Math.sin(0.52) * 36, cy - Math.cos(0.52) * 36, 1.5));
     } else {
-        const frame = [[14, 26], [142, 26], [142, 108], [14, 108], [14, 26]];
-        draw(smooth(frame.map(p => [p[0] + (Math.random() - 0.5) * 2, p[1] + (Math.random() - 0.5) * 2]), 5));
-        for (const pts of layoutText('88:88', 22, 38, 34)) draw(pts);
+        const frame = [[X + 14, Y + 26], [X + 142, Y + 26], [X + 142, Y + 108], [X + 14, Y + 108], [X + 14, Y + 26]];
+        out.push(smooth(frame.map(p => [p[0] + (Math.random() - 0.5) * 2, p[1] + (Math.random() - 0.5) * 2]), 5));
+        for (const pts of layoutText('88:88', X + 22, Y + 38, 34)) out.push(pts);
     }
-    return c;
+    return out;
 }
-const iconAnalog = buildIcon('analog');
-const iconDigital = buildIcon('digital');
 
 function canvasPos(e) {
     const r = canvas.getBoundingClientRect();
@@ -890,8 +889,15 @@ function frame(now) {
                     paintPaperBase(sctx, SHEET.w, SHEET.h);
                     startAnalog();
                 } else {
-                    newPage(new Date());
+                    // frisches Blatt; das Umschalt-Symbol zeichnet der Stift
+                    // diesmal sichtbar, bevor die Einträge weitergehen
+                    newPage(new Date(), false);
                     entriesDone = new Date().getSeconds();
+                    writing = {
+                        strokes: iconItems('analog'),
+                        stroke: 0, t: 0,
+                        speed: 640,
+                    };
                 }
             } else {
                 newPage(new Date());
@@ -942,10 +948,6 @@ function frame(now) {
     } else {
         ctx.drawImage(sheet, SHEET.x, SHEET.y);
         ctx.drawImage(ink, SHEET.x, SHEET.y);
-        // klickbares Bleistiftsymbol oben rechts (zeigt die jeweils andere Ansicht)
-        ctx.globalAlpha = 0.9;
-        ctx.drawImage(mode === 'digital' ? iconAnalog : iconDigital, SHEET.x + ICON.x, SHEET.y + ICON.y);
-        ctx.globalAlpha = 1;
     }
 
     for (const p of crumbs) {
