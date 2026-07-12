@@ -180,6 +180,9 @@ function smooth(pts, step) {
     return out;
 }
 
+// weiches Anfahren der Werkzeuge (Smoothstep)
+const ease = t => t * t * (3 - 2 * t);
+
 // Glyph -> Weltkoordinaten-Strokes mit Handschrift-Jitter
 function layoutGlyph(ch, x, y, w, h) {
     const strokes = GLYPHS[ch];
@@ -342,7 +345,9 @@ const SPONGE_PORES = Array.from({ length: 26 }, () => ({
 }));
 
 // ---- Ton ----------------------------------------------------------------------
-let audioOn = false, actx = null, scratchGain = null, swooshGain = null;
+// Die Kreide klingt pro Strich: beim Aufsetzen ein kurzer, dumpfer Tupfer,
+// beim Streichen das Rauschen, beim Abheben Stille.
+let audioOn = false, actx = null, scratchGain = null, swooshGain = null, lastTapAt = 0;
 function ensureAudio() {
     if (actx) return;
     actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -362,18 +367,49 @@ function ensureAudio() {
     src.connect(bp2).connect(swooshGain).connect(actx.destination);
     src.start();
 }
-function setTone(scratch, swoosh) {
+function setScratch(v) {
+    if (!actx || !audioOn) return;
+    scratchGain.gain.setTargetAtTime(v, actx.currentTime, v > 0 ? 0.03 : 0.018);
+}
+function setSwoosh(v) {
+    if (!actx || !audioOn) return;
+    swooshGain.gain.setTargetAtTime(v, actx.currentTime, 0.05);
+}
+// Aufsetzen der Kreide: kurzer gefilterter Rauschimpuls
+function chalkTap() {
     if (!actx || !audioOn) return;
     const t = actx.currentTime;
-    scratchGain.gain.setTargetAtTime(scratch, t, 0.03);
-    swooshGain.gain.setTargetAtTime(swoosh, t, 0.05);
+    if (t - lastTapAt < 0.05) return;      // sehr kurze Striche knattern sonst
+    lastTapAt = t;
+    const n = Math.ceil(actx.sampleRate * 0.05);
+    const buf = actx.createBuffer(1, n, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) {
+        const e = 1 - i / n;
+        d[i] = (Math.random() * 2 - 1) * e * e;
+    }
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 900 + Math.random() * 500;
+    bp.Q.value = 1.1;
+    const g = actx.createGain();
+    g.gain.value = 0.3;
+    src.connect(bp).connect(g).connect(actx.destination);
+    src.start(t);
 }
 const soundBtn = document.getElementById('soundBtn');
 soundBtn.addEventListener('click', () => {
     audioOn = !audioOn;
     soundBtn.innerHTML = audioOn ? '&#128266; Ton an' : '&#128263; Ton aus';
     if (audioOn) { ensureAudio(); actx.resume(); }
-    else if (actx) { scratchGain.gain.value = 0; swooshGain.gain.value = 0; }
+    else if (actx) {
+        scratchGain.gain.cancelScheduledValues(0);
+        swooshGain.gain.cancelScheduledValues(0);
+        scratchGain.gain.value = 0;
+        swooshGain.gain.value = 0;
+    }
 });
 
 // ---- Aktions-Warteschlange -------------------------------------------------------
@@ -406,6 +442,10 @@ function startAction(a) {
         }
         a.pts = smooth(path, 26);
         a.i = 0;
+        // Anfahrt vom aktuellen Schwammplatz zur ersten Wischposition
+        a.from = [sponge.x, sponge.y];
+        a.lead = Math.min(0.7, 0.15 + Math.hypot(a.pts[0][0] - sponge.x, a.pts[0][1] - sponge.y) / 2200);
+        a.leadT = 0;
     } else if (a.type === 'pause') {
         a.left = a.ms;
     }
@@ -428,19 +468,27 @@ function processQueue(dt) {
         // Zeitbudget-Formulierung: jede Runde schließt entweder ein Segment
         // exakt ab (t wird ganzzahlig) oder setzt das Budget exakt auf 0 —
         // so kann sich kein Fließkomma-Rest festfressen.
+        // Zwischen zwei Strichen setzt die Kreide kurz ab (a.rest): das
+        // Rauschen stoppt, beim nächsten Strich ist das Aufsetzen zu hören.
         const speed = a.speed || 1300;         // Einheiten/s
         let remaining = dt;
         while (remaining > 0 && a.stroke < a.strokes.length) {
+            if (a.rest > 0) {
+                const take = Math.min(remaining, a.rest);
+                a.rest -= take; remaining -= take;
+                continue;
+            }
             const pts = a.strokes[a.stroke];
+            if (a.tapped !== a.stroke) { chalkTap(); a.tapped = a.stroke; }
             if (pts.length === 1) {
                 // Punkt (Doppelpunkt): dicker Tupfer
                 for (let k = 0; k < 9; k++) chalkDab(pts[0][0], pts[0][1], a.width * 1.1, 1);
                 moveChalkTo(pts[0][0], pts[0][1]);
-                a.stroke++; a.t = 0;
+                a.stroke++; a.t = 0; a.rest = 0.09;
                 remaining -= 30 / speed;
                 continue;
             }
-            if (a.t >= pts.length - 1) { a.stroke++; a.t = 0; continue; }
+            if (a.t >= pts.length - 1) { a.stroke++; a.t = 0; a.rest = 0.09; continue; }
             const i = Math.floor(a.t);
             const frac = a.t - i;
             const p = pts[i], q = pts[i + 1];
@@ -461,12 +509,23 @@ function processQueue(dt) {
             moveChalkTo(nx, ny);
             a.t = nf >= 1 ? i + 1 : i + nf;
         }
-        setTone(0.035 + Math.random() * 0.02, 0);
-        if (a.stroke >= a.strokes.length) { current = null; setTone(0, 0); }
+        setScratch(a.stroke < a.strokes.length && !(a.rest > 0) ? 0.035 + Math.random() * 0.02 : 0);
+        if (a.stroke >= a.strokes.length) current = null;
         return true;
     }
     if (a.type === 'wipe') {
         spongeBusy = true;
+        if (a.leadT < a.lead) {
+            // Anfahrt: der Schwamm gleitet zur ersten Wischposition,
+            // statt dorthin zu springen
+            a.leadT = Math.min(a.lead, a.leadT + dt);
+            const k = ease(a.leadT / a.lead);
+            sponge.x = a.from[0] + (a.pts[0][0] - a.from[0]) * k;
+            sponge.y = a.from[1] + (a.pts[0][1] - a.from[1]) * k;
+            sponge.a = 0;
+            setSwoosh(0);
+            return true;
+        }
         const speed = 2400;
         let dist = speed * dt;
         while (dist > 0 && a.i < a.pts.length - 1) {
@@ -483,8 +542,8 @@ function processQueue(dt) {
             dist -= segLen;
             a.i++;
         }
-        setTone(0, 0.07);
-        if (a.i >= a.pts.length - 1) { current = null; setTone(0, 0); }
+        setSwoosh(0.07);
+        if (a.i >= a.pts.length - 1) { current = null; setSwoosh(0); }
         return true;
     }
     return true;
@@ -670,15 +729,15 @@ function dialItems() {
 function mkJob(items) {
     const segs = [];
     let total = 0;
-    for (const it of items) {
+    items.forEach((it, item) => {
         for (let i = 0; i < it.pts.length - 1; i++) {
             const p = it.pts[i], q = it.pts[i + 1];
             const len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 0.01;
-            segs.push({ p, q, len, start: total, width: it.width });
+            segs.push({ p, q, len, start: total, width: it.width, item });
             total += len;
         }
         total += 22;                               // kurzes Absetzen der Kreide
-    }
+    });
     return { segs, total: Math.max(total, 1), done: 0 };
 }
 
@@ -689,6 +748,11 @@ function stampPaintJob(job, toLen) {
         const end = s.start + s.len;
         if (end <= job.done) continue;
         if (s.start >= toLen) break;
+        if (job.sndItem !== s.item) {
+            // neuer Strich: die Kreide setzt hörbar auf
+            chalkTap();
+            job.sndItem = s.item;
+        }
         for (let l = Math.max(job.done, s.start); l < Math.min(toLen, end); l += 3.4) {
             const t = (l - s.start) / s.len;
             const x = s.p[0] + (s.q[0] - s.p[0]) * t;
@@ -699,6 +763,18 @@ function stampPaintJob(job, toLen) {
         }
     }
     job.done = toLen;
+    // Kreide folgt dem Stiftpunkt; das Rauschen läuft nur, solange sie
+    // aufliegt — in den Absetz-Lücken zwischen zwei Strichen ist es still
+    let auf = false;
+    for (const s of job.segs) {
+        if (toLen >= s.start && toLen < s.start + s.len) {
+            const t = (toLen - s.start) / s.len;
+            moveChalkTo(s.p[0] + (s.q[0] - s.p[0]) * t, s.p[1] + (s.q[1] - s.p[1]) * t);
+            auf = true;
+            break;
+        }
+    }
+    setScratch(auf && toLen < job.total ? 0.03 + Math.random() * 0.015 : 0);
     return job.done >= job.total;
 }
 
@@ -785,13 +861,22 @@ function analogTick() {
 
     if (A.initial) {
         const el = (Date.now() - A.initial.t0) / 1000;
-        stampPaintJob(A.initial.job, A.initial.job.total * Math.min(1, el / 30));
-        setTone(el < 30 ? 0.035 + Math.random() * 0.015 : 0, 0);
+        const anI = 1.2;                       // Anfahrt der Kreide zum ersten Ansatz
+        if (el < anI) {
+            if (!A.initial.from) A.initial.from = [chalk.x, chalk.y, chalk.a];
+            const k = ease(Math.max(0, el) / anI);
+            const s0 = A.initial.job.segs[0].p;
+            chalk.x = A.initial.from[0] + (s0[0] + 5 - A.initial.from[0]) * k;
+            chalk.y = A.initial.from[1] + (s0[1] - 3.4 - A.initial.from[1]) * k;
+            chalk.a = A.initial.from[2] + (-0.6 - A.initial.from[2]) * k;
+        } else {
+            stampPaintJob(A.initial.job, A.initial.job.total * Math.min(1, (el - anI) / (30 - anI)));
+        }
         if (el >= 30) {
             A.paintedMin = A.mAng;
             A.paintedHour = A.hAng;
             A.initial = null;
-            setTone(0, 0);
+            setScratch(0);
         }
         return;
     }
@@ -815,6 +900,8 @@ function analogTick() {
             erase: mkEraseJob(hands),
             paint: mkJob(items),
             mAng, hAng, withHour,
+            el0: sec - 10,                     // Planungszeitpunkt innerhalb des Fensters
+            from: [sponge.x, sponge.y],        // Startplatz des Schwamms für die Anfahrt
         };
         A.lastKey = key;
     }
@@ -823,29 +910,54 @@ function analogTick() {
         const c = A.cycle;
         let el = (key - c.key) * 60 + sec - 10;    // Sekunden seit :10 der Planungsminute
         if (el < -60) el += 86400;                 // Tageswechsel
+        const hinEnd = c.dur * 0.55;
+        const an = Math.min(1.6, Math.max(0, (hinEnd - c.el0) * 0.5));
         if (el < c.dur) {
             // Hinweg wischt nur an (55 % der Zeit), der Rückweg macht sauber
             const p = Math.max(0, el) / c.dur;
-            if (p < 0.55) {
-                stampEraseJob(c.erase.hin, c.erase.hin.total * (p / 0.55), 0.12, 0.14);
+            if (el < c.el0 + an) {
+                // Anfahrt: der Schwamm gleitet von der Ablage zum Zeiger,
+                // statt dorthin zu springen
+                const k = ease(Math.max(0, el - c.el0) / an);
+                const s0 = c.erase.hin.segs[0].p;
+                sponge.x = c.from[0] + (s0[0] - c.from[0]) * k;
+                sponge.y = c.from[1] + (s0[1] - c.from[1]) * k;
+                sponge.a = 0;
+                spongeBusy = true;
+                setSwoosh(0);
+            } else if (p < 0.55) {
+                const denom = Math.max(0.01, hinEnd - c.el0 - an);
+                stampEraseJob(c.erase.hin, c.erase.hin.total * ((el - c.el0 - an) / denom), 0.12, 0.14);
+                setSwoosh(0.055);
             } else {
                 if (c.erase.hin.done < c.erase.hin.total) stampEraseJob(c.erase.hin, c.erase.hin.total, 0.12, 0.14);
                 stampEraseJob(c.erase.rueck, c.erase.rueck.total * ((p - 0.55) / 0.45), 0.5, 0.7);
+                setSwoosh(0.055);
             }
-            setTone(0, 0.055);
         } else if (el < c.dur * 2) {
             if (c.erase.rueck.done < c.erase.rueck.total) {
                 stampEraseJob(c.erase.hin, c.erase.hin.total, 0.12, 0.14);
                 stampEraseJob(c.erase.rueck, c.erase.rueck.total, 0.5, 0.7);
             }
-            stampPaintJob(c.paint, c.paint.total * (el - c.dur) / c.dur);
-            setTone(0.035 + Math.random() * 0.015, 0);
+            setSwoosh(0);
+            const anP = 1.2;                   // Anfahrt der Kreide zum Strichansatz
+            if (el < c.dur + anP) {
+                if (!c.fromChalk) c.fromChalk = [chalk.x, chalk.y, chalk.a];
+                const k = ease((el - c.dur) / anP);
+                const s0 = c.paint.segs[0].p;
+                chalk.x = c.fromChalk[0] + (s0[0] + 5 - c.fromChalk[0]) * k;
+                chalk.y = c.fromChalk[1] + (s0[1] - 3.4 - c.fromChalk[1]) * k;
+                chalk.a = c.fromChalk[2] + (-0.6 - c.fromChalk[2]) * k;
+            } else {
+                stampPaintJob(c.paint, c.paint.total * (el - c.dur - anP) / (c.dur - anP));
+            }
         } else {
             stampPaintJob(c.paint, c.paint.total);
             A.paintedMin = c.mAng;
             if (c.withHour) A.paintedHour = c.hAng;
             A.cycle = null;
-            setTone(0, 0);
+            setSwoosh(0);
+            setScratch(0);
         }
     }
 }
@@ -926,7 +1038,7 @@ function frame(now) {
         }
     } else if (mode === 'digital') {
         checkClock();
-        if (!processQueue(dt)) setTone(0, 0);
+        if (!processQueue(dt)) { setScratch(0); setSwoosh(0); }
     } else {
         analogTick();
     }

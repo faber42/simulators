@@ -41,7 +41,7 @@
 </head>
 <body>
     <a class="back" href="../">&larr; Uhrengalerie</a>
-    <button class="soundbtn" id="soundBtn" title="Schreib- und Bl&auml;tterger&auml;usch an/aus">&#128263; Ton aus</button>
+    <button class="soundbtn" id="soundBtn" title="Bl&auml;tterger&auml;usch an/aus">&#128263; Ton aus</button>
 
     <canvas id="canvas"></canvas>
     <div class="caption">Jede Sekunde eine Zeile, dann wird umgebl&auml;ttert. Das Bleistiftsymbol oben rechts auf dem Blatt schaltet zur Analoguhr um, bei der der umgedrehte Stift in Ruhe radiert und neu zeichnet.</div>
@@ -217,6 +217,9 @@ function smooth(pts, step) {
     return out;
 }
 
+// weiches Anfahren des Stifts (Smoothstep)
+const ease = t => t * t * (3 - 2 * t);
+
 // Text -> Strokes in Blattkoordinaten
 function layoutText(text, x, y, charH) {
     const charW = charH * 0.62;
@@ -307,21 +310,11 @@ function drawPencil(g) {
 }
 
 // ---- Ton ------------------------------------------------------------------------------
-let audioOn = false, actx = null, noiseSrc = null, writeGain = null;
+// Der Stift selbst bleibt stumm — zu hören ist nur das Umblättern.
+let audioOn = false, actx = null;
 function ensureAudio() {
     if (actx) return;
     actx = new (window.AudioContext || window.webkitAudioContext)();
-    const len = actx.sampleRate;
-    const buf = actx.createBuffer(1, len, actx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    noiseSrc = actx.createBufferSource();
-    noiseSrc.buffer = buf; noiseSrc.loop = true;
-    const bp = actx.createBiquadFilter();
-    bp.type = 'bandpass'; bp.frequency.value = 3300; bp.Q.value = 1.8;
-    writeGain = actx.createGain(); writeGain.gain.value = 0;
-    noiseSrc.connect(bp).connect(writeGain).connect(actx.destination);
-    noiseSrc.start();
 }
 function flipSound() {
     if (!audioOn || !actx) return;
@@ -349,11 +342,7 @@ soundBtn.addEventListener('click', () => {
     audioOn = !audioOn;
     soundBtn.innerHTML = audioOn ? '&#128266; Ton an' : '&#128263; Ton aus';
     if (audioOn) { ensureAudio(); actx.resume(); }
-    else if (writeGain) writeGain.gain.value = 0;
 });
-function setScribble(v) {
-    if (audioOn && writeGain) writeGain.gain.setTargetAtTime(v, actx.currentTime, 0.02);
-}
 
 // ---- Seitenlayout ---------------------------------------------------------------------
 const ROW0_Y = 96, ROW_H = 28.2, CHAR_H = 20;
@@ -448,11 +437,7 @@ function stepWriting(dt) {
         movePencilTo([nx, ny]);
         wjs.t = nf >= 1 ? i + 1 : i + nf;
     }
-    setScribble(0.04 + Math.random() * 0.02);
-    if (wjs.stroke >= wjs.strokes.length) {
-        writing = null;
-        setScribble(0);
-    }
+    if (wjs.stroke >= wjs.strokes.length) writing = null;
 }
 
 function movePencilTo(pt) {
@@ -676,13 +661,21 @@ function analogTick() {
 
     if (A.initial) {
         const el = (Date.now() - A.initial.t0) / 1000;
-        stampPaintJob(A.initial.job, A.initial.job.total * Math.min(1, el / 30));
-        setScribble(el < 30 ? 0.04 : 0);
+        const anI = 1.2;                       // Anfahrt des Stifts zum ersten Ansatz
+        if (el < anI) {
+            if (!A.initial.from) A.initial.from = [pencil.x, pencil.y, pencil.a];
+            const k = ease(Math.max(0, el) / anI);
+            const s0 = A.initial.job.segs[0].p;
+            pencil.x = A.initial.from[0] + (SHEET.x + s0[0] - A.initial.from[0]) * k;
+            pencil.y = A.initial.from[1] + (SHEET.y + s0[1] - A.initial.from[1]) * k;
+            pencil.a = A.initial.from[2] + (0.32 - A.initial.from[2]) * k;
+        } else {
+            stampPaintJob(A.initial.job, A.initial.job.total * Math.min(1, (el - anI) / (30 - anI)));
+        }
         if (el >= 30) {
             A.paintedMin = A.mAng;
             A.paintedHour = A.hAng;
             A.initial = null;
-            setScribble(0);
         }
         return;
     }
@@ -705,6 +698,8 @@ function analogTick() {
             erase: mkEraseJob(hands),
             paint: mkJob(items),
             mAng, hAng, withHour,
+            el0: sec - 10,                     // Planungszeitpunkt innerhalb des Fensters
+            from: [pencil.x, pencil.y, pencil.a],  // Startlage für die Anfahrt
         };
         A.lastKey = key;
     }
@@ -713,29 +708,48 @@ function analogTick() {
         const c = A.cycle;
         let el = (key - c.key) * 60 + sec - 10;
         if (el < -60) el += 86400;
+        const hinEnd = c.dur * 0.55;
+        const an = Math.min(1.6, Math.max(0, (hinEnd - c.el0) * 0.5));
         if (el < c.dur) {
             // Hinweg radiert nur an (55 % der Zeit), der Rückweg macht sauber
             const p = Math.max(0, el) / c.dur;
-            if (p < 0.55) {
-                stampEraseJob(c.erase.hin, c.erase.hin.total * (p / 0.55), 0.18);
+            if (el < c.el0 + an) {
+                // Anfahrt: der umgedrehte Stift schwebt zum Zeiger,
+                // statt dorthin zu springen
+                const k = ease(Math.max(0, el - c.el0) / an);
+                const s0 = c.erase.hin.segs[0].p;
+                pencil.x = c.from[0] + (SHEET.x + s0[0] - c.from[0]) * k;
+                pencil.y = c.from[1] + (SHEET.y + s0[1] - c.from[1]) * k;
+                pencil.a = c.from[2] + (0.32 - c.from[2]) * k;
+                pencilFlipped = true;
+            } else if (p < 0.55) {
+                const denom = Math.max(0.01, hinEnd - c.el0 - an);
+                stampEraseJob(c.erase.hin, c.erase.hin.total * ((el - c.el0 - an) / denom), 0.18);
             } else {
                 if (c.erase.hin.done < c.erase.hin.total) stampEraseJob(c.erase.hin, c.erase.hin.total, 0.18);
                 stampEraseJob(c.erase.rueck, c.erase.rueck.total * ((p - 0.55) / 0.45), 0.5);
             }
-            setScribble(0.026);
         } else if (el < c.dur * 2) {
             if (c.erase.rueck.done < c.erase.rueck.total) {
                 stampEraseJob(c.erase.hin, c.erase.hin.total, 0.18);
                 stampEraseJob(c.erase.rueck, c.erase.rueck.total, 0.5);
             }
-            stampPaintJob(c.paint, c.paint.total * (el - c.dur) / c.dur);
-            setScribble(0.04);
+            const anP = 1.2;                   // Stift umdrehen und zum Ansatz führen
+            if (el < c.dur + anP) {
+                if (!c.fromP) c.fromP = [pencil.x, pencil.y, pencil.a];
+                const k = ease((el - c.dur) / anP);
+                const s0 = c.paint.segs[0].p;
+                pencil.x = c.fromP[0] + (SHEET.x + s0[0] - c.fromP[0]) * k;
+                pencil.y = c.fromP[1] + (SHEET.y + s0[1] - c.fromP[1]) * k;
+                pencil.a = c.fromP[2] + (0.32 - c.fromP[2]) * k;
+            } else {
+                stampPaintJob(c.paint, c.paint.total * (el - c.dur - anP) / (c.dur - anP));
+            }
         } else {
             stampPaintJob(c.paint, c.paint.total);
             A.paintedMin = c.mAng;
             if (c.withHour) A.paintedHour = c.hAng;
             A.cycle = null;
-            setScribble(0);
         }
     }
 }
@@ -786,7 +800,6 @@ function toggleMode() {
     if (flip || switchTarget) return;
     // angefangene Zeile aufgeben, Blatt (samt Analog-Zeichnung) umblättern
     writing = null;
-    setScribble(0);
     sctx.drawImage(ink, 0, 0);
     ictx.clearRect(0, 0, SHEET.w, SHEET.h);
     analog = null;
