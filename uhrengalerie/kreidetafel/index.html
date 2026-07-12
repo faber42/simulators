@@ -30,6 +30,14 @@
         cursor: pointer; font-family: inherit;
     }
     .soundbtn:hover { background: rgba(50,42,34,0.85); }
+    .modebtn {
+        position: fixed; top: 1rem; right: 8.6rem; z-index: 10;
+        background: rgba(25,20,16,0.65); color: #e8e2d5;
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .modebtn:hover { background: rgba(50,42,34,0.85); }
 
     .frame {
         padding: 1.9vmin;
@@ -57,9 +65,10 @@
 <body>
     <a class="back" href="../">&larr; Uhrengalerie</a>
     <button class="soundbtn" id="soundBtn" title="Kreide- und Schwammger&auml;usch an/aus">&#128263; Ton aus</button>
+    <button class="modebtn" id="modeBtn" title="Zwischen Digital- und Analoguhr umschalten">&rarr; Analoguhr</button>
 
     <div class="frame"><canvas id="canvas"></canvas></div>
-    <div class="caption">Der Schwamm wischt nur die Ziffern, die sich &auml;ndern &mdash; die Strichliste z&auml;hlt die Sekunden bis zur n&auml;chsten Minute.</div>
+    <div class="caption">Der Schwamm wischt nur, was sich &auml;ndert. Als Analoguhr l&auml;sst sie sich Zeit: 20&nbsp;Sekunden wischen, 20&nbsp;Sekunden malen &mdash; wandert der Stundenzeiger mit, braucht sie die ganze Minute.</div>
 
 <script>
 (() => {
@@ -449,6 +458,7 @@ function processQueue(dt) {
         return true;
     }
     if (a.type === 'wipe') {
+        spongeBusy = true;
         const speed = 2400;
         let dist = speed * dt;
         while (dist > 0 && a.i < a.pts.length - 1) {
@@ -554,21 +564,289 @@ function checkClock() {
     }
 }
 
+// ---- Analoguhr ----------------------------------------------------------------------
+// Umschaltbare zweite Ansicht: Ziffernblatt in Kreide, ohne Sekundenzeiger.
+// Die Uhr lässt sich Zeit: :10-:30 wischt der Schwamm den alten Minutenzeiger
+// weg, :30-:50 malt die Kreide den Zeiger für die kommende volle Minute,
+// :50-:10 bleibt das Bild stehen. Muss der Stundenzeiger mitwandern, dauern
+// Wischen und Malen je 30 s und füllen die ganze Minute. Die Erstzeichnung
+// (Kreis, Striche, Ziffern, Zeiger) nimmt sich 30 s.
+const DIAL = { cx: 840, cy: 462, r: 330 };
+const MIN_LEN = 238, HOUR_LEN = 158;
+let mode = 'digital';
+let pendingMode = null;        // Ziel, solange die Tafel großgewischt wird
+let analog = null;
+let spongeBusy = false;
+
+const angDiff = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
+const handDir = (deg) => [Math.sin(deg * Math.PI / 180), -Math.cos(deg * Math.PI / 180)];
+
+// leicht zittrige Kreidelinie
+function sketchLine(x1, y1, x2, y2, wob) {
+    const pts = [];
+    const n = Math.max(2, Math.round(Math.hypot(x2 - x1, y2 - y1) / 46));
+    for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const j = (i === 0 || i === n) ? 0 : 1;
+        pts.push([
+            x1 + (x2 - x1) * t + (Math.random() - 0.5) * wob * j,
+            y1 + (y2 - y1) * t + (Math.random() - 0.5) * wob * j,
+        ]);
+    }
+    return smooth(pts, 5);
+}
+
+// Zeiger als mehrere Kreidezüge (hin und zurück)
+function handStrokes(angleDeg, len, tail, passes) {
+    const [dx, dy] = handDir(angleDeg);
+    const px = -dy, py = dx;
+    const strokes = [];
+    for (let p = 0; p < passes; p++) {
+        const off = (p - (passes - 1) / 2) * 5;
+        const ax = DIAL.cx - dx * tail + px * off, ay = DIAL.cy - dy * tail + py * off;
+        const bx = DIAL.cx + dx * len + px * off * 0.2, by = DIAL.cy + dy * len + py * off * 0.2;
+        strokes.push(p % 2 ? sketchLine(bx, by, ax, ay, 7) : sketchLine(ax, ay, bx, by, 7));
+    }
+    return strokes;
+}
+
+// Ziffernblatt: Kreis, zwölf Striche, Ziffern 12/3/6/9, Nabe
+function dialItems() {
+    const out = [];
+    for (const [a0, a1] of [[-90, 90], [90, 270]]) {
+        const pts = [];
+        for (let a = a0; a <= a1; a += 9) {
+            const r = DIAL.r + (Math.random() - 0.5) * 8;
+            pts.push([DIAL.cx + Math.cos(a * Math.PI / 180) * r, DIAL.cy + Math.sin(a * Math.PI / 180) * r]);
+        }
+        out.push({ pts: smooth(pts, 6), width: 8 });
+    }
+    for (let i = 0; i < 12; i++) {
+        const [dx, dy] = handDir(i * 30);
+        out.push({
+            pts: sketchLine(DIAL.cx + dx * (DIAL.r - 10), DIAL.cy + dy * (DIAL.r - 10),
+                            DIAL.cx + dx * (DIAL.r - 44), DIAL.cy + dy * (DIAL.r - 44), 4),
+            width: i % 3 === 0 ? 9 : 6,
+        });
+    }
+    const num = (txt, ang) => {
+        // Ziffern außerhalb des Kreises — so kommt ihnen der Schwamm nie nahe
+        const [dx, dy] = handDir(ang);
+        const gw = 44, gh = 64;
+        const ncx = DIAL.cx + dx * (DIAL.r + 46);
+        const ncy = DIAL.cy + dy * (DIAL.r + 46);
+        const total = txt.length * gw * 1.12 - gw * 0.12;
+        [...txt].forEach((ch, i) => {
+            for (const pts of layoutGlyph(ch, ncx - total / 2 + i * gw * 1.12, ncy - gh / 2, gw, gh)) {
+                out.push({ pts, width: 6.5 });
+            }
+        });
+    };
+    num('12', 0); num('3', 90); num('6', 180); num('9', 270);
+    const hub = [];
+    for (let a = 0; a <= 380; a += 40) {
+        hub.push([DIAL.cx + Math.cos(a * Math.PI / 180) * 11, DIAL.cy + Math.sin(a * Math.PI / 180) * 11]);
+    }
+    out.push({ pts: smooth(hub, 4), width: 10 });
+    return out;
+}
+
+// Auftrag mit Gesamtlänge; wird nach Wanduhr-Fortschritt gestempelt
+function mkJob(items) {
+    const segs = [];
+    let total = 0;
+    for (const it of items) {
+        for (let i = 0; i < it.pts.length - 1; i++) {
+            const p = it.pts[i], q = it.pts[i + 1];
+            const len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 0.01;
+            segs.push({ p, q, len, start: total, width: it.width });
+            total += len;
+        }
+        total += 22;                               // kurzes Absetzen der Kreide
+    }
+    return { segs, total: Math.max(total, 1), done: 0 };
+}
+
+function stampPaintJob(job, toLen) {
+    toLen = Math.min(toLen, job.total);
+    if (toLen <= job.done) return job.done >= job.total;
+    for (const s of job.segs) {
+        const end = s.start + s.len;
+        if (end <= job.done) continue;
+        if (s.start >= toLen) break;
+        for (let l = Math.max(job.done, s.start); l < Math.min(toLen, end); l += 3.4) {
+            const t = (l - s.start) / s.len;
+            const x = s.p[0] + (s.q[0] - s.p[0]) * t;
+            const y = s.p[1] + (s.q[1] - s.p[1]) * t;
+            chalkDab(x, y, s.width, 1);
+            if (Math.random() < 0.05) puff(x, y + 8, 1, 10, false);
+            chalk.x = x + 26; chalk.y = y + 14; chalk.a = -0.6;
+        }
+    }
+    job.done = toLen;
+    return job.done >= job.total;
+}
+
+function mkEraseJob(hands) {
+    // radial nur bis knapp über die Zeigerspitze, damit Ticks und Kreis
+    // unversehrt bleiben
+    const pts = [];
+    for (const hd of hands) {
+        const [dx, dy] = handDir(hd.ang);
+        for (let r = 34; r <= hd.len + 2; r += 20) {
+            pts.push([DIAL.cx + dx * r, DIAL.cy + dy * r]);
+        }
+        for (let r = hd.len + 2; r >= 34; r -= 20) {
+            pts.push([DIAL.cx + dx * r + (Math.random() - 0.5) * 16,
+                      DIAL.cy + dy * r + (Math.random() - 0.5) * 16]);
+        }
+    }
+    return mkJob([{ pts: pts.length > 1 ? pts : [[DIAL.cx, DIAL.cy], [DIAL.cx, DIAL.cy]], width: 0 }]);
+}
+
+function stampEraseJob(job, toLen) {
+    toLen = Math.min(toLen, job.total);
+    if (toLen <= job.done) return job.done >= job.total;
+    for (const s of job.segs) {
+        const end = s.start + s.len;
+        if (end <= job.done) continue;
+        if (s.start >= toLen) break;
+        for (let l = Math.max(job.done, s.start); l < Math.min(toLen, end); l += 9) {
+            const t = (l - s.start) / s.len;
+            const x = s.p[0] + (s.q[0] - s.p[0]) * t;
+            const y = s.p[1] + (s.q[1] - s.p[1]) * t;
+            eraseDab(x, y, 36, 0.5);
+            eraseDab(x, y, 24, 0.8);
+            if (Math.random() < 0.3) smear(x, y, Math.random() - 0.5, Math.random() - 0.5, 60);
+            if (Math.random() < 0.12) puff(x, y, 1, 40, true);
+            sponge.x = x; sponge.y = y;
+            sponge.a = Math.sin(performance.now() / 130) * 0.06;
+        }
+    }
+    job.done = toLen;
+    spongeBusy = true;
+    return job.done >= job.total;
+}
+
+function startAnalog() {
+    const tPaint = new Date(Date.now() + 35000);
+    const mAng = tPaint.getMinutes() * 6;
+    const hAng = ((tPaint.getHours() % 12) + tPaint.getMinutes() / 60) * 30;
+    const items = dialItems();
+    for (const s of handStrokes(hAng, HOUR_LEN, 30, 3)) items.push({ pts: s, width: 10 });
+    for (const s of handStrokes(mAng, MIN_LEN, 38, 2)) items.push({ pts: s, width: 8.5 });
+    analog = {
+        initial: { t0: Date.now(), job: mkJob(items) },
+        mAng, hAng,
+        cycle: null,
+        paintedMin: null, paintedHour: null,
+        lastKey: tPaint.getHours() * 60 + tPaint.getMinutes(),
+    };
+}
+
+function analogTick() {
+    const A = analog;
+    if (!A) return;
+    const now = new Date();
+    const sec = now.getSeconds() + now.getMilliseconds() / 1000;
+    const key = now.getHours() * 60 + now.getMinutes();
+
+    if (A.initial) {
+        const el = (Date.now() - A.initial.t0) / 1000;
+        stampPaintJob(A.initial.job, A.initial.job.total * Math.min(1, el / 30));
+        setTone(el < 30 ? 0.035 + Math.random() * 0.015 : 0, 0);
+        if (el >= 30) {
+            A.paintedMin = A.mAng;
+            A.paintedHour = A.hAng;
+            A.initial = null;
+            setTone(0, 0);
+        }
+        return;
+    }
+
+    // neuen Zyklus ab Sekunde :10 planen — Ziel ist die kommende volle Minute
+    if (!A.cycle && sec >= 10 && A.lastKey !== key) {
+        const base = new Date(now);
+        base.setSeconds(0, 0);
+        const tNext = new Date(base.getTime() + 60000);
+        const mAng = tNext.getMinutes() * 6;
+        const hAng = ((tNext.getHours() % 12) + tNext.getMinutes() / 60) * 30;
+        const withHour = A.paintedHour === null || angDiff(A.paintedHour, hAng) >= 6;
+        const hands = [];
+        if (A.paintedMin !== null) hands.push({ ang: A.paintedMin, len: MIN_LEN + 4 });
+        if (withHour && A.paintedHour !== null) hands.push({ ang: A.paintedHour, len: HOUR_LEN + 4 });
+        const items = [];
+        if (withHour) for (const s of handStrokes(hAng, HOUR_LEN, 30, 3)) items.push({ pts: s, width: 10 });
+        for (const s of handStrokes(mAng, MIN_LEN, 38, 2)) items.push({ pts: s, width: 8.5 });
+        A.cycle = {
+            key, dur: withHour ? 30 : 20,
+            erase: mkEraseJob(hands),
+            paint: mkJob(items),
+            mAng, hAng, withHour,
+        };
+        A.lastKey = key;
+    }
+
+    if (A.cycle) {
+        const c = A.cycle;
+        let el = (key - c.key) * 60 + sec - 10;    // Sekunden seit :10 der Planungsminute
+        if (el < -60) el += 86400;                 // Tageswechsel
+        if (el < c.dur) {
+            stampEraseJob(c.erase, c.erase.total * Math.max(0, el) / c.dur);
+            setTone(0, 0.055);
+        } else if (el < c.dur * 2) {
+            if (c.erase.done < c.erase.total) stampEraseJob(c.erase, c.erase.total);
+            stampPaintJob(c.paint, c.paint.total * (el - c.dur) / c.dur);
+            setTone(0.035 + Math.random() * 0.015, 0);
+        } else {
+            stampPaintJob(c.paint, c.paint.total);
+            A.paintedMin = c.mAng;
+            if (c.withHour) A.paintedHour = c.hAng;
+            A.cycle = null;
+            setTone(0, 0);
+        }
+    }
+}
+
+// ---- Umschalten ----------------------------------------------------------------------
+const modeBtn = document.getElementById('modeBtn');
+modeBtn.addEventListener('click', () => {
+    if (pendingMode) return;
+    // laufende Arbeit verwerfen, das ganze Tafelbild wischen, dann umschalten
+    queue.length = 0;
+    current = null;
+    analog = null;
+    pendingMode = mode === 'digital' ? 'analog' : 'digital';
+    queue.push({ type: 'wipe', rect: { x: 60, y: 40, w: W - 120, h: BOARD.h - 80 } });
+    modeBtn.innerHTML = pendingMode === 'analog' ? '&rarr; Digitaluhr' : '&rarr; Analoguhr';
+});
+
 // ---- Hauptschleife -----------------------------------------------------------------
 let last = performance.now();
 function frame(now) {
     const dt = Math.min((now - last) / 1000, 0.06);
     last = now;
 
-    checkClock();
-    const busy = processQueue(dt);
-    if (!busy) {
+    spongeBusy = false;
+    if (pendingMode) {
+        if (!processQueue(dt)) {
+            mode = pendingMode;
+            pendingMode = null;
+            if (mode === 'analog') startAnalog();
+            else { shownTime = null; shownTallies = 0; }
+        }
+    } else if (mode === 'digital') {
+        checkClock();
+        if (!processQueue(dt)) setTone(0, 0);
+    } else {
+        analogTick();
+    }
+    if (!spongeBusy) {
         // Die Kreide verharrt, wo sie zuletzt geschrieben hat —
         // nur der Schwamm gleitet zur Ablage zurück.
         sponge.x += (sponge.idleX - sponge.x) * Math.min(1, dt * 2.5);
         sponge.y += (sponge.idleY - sponge.y) * Math.min(1, dt * 2.5);
         sponge.a += (sponge.idleA - sponge.a) * Math.min(1, dt * 2.5);
-        setTone(0, 0);
     }
 
     // Staub

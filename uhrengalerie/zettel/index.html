@@ -29,6 +29,14 @@
         cursor: pointer; font-family: inherit;
     }
     .soundbtn:hover { background: rgba(52,42,30,0.85); }
+    .modebtn {
+        position: fixed; top: 1rem; right: 8.6rem; z-index: 10;
+        background: rgba(25,20,14,0.65); color: #ece5d8;
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .modebtn:hover { background: rgba(52,42,30,0.85); }
     canvas { display: block; box-shadow: 0 3vmin 8vmin rgba(0,0,0,0.6); border-radius: 0.6vmin; }
     .caption {
         position: fixed; bottom: 1.0rem; left: 0; right: 0;
@@ -42,9 +50,10 @@
 <body>
     <a class="back" href="../">&larr; Uhrengalerie</a>
     <button class="soundbtn" id="soundBtn" title="Schreib- und Bl&auml;tterger&auml;usch an/aus">&#128263; Ton aus</button>
+    <button class="modebtn" id="modeBtn" title="Zwischen Digital- und Analoguhr umschalten">&rarr; Analoguhr</button>
 
     <canvas id="canvas"></canvas>
-    <div class="caption">Jede Sekunde eine Zeile: 30 Uhrzeiten in der linken Spalte, 30 in der rechten &mdash; dann wird umgebl&auml;ttert und der Stapel w&auml;chst.</div>
+    <div class="caption">Jede Sekunde eine Zeile: 30 Uhrzeiten links, 30 rechts &mdash; dann wird umgebl&auml;ttert. Als Analoguhr radiert der umgedrehte Stift in Ruhe und zeichnet den Zeiger f&uuml;r die kommende Minute neu.</div>
 
 <script>
 (() => {
@@ -132,6 +141,12 @@ bg.width = W; bg.height = H;
 const sheet = document.createElement('canvas');
 sheet.width = SHEET.w; sheet.height = SHEET.h;
 const sctx = sheet.getContext('2d');
+
+// Extra-Ebene für die Analoguhr: dort kann der Radiergummi Striche
+// entfernen, ohne das Karopapier darunter zu beschädigen
+const ink = document.createElement('canvas');
+ink.width = SHEET.w; ink.height = SHEET.h;
+const ictx = ink.getContext('2d');
 
 const pile = document.createElement('canvas');
 pile.width = W; pile.height = H;
@@ -270,6 +285,8 @@ function drawPencil(g) {
     g.save();
     g.translate(pencil.x, pencil.y);
     g.rotate(pencil.a);
+    // beim Radieren ist der Stift umgedreht: Radierende am Papier
+    if (pencilFlipped) g.translate(-165, 0);
     // Schatten
     g.fillStyle = 'rgba(0,0,0,0.22)';
     g.fillRect(6, 10, 150, 8);
@@ -450,8 +467,277 @@ function movePencilTo(pt) {
     pencil.a = 0.32 + Math.sin(performance.now() / 300) * 0.03;
 }
 
+// ---- Analoguhr ----------------------------------------------------------------------
+// Umschaltbare zweite Ansicht: Ziffernblatt in Bleistift, ohne Sekundenzeiger.
+// :10-:30 radiert der (umgedrehte) Stift den alten Minutenzeiger weg,
+// :30-:50 zeichnet er den Zeiger für die kommende volle Minute, :50-:10
+// bleibt das Bild stehen. Wandert der Stundenzeiger mit, dauern beide
+// Aktionen je 30 s. Die Erstzeichnung nimmt sich 30 s.
+const DIAL = { cx: SHEET.w / 2, cy: 505, r: 262 };
+const MIN_LEN = 186, HOUR_LEN = 124;
+let mode = 'digital';
+let switchTarget = null;       // Ziel, solange umgeblättert wird
+let analog = null;
+let pencilFlipped = false;
+const crumbs = [];
+
+const angDiff = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
+const handDir = (deg) => [Math.sin(deg * Math.PI / 180), -Math.cos(deg * Math.PI / 180)];
+
+function sketchLine(x1, y1, x2, y2, wob) {
+    const pts = [];
+    const n = Math.max(2, Math.round(Math.hypot(x2 - x1, y2 - y1) / 40));
+    for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const j = (i === 0 || i === n) ? 0 : 1;
+        pts.push([
+            x1 + (x2 - x1) * t + (Math.random() - 0.5) * wob * j,
+            y1 + (y2 - y1) * t + (Math.random() - 0.5) * wob * j,
+        ]);
+    }
+    return smooth(pts, 4);
+}
+
+function handStrokes(angleDeg, len, tail, passes) {
+    const [dx, dy] = handDir(angleDeg);
+    const px = -dy, py = dx;
+    const strokes = [];
+    for (let p = 0; p < passes; p++) {
+        const off = (p - (passes - 1) / 2) * 3;
+        const ax = DIAL.cx - dx * tail + px * off, ay = DIAL.cy - dy * tail + py * off;
+        const bx = DIAL.cx + dx * len + px * off * 0.2, by = DIAL.cy + dy * len + py * off * 0.2;
+        strokes.push(p % 2 ? sketchLine(bx, by, ax, ay, 4) : sketchLine(ax, ay, bx, by, 4));
+    }
+    return strokes;
+}
+
+function dialItems() {
+    const out = [];
+    for (const [a0, a1] of [[-90, 90], [90, 270]]) {
+        const pts = [];
+        for (let a = a0; a <= a1; a += 9) {
+            const r = DIAL.r + (Math.random() - 0.5) * 5;
+            pts.push([DIAL.cx + Math.cos(a * Math.PI / 180) * r, DIAL.cy + Math.sin(a * Math.PI / 180) * r]);
+        }
+        out.push({ pts: smooth(pts, 5) });
+    }
+    for (let i = 0; i < 12; i++) {
+        const [dx, dy] = handDir(i * 30);
+        out.push({
+            pts: sketchLine(DIAL.cx + dx * (DIAL.r - 6), DIAL.cy + dy * (DIAL.r - 6),
+                            DIAL.cx + dx * (DIAL.r - 30), DIAL.cy + dy * (DIAL.r - 30), 2.5),
+        });
+    }
+    const num = (txt, ang) => {
+        // Ziffern außerhalb des Kreises — außer Reichweite des Radierers
+        const [dx, dy] = handDir(ang);
+        const h = 42;
+        const w = h * 0.62;
+        const total = txt.length * w * 1.18 - w * 0.18;
+        const x = DIAL.cx + dx * (DIAL.r + 34) - total / 2;
+        const y = DIAL.cy + dy * (DIAL.r + 34) - h / 2;
+        for (const pts of layoutText(txt, x, y, h)) out.push({ pts });
+    };
+    num('12', 0); num('3', 90); num('6', 180); num('9', 270);
+    const hub = [];
+    for (let a = 0; a <= 380; a += 40) {
+        hub.push([DIAL.cx + Math.cos(a * Math.PI / 180) * 7, DIAL.cy + Math.sin(a * Math.PI / 180) * 7]);
+    }
+    out.push({ pts: smooth(hub, 3) });
+    return out;
+}
+
+function mkJob(items) {
+    const segs = [];
+    let total = 0;
+    for (const it of items) {
+        for (let i = 0; i < it.pts.length - 1; i++) {
+            const p = it.pts[i], q = it.pts[i + 1];
+            const len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 0.01;
+            segs.push({ p, q, len, start: total });
+            total += len;
+        }
+        total += 16;                               // kurzes Absetzen
+    }
+    return { segs, total: Math.max(total, 1), done: 0 };
+}
+
+function stampPaintJob(job, toLen) {
+    toLen = Math.min(toLen, job.total);
+    if (toLen <= job.done) return job.done >= job.total;
+    for (const s of job.segs) {
+        const end = s.start + s.len;
+        if (end <= job.done) continue;
+        if (s.start >= toLen) break;
+        const from = Math.max(job.done, s.start), to = Math.min(toLen, end);
+        const t1 = (from - s.start) / s.len, t2 = (to - s.start) / s.len;
+        const x2 = s.p[0] + (s.q[0] - s.p[0]) * t2;
+        const y2 = s.p[1] + (s.q[1] - s.p[1]) * t2;
+        pencilSeg(ictx,
+            s.p[0] + (s.q[0] - s.p[0]) * t1, s.p[1] + (s.q[1] - s.p[1]) * t1,
+            x2, y2);
+        movePencilTo([x2, y2]);
+    }
+    job.done = toLen;
+    return job.done >= job.total;
+}
+
+function mkEraseJob(hands) {
+    const pts = [];
+    for (const hd of hands) {
+        const [dx, dy] = handDir(hd.ang);
+        for (let r = 20; r <= hd.len + 6; r += 14) {
+            pts.push([DIAL.cx + dx * r, DIAL.cy + dy * r]);
+        }
+        for (let r = hd.len + 6; r >= 20; r -= 14) {
+            pts.push([DIAL.cx + dx * r + (Math.random() - 0.5) * 10,
+                      DIAL.cy + dy * r + (Math.random() - 0.5) * 10]);
+        }
+    }
+    return mkJob([{ pts: pts.length > 1 ? pts : [[DIAL.cx, DIAL.cy], [DIAL.cx, DIAL.cy]] }]);
+}
+
+function stampEraseJob(job, toLen) {
+    toLen = Math.min(toLen, job.total);
+    if (toLen <= job.done) return job.done >= job.total;
+    for (const s of job.segs) {
+        const end = s.start + s.len;
+        if (end <= job.done) continue;
+        if (s.start >= toLen) break;
+        for (let l = Math.max(job.done, s.start); l < Math.min(toLen, end); l += 7) {
+            const t = (l - s.start) / s.len;
+            const x = s.p[0] + (s.q[0] - s.p[0]) * t;
+            const y = s.p[1] + (s.q[1] - s.p[1]) * t;
+            ictx.save();
+            ictx.globalCompositeOperation = 'destination-out';
+            ictx.fillStyle = 'rgba(0,0,0,0.65)';
+            ictx.beginPath();
+            ictx.arc(x, y, 18, 0, Math.PI * 2);
+            ictx.fill();
+            ictx.restore();
+            // hauchzarter Radierschatten — deutlich schmaler als der Radierer,
+            // damit ihn die nächste Runde wieder mitnimmt (keine Akkumulation)
+            ictx.fillStyle = 'rgba(120,116,120,0.008)';
+            ictx.beginPath();
+            ictx.arc(x, y, 9, 0, Math.PI * 2);
+            ictx.fill();
+            if (Math.random() < 0.22 && crumbs.length < 140) {
+                crumbs.push({
+                    x: SHEET.x + x + (Math.random() - 0.5) * 22,
+                    y: SHEET.y + y + (Math.random() - 0.5) * 12,
+                    vx: (Math.random() - 0.5) * 50,
+                    vy: -12 + Math.random() * 26,
+                    life: 0.8 + Math.random() * 0.9,
+                });
+            }
+            pencil.x = SHEET.x + x;
+            pencil.y = SHEET.y + y;
+            pencil.a = 0.32 + Math.sin(performance.now() / 90) * 0.10;
+            pencilFlipped = true;
+        }
+    }
+    job.done = toLen;
+    return job.done >= job.total;
+}
+
+function startAnalog() {
+    const tPaint = new Date(Date.now() + 35000);
+    const mAng = tPaint.getMinutes() * 6;
+    const hAng = ((tPaint.getHours() % 12) + tPaint.getMinutes() / 60) * 30;
+    const items = dialItems();
+    for (const s of handStrokes(hAng, HOUR_LEN, 22, 3)) items.push({ pts: s });
+    for (const s of handStrokes(mAng, MIN_LEN, 28, 2)) items.push({ pts: s });
+    analog = {
+        initial: { t0: Date.now(), job: mkJob(items) },
+        mAng, hAng,
+        cycle: null,
+        paintedMin: null, paintedHour: null,
+        lastKey: tPaint.getHours() * 60 + tPaint.getMinutes(),
+    };
+}
+
+function analogTick() {
+    const A = analog;
+    if (!A) return;
+    const now = new Date();
+    const sec = now.getSeconds() + now.getMilliseconds() / 1000;
+    const key = now.getHours() * 60 + now.getMinutes();
+
+    if (A.initial) {
+        const el = (Date.now() - A.initial.t0) / 1000;
+        stampPaintJob(A.initial.job, A.initial.job.total * Math.min(1, el / 30));
+        setScribble(el < 30 ? 0.04 : 0);
+        if (el >= 30) {
+            A.paintedMin = A.mAng;
+            A.paintedHour = A.hAng;
+            A.initial = null;
+            setScribble(0);
+        }
+        return;
+    }
+
+    if (!A.cycle && sec >= 10 && A.lastKey !== key) {
+        const base = new Date(now);
+        base.setSeconds(0, 0);
+        const tNext = new Date(base.getTime() + 60000);
+        const mAng = tNext.getMinutes() * 6;
+        const hAng = ((tNext.getHours() % 12) + tNext.getMinutes() / 60) * 30;
+        const withHour = A.paintedHour === null || angDiff(A.paintedHour, hAng) >= 6;
+        const hands = [];
+        if (A.paintedMin !== null) hands.push({ ang: A.paintedMin, len: MIN_LEN + 3 });
+        if (withHour && A.paintedHour !== null) hands.push({ ang: A.paintedHour, len: HOUR_LEN + 3 });
+        const items = [];
+        if (withHour) for (const s of handStrokes(hAng, HOUR_LEN, 22, 3)) items.push({ pts: s });
+        for (const s of handStrokes(mAng, MIN_LEN, 28, 2)) items.push({ pts: s });
+        A.cycle = {
+            key, dur: withHour ? 30 : 20,
+            erase: mkEraseJob(hands),
+            paint: mkJob(items),
+            mAng, hAng, withHour,
+        };
+        A.lastKey = key;
+    }
+
+    if (A.cycle) {
+        const c = A.cycle;
+        let el = (key - c.key) * 60 + sec - 10;
+        if (el < -60) el += 86400;
+        if (el < c.dur) {
+            stampEraseJob(c.erase, c.erase.total * Math.max(0, el) / c.dur);
+            setScribble(0.026);
+        } else if (el < c.dur * 2) {
+            if (c.erase.done < c.erase.total) stampEraseJob(c.erase, c.erase.total);
+            stampPaintJob(c.paint, c.paint.total * (el - c.dur) / c.dur);
+            setScribble(0.04);
+        } else {
+            stampPaintJob(c.paint, c.paint.total);
+            A.paintedMin = c.mAng;
+            if (c.withHour) A.paintedHour = c.hAng;
+            A.cycle = null;
+            setScribble(0);
+        }
+    }
+}
+
+// ---- Umschalten ----------------------------------------------------------------------
+const modeBtn = document.getElementById('modeBtn');
+modeBtn.addEventListener('click', () => {
+    if (flip || switchTarget) return;
+    // angefangene Zeile aufgeben, Blatt (samt Analog-Zeichnung) umblättern
+    writing = null;
+    setScribble(0);
+    sctx.drawImage(ink, 0, 0);
+    ictx.clearRect(0, 0, SHEET.w, SHEET.h);
+    analog = null;
+    switchTarget = mode === 'digital' ? 'analog' : 'digital';
+    flip = { t: 0 };
+    flipSound();
+    modeBtn.innerHTML = switchTarget === 'analog' ? '&rarr; Digitaluhr' : '&rarr; Analoguhr';
+});
+
 // ---- Uhrlogik ------------------------------------------------------------------------------
 function checkClock() {
+    if (mode !== 'digital' || switchTarget) return;
     if (writing || flip) return;
     const now = new Date();
     const stamp = p2(now.getHours()) + ':' + p2(now.getMinutes());
@@ -522,15 +808,39 @@ function frame(now) {
     const dt = Math.min((now - last) / 1000, 0.06);
     last = now;
 
+    pencilFlipped = false;
     checkClock();
     if (writing) stepWriting(dt);
+    if (mode === 'analog' && !flip && !switchTarget) analogTick();
     if (flip) {
         flip.t += dt / 0.95;
         if (flip.t >= 1) {
             addToPile();
-            newPage(new Date());
+            if (switchTarget) {
+                mode = switchTarget;
+                switchTarget = null;
+                if (mode === 'analog') {
+                    paintPaperBase(sctx, SHEET.w, SHEET.h);
+                    startAnalog();
+                } else {
+                    newPage(new Date());
+                    entriesDone = new Date().getSeconds();
+                }
+            } else {
+                newPage(new Date());
+            }
             flip = null;
         }
+    }
+
+    // Radierkrümel
+    for (let i = crumbs.length - 1; i >= 0; i--) {
+        const p = crumbs[i];
+        p.life -= dt;
+        p.vy += 320 * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        if (p.life <= 0 || p.y > SHEET.y + SHEET.h + 50) crumbs.splice(i, 1);
     }
     // Zwischen den Zeilen bleibt der Stift einfach stehen;
     // nur beim Umblättern macht er Platz.
@@ -558,6 +868,12 @@ function frame(now) {
         drawFlip(ctx, flip.t);
     } else {
         ctx.drawImage(sheet, SHEET.x, SHEET.y);
+        ctx.drawImage(ink, SHEET.x, SHEET.y);
+    }
+
+    for (const p of crumbs) {
+        ctx.fillStyle = `rgba(148,140,142,${Math.min(0.85, p.life)})`;
+        ctx.fillRect(p.x, p.y, 2.6, 2.2);
     }
 
     drawPencil(ctx);
