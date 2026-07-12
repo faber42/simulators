@@ -30,7 +30,7 @@
 <body>
     <a class="back" href="../">&larr; Uhrengalerie</a>
     <canvas id="canvas"></canvas>
-    <div class="caption">Zum Minutenwechsel formiert sich der Schwarm zur Uhrzeit &mdash; ein Klick in den Himmel ruft ihn sofort zusammen.</div>
+    <div class="caption">Zum Minutenwechsel formiert sich der Schwarm zur Uhrzeit &mdash; ein Klick in den Himmel ruft ihn sofort zusammen. Das Schild unten wechselt zwischen Ziffern und Ziffernblatt.</div>
 
 <script>
 (() => {
@@ -39,9 +39,12 @@
 // ============================================================================
 // Vogelschwarm-Uhr — Murmuration am Abendhimmel
 //  - Boids mit Separation/Ausrichtung/Kohäsion über ein räumliches Gitter.
-//  - Zum Minutenwechsel bekommt jeder Vogel einen Zielpunkt aus dem
-//    gerasterten Schriftzug HH:MM, sammelt sich (gather), hält die
-//    Formation (hold) und stiebt wieder auseinander (release).
+//  - Zum Minutenwechsel bekommt jeder Vogel einen Zielpunkt aus der
+//    gerasterten Anzeige — Schriftzug HH:MM oder Ziffernblatt mit Zeigern —,
+//    sammelt sich (gather), hält die Formation (hold) und stiebt wieder
+//    auseinander (release).
+//  - Ein altes Emailleschild unten wechselt per Klick zwischen den beiden
+//    Anzeigen; dabei dreht es sich um seinen Pfosten.
 //  - Alle Bewegungen dt-basiert, unabhängig von der Bildwiederholrate.
 // ============================================================================
 
@@ -58,7 +61,8 @@ function resize() {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     buildSky();
     buildTreeline();
-    if (mode !== 'flock') buildTargets(formedTime);
+    sign.x = Math.max(96, W * 0.13);
+    if (mode !== 'flock' && formedSpec) buildTargets(formedSpec);
 }
 window.addEventListener('resize', resize);
 
@@ -162,33 +166,79 @@ function rebuildGrid() {
 // ---- Formation ---------------------------------------------------------------------------
 let mode = 'flock';            // flock | gather | hold | release
 let modeT = 0;
-let formedTime = '';
+let formedSpec = null;         // {kind:'digital', text} | {kind:'analog', h, m}
 let lastMinute = new Date().getMinutes();
+let face = 'digital';          // welche Anzeige der Schwarm formt
+const sign = { x: 120, spin: 1 };   // Umschalt-Schild; spin: Drehfortschritt 0..1
 
-function buildTargets(text) {
+function specNow() {
+    const d = new Date();
+    const p2 = n => String(n).padStart(2, '0');
+    return face === 'digital'
+        ? { kind: 'digital', text: p2(d.getHours()) + ':' + p2(d.getMinutes()) }
+        : { kind: 'analog', h: d.getHours(), m: d.getMinutes() };
+}
+
+function buildTargets(spec) {
     const off = document.createElement('canvas');
-    off.width = 900; off.height = 260;
+    off.width = spec.kind === 'analog' ? 560 : 900;
+    off.height = spec.kind === 'analog' ? 560 : 260;
     const og = off.getContext('2d');
     og.fillStyle = '#000';
     og.fillRect(0, 0, off.width, off.height);
     og.fillStyle = '#fff';
-    og.font = '700 210px "Segoe UI", system-ui, sans-serif';
-    og.textAlign = 'center';
-    og.textBaseline = 'middle';
-    og.fillText(text, off.width / 2, off.height / 2 + 8);
+    og.strokeStyle = '#fff';
+    og.lineCap = 'round';
+    if (spec.kind === 'analog') {
+        // Ziffernblatt: Ring, zwölf Striche, Zeiger, Nabe — die Dichte der
+        // weißen Fläche bestimmt, wie viele Vögel dorthin fliegen
+        const cx = 280, cy = 280, r = 242;
+        og.lineWidth = 20;
+        og.beginPath(); og.arc(cx, cy, r, 0, Math.PI * 2); og.stroke();
+        for (let i = 0; i < 12; i++) {
+            const a = i * Math.PI / 6;
+            const big = i % 3 === 0;
+            og.lineWidth = big ? 20 : 13;
+            og.beginPath();
+            og.moveTo(cx + Math.sin(a) * (r - 16), cy - Math.cos(a) * (r - 16));
+            og.lineTo(cx + Math.sin(a) * (r - (big ? 58 : 44)), cy - Math.cos(a) * (r - (big ? 58 : 44)));
+            og.stroke();
+        }
+        const mA = spec.m * Math.PI / 30;
+        const hA = ((spec.h % 12) + spec.m / 60) * Math.PI / 6;
+        og.lineWidth = 32;
+        og.beginPath();
+        og.moveTo(cx - Math.sin(hA) * 36, cy + Math.cos(hA) * 36);
+        og.lineTo(cx + Math.sin(hA) * r * 0.54, cy - Math.cos(hA) * r * 0.54);
+        og.stroke();
+        og.lineWidth = 24;
+        og.beginPath();
+        og.moveTo(cx - Math.sin(mA) * 36, cy + Math.cos(mA) * 36);
+        og.lineTo(cx + Math.sin(mA) * r * 0.85, cy - Math.cos(mA) * r * 0.85);
+        og.stroke();
+        og.beginPath(); og.arc(cx, cy, 26, 0, Math.PI * 2); og.fill();
+    } else {
+        og.font = '700 210px "Segoe UI", system-ui, sans-serif';
+        og.textAlign = 'center';
+        og.textBaseline = 'middle';
+        og.fillText(spec.text, off.width / 2, off.height / 2 + 8);
+    }
+    const stepPx = spec.kind === 'analog' ? 6 : 5;
     const data = og.getImageData(0, 0, off.width, off.height).data;
     const pts = [];
-    for (let y = 0; y < off.height; y += 5) {
-        for (let x = 0; x < off.width; x += 5) {
+    for (let y = 0; y < off.height; y += stepPx) {
+        for (let x = 0; x < off.width; x += stepPx) {
             if (data[(y * off.width + x) * 4] > 128) {
                 pts.push([x + (Math.random() - 0.5) * 3, y + (Math.random() - 0.5) * 3]);
             }
         }
     }
     // in den Himmel skalieren
-    const scale = Math.min(W * 0.86 / off.width, H * 0.5 / off.height);
+    const scale = spec.kind === 'analog'
+        ? Math.min(W * 0.6 / off.width, H * 0.62 / off.height)
+        : Math.min(W * 0.86 / off.width, H * 0.5 / off.height);
     const ox = (W - off.width * scale) / 2;
-    const oy = H * 0.36 - off.height * scale / 2;
+    const oy = (spec.kind === 'analog' ? H * 0.40 : H * 0.36) - off.height * scale / 2;
     // mischen und zuweisen
     for (let i = pts.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -201,19 +251,22 @@ function buildTargets(text) {
     }
 }
 
-function startFormation(text) {
-    formedTime = text;
-    buildTargets(text);
+function startFormation(spec) {
+    formedSpec = spec;
+    buildTargets(spec);
     mode = 'gather';
     modeT = 0;
 }
 
-canvas.addEventListener('click', () => {
-    if (mode === 'flock') {
-        const d = new Date();
-        const p2 = n => String(n).padStart(2, '0');
-        startFormation(p2(d.getHours()) + ':' + p2(d.getMinutes()));
+canvas.addEventListener('click', (e) => {
+    // Klick aufs Schild: Anzeige wechseln, Schild drehen, Schwarm zeigt sie gleich
+    if (Math.abs(e.clientX - sign.x) < 62 && e.clientY > H - 196) {
+        face = face === 'digital' ? 'analog' : 'digital';
+        sign.spin = 0;
+        startFormation(specNow());
+        return;
     }
+    if (mode === 'flock') startFormation(specNow());
 });
 
 // ---- Schwarmattraktor (freies Fliegen) --------------------------------------------------------
@@ -223,15 +276,13 @@ let wanderT = Math.random() * 100;
 function step(dt) {
     wanderT += dt;
     modeT += dt;
+    sign.spin = Math.min(1, sign.spin + dt / 0.9);
 
     // Minutenwechsel → Formation
     const d = new Date();
     if (d.getMinutes() !== lastMinute) {
         lastMinute = d.getMinutes();
-        if (mode === 'flock') {
-            const p2 = n => String(n).padStart(2, '0');
-            startFormation(p2(d.getHours()) + ':' + p2(d.getMinutes()));
-        }
+        if (mode === 'flock') startFormation(specNow());
     }
     if (mode === 'gather' && modeT > 4.5) { mode = 'hold'; modeT = 0; }
     else if (mode === 'hold' && modeT > 9) {
@@ -346,6 +397,73 @@ function draw() {
 
     ctx.fillStyle = '#14161c';
     ctx.fill(treePath);
+    drawSign(ctx);
+}
+
+// ---- Umschalt-Schild -------------------------------------------------------------------------
+// Ein altes achteckiges Emailleschild auf einem Pfosten: vorn das Piktogramm
+// der Anzeige, zu der man wechseln kann. Beim Klick dreht es sich um den
+// Pfosten und zeigt seine andere Seite.
+function drawSign(g) {
+    g.save();
+    g.translate(sign.x, H - 8);
+    g.rotate(0.03);                                  // leicht schief, wie alt
+    // Pfosten mit Abendlicht-Kante
+    g.strokeStyle = '#26211c';
+    g.lineWidth = 7;
+    g.lineCap = 'round';
+    g.beginPath(); g.moveTo(0, -2); g.lineTo(0, -100); g.stroke();
+    g.strokeStyle = 'rgba(255,190,120,0.30)';
+    g.lineWidth = 2;
+    g.beginPath(); g.moveTo(2.8, -6); g.lineTo(2.8, -96); g.stroke();
+    // Teller: Drehung um die Pfostenachse als horizontale Stauchung
+    g.translate(0, -130);
+    const t = sign.spin;
+    const th = Math.PI * t * t * (3 - 2 * t);        // Smoothstep-Drehwinkel 0..π
+    const cs = Math.cos(th);
+    const shown = cs >= 0 ? face : (face === 'digital' ? 'analog' : 'digital');
+    g.scale(Math.max(0.06, Math.abs(cs)), 1);
+    g.beginPath();
+    for (let k = 0; k < 8; k++) {
+        const a = Math.PI / 8 + k * Math.PI / 4;
+        const vx2 = Math.cos(a) * 42, vy2 = Math.sin(a) * 42;
+        if (k) g.lineTo(vx2, vy2); else g.moveTo(vx2, vy2);
+    }
+    g.closePath();
+    g.fillStyle = cs >= 0 ? '#3f5163' : '#374757';   // Rückseite eine Spur dunkler
+    g.fill();
+    g.lineWidth = 4.5;
+    g.strokeStyle = '#e6dcc4';
+    g.stroke();
+    // Rostfleck am Rand
+    g.fillStyle = 'rgba(120,70,30,0.5)';
+    g.beginPath(); g.arc(-26, 26, 5, 0, Math.PI * 2); g.fill();
+    // Piktogramm in Creme
+    g.strokeStyle = '#efe6d2';
+    g.fillStyle = '#efe6d2';
+    if (shown === 'analog') {
+        g.lineWidth = 3.4;
+        g.beginPath(); g.arc(0, 0, 21, 0, Math.PI * 2); g.stroke();
+        for (let k = 0; k < 4; k++) {
+            const a = k * Math.PI / 2;
+            g.beginPath();
+            g.moveTo(Math.sin(a) * 18, -Math.cos(a) * 18);
+            g.lineTo(Math.sin(a) * 13, -Math.cos(a) * 13);
+            g.stroke();
+        }
+        g.lineWidth = 3.2;
+        g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.sin(-1.05) * 11, -Math.cos(-1.05) * 11); g.stroke();
+        g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.sin(0.52) * 17, -Math.cos(0.52) * 17); g.stroke();
+    } else {
+        g.lineWidth = 3;
+        if (g.roundRect) { g.beginPath(); g.roundRect(-27, -15, 54, 30, 6); g.stroke(); }
+        else g.strokeRect(-27, -15, 54, 30);
+        g.font = '700 14px system-ui, sans-serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText('88:88', 0, 1);
+    }
+    g.restore();
 }
 
 // ---- Hauptschleife --------------------------------------------------------------------------------------

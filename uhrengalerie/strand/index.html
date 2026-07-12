@@ -38,7 +38,7 @@
     <a class="back" href="../">&larr; Uhrengalerie</a>
     <button class="soundbtn" id="soundBtn" title="Meeresrauschen an/aus">&#128263; Ton aus</button>
     <canvas id="canvas"></canvas>
-    <div class="caption">Zu jeder vollen Minute rollt eine Welle heran und nimmt die Schrift mit, dann ritzt der Apparat die neue Uhrzeit in den nassen Sand &mdash; ein Klick in den Sand ruft die Welle sofort.</div>
+    <div class="caption">Zu jeder vollen Minute rollt eine Welle heran und nimmt die Schrift mit, dann ritzt der Apparat die Uhrzeit neu in den nassen Sand &mdash; ein Klick in den Sand ruft die Welle sofort, ein Klick auf das geritzte Uhrensymbol wechselt zwischen Ziffern und Ziffernblatt.</div>
 
 <script>
 (() => {
@@ -51,6 +51,9 @@
 //    ab Sekunde ~8,6 ritzt der Schreibwagen die dann gültige Uhrzeit.
 //  - Der Zyklus startet automatisch zu jeder vollen Minute — oder sofort
 //    per Klick in den Sand.
+//  - Zwei Ansichten: Ziffern HH:MM oder ein Ziffernblatt mit Zeigern.
+//    Rechts ritzt der Wagen ein kleines Uhrensymbol mit; ein Klick darauf
+//    ruft die Welle, und danach entsteht die jeweils andere Ansicht.
 //  - Räder hinterlassen Spuren im Sand, die die nächste Welle ebenfalls tilgt.
 // ============================================================================
 
@@ -128,7 +131,7 @@ function resize() {
     [wet, wctx] = mkLayer();
     layoutText();
     // aktuellen Zustand sofort herstellen
-    stampInstant(fmt(new Date()));
+    stampInstant(mode, new Date());
     writer = null;
     needsWrite = false;
     cart.x = PARK_X(); cart.sx = cart.x; cart.sy = TEXT.baseY;
@@ -206,6 +209,10 @@ function smooth(pts, step) {
 
 const TEXT = { y: 0, h: 0, baseY: 0 };
 let slots = [];   // x/w je Zeichen
+let mode = 'digital';          // digital | analog
+let pendingMode = null;        // gewünschte Ansicht für die nächste Welle
+const DIAL = { cx: 0, cy: 0, r: 0 };
+const ICON = { x: 0, y: 0, w: 0, h: 0 };   // Klickzone des geritzten Umschalt-Symbols
 
 function layoutText() {
     TEXT.h = Math.min(H * 0.21, W * 0.13);
@@ -221,6 +228,13 @@ function layoutText() {
         { x: x0 + adv * 2 + colonW * 1.4, w: charW },
         { x: x0 + adv * 2 + colonW * 1.4 + adv, w: charW },
     ];
+    DIAL.cx = W / 2;
+    DIAL.cy = TEXT.y + TEXT.h * 0.5;
+    DIAL.r = Math.min(W * 0.13, H * 0.16);
+    ICON.w = TEXT.h * 0.95;
+    ICON.h = TEXT.h * 0.62;
+    ICON.x = Math.min(W - ICON.w - 30, slots[4].x + slots[4].w + TEXT.h * 0.55);
+    ICON.y = TEXT.y + TEXT.h * 0.02;
 }
 
 function glyphStrokes(ch, slot) {
@@ -233,41 +247,139 @@ function glyphStrokes(ch, slot) {
 }
 
 // ---- Ritzen ------------------------------------------------------------------------------
-function carveSeg(x1, y1, x2, y2) {
+// wf skaliert die Ritzbreite (schmaler Stift fürs kleine Umschalt-Symbol)
+function carveSeg(x1, y1, x2, y2, wf = 1) {
     cctx.lineCap = 'round';
     cctx.strokeStyle = 'rgba(96,66,38,0.9)';
-    cctx.lineWidth = 11;
+    cctx.lineWidth = 11 * wf;
     cctx.beginPath(); cctx.moveTo(x1, y1); cctx.lineTo(x2, y2); cctx.stroke();
     cctx.strokeStyle = 'rgba(58,38,20,0.85)';
-    cctx.lineWidth = 4.5;
-    cctx.beginPath(); cctx.moveTo(x1 + 1, y1 + 2); cctx.lineTo(x2 + 1, y2 + 2); cctx.stroke();
+    cctx.lineWidth = 4.5 * wf;
+    cctx.beginPath(); cctx.moveTo(x1 + 1 * wf, y1 + 2 * wf); cctx.lineTo(x2 + 1 * wf, y2 + 2 * wf); cctx.stroke();
     cctx.strokeStyle = 'rgba(255,240,214,0.55)';
-    cctx.lineWidth = 3;
-    cctx.beginPath(); cctx.moveTo(x1 - 2.5, y1 - 3.5); cctx.lineTo(x2 - 2.5, y2 - 3.5); cctx.stroke();
+    cctx.lineWidth = 3 * wf;
+    cctx.beginPath(); cctx.moveTo(x1 - 2.5 * wf, y1 - 3.5 * wf); cctx.lineTo(x2 - 2.5 * wf, y2 - 3.5 * wf); cctx.stroke();
     if (Math.random() < 0.3) {
         cctx.fillStyle = 'rgba(150,115,70,0.5)';
         cctx.beginPath();
-        cctx.arc(x1 + (Math.random() - 0.5) * 16, y1 + (Math.random() - 0.5) * 16, 1.4 + Math.random() * 1.8, 0, Math.PI * 2);
+        cctx.arc(x1 + (Math.random() - 0.5) * 16 * wf, y1 + (Math.random() - 0.5) * 16 * wf, (1.4 + Math.random() * 1.8) * wf, 0, Math.PI * 2);
         cctx.fill();
     }
 }
-function carveDot(x, y) {
+function carveDot(x, y, wf = 1) {
     for (let i = 0; i < 6; i++) {
-        carveSeg(x + (Math.random() - 0.5) * 5, y + (Math.random() - 0.5) * 5,
-                 x + (Math.random() - 0.5) * 5, y + (Math.random() - 0.5) * 5);
+        carveSeg(x + (Math.random() - 0.5) * 5 * wf, y + (Math.random() - 0.5) * 5 * wf,
+                 x + (Math.random() - 0.5) * 5 * wf, y + (Math.random() - 0.5) * 5 * wf, wf);
     }
 }
 
 const fmt = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 
-function stampInstant(text) {
+// Glyph an freier Position (für das kleine 88:88 im Umschalt-Symbol)
+function tinyGlyph(ch, x, y, w, h) {
+    return (GLYPHS[ch] || []).map(stroke => smooth(stroke.map(([gx, gy]) => [x + gx * w, y + gy * h]), 4));
+}
+
+// Umschalt-Symbol: kleines Ziffernblatt (im Digitalmodus) bzw. eine
+// kleine Digitalanzeige (im Analogmodus), geritzt mit schmalem Stift
+function iconStrokes(kind) {
+    const out = [];
+    const cx = ICON.x + ICON.w / 2, cy = ICON.y + ICON.h / 2;
+    if (kind === 'analog') {
+        const r = ICON.h * 0.48;
+        const circ = [];
+        for (let a = 0; a <= 375; a += 15) {
+            circ.push([cx + Math.cos(a * Math.PI / 180) * (r + (Math.random() - 0.5) * 2),
+                       cy + Math.sin(a * Math.PI / 180) * (r + (Math.random() - 0.5) * 2)]);
+        }
+        out.push({ pts: smooth(circ, 6), w: 0.55 });
+        for (let i = 0; i < 4; i++) {
+            const a = i * Math.PI / 2;
+            out.push({ pts: [[cx + Math.sin(a) * (r - 2), cy - Math.cos(a) * (r - 2)],
+                             [cx + Math.sin(a) * (r - 10), cy - Math.cos(a) * (r - 10)]], w: 0.5 });
+        }
+        out.push({ pts: [[cx, cy], [cx + Math.sin(-1.05) * r * 0.55, cy - Math.cos(-1.05) * r * 0.55]], w: 0.55 });
+        out.push({ pts: [[cx, cy], [cx + Math.sin(0.52) * r * 0.82, cy - Math.cos(0.52) * r * 0.82]], w: 0.5 });
+    } else {
+        const fw = ICON.w * 0.96, fh = ICON.h * 0.86;
+        const fx = cx - fw / 2, fy = cy - fh / 2;
+        const frame = [[fx, fy], [fx + fw, fy], [fx + fw, fy + fh], [fx, fy + fh], [fx, fy]];
+        out.push({ pts: smooth(frame.map(p => [p[0] + (Math.random() - 0.5) * 3, p[1] + (Math.random() - 0.5) * 3]), 8), w: 0.5 });
+        const gh = fh * 0.56, gw = gh * 0.6;
+        let x = cx - (gw * 1.25 * 4 + gw * 0.55 - gw * 1.25) / 2 - gw * 0.5;
+        const gy = cy - gh / 2;
+        for (const ch of '88:88') {
+            const cw = ch === ':' ? gw * 0.55 : gw;
+            for (const pts of tinyGlyph(ch, x, gy, cw, gh)) out.push({ pts, w: 0.42 });
+            x += cw * 1.25;
+        }
+    }
+    return out;
+}
+
+// Ziffernblatt mit Zeigern für den Analogmodus; Zeiger als Doppelzüge,
+// damit sie kräftiger wirken als der Ring
+function dialStrokes(d) {
+    const out = [];
+    const { cx, cy, r } = DIAL;
+    const circ = [];
+    for (let a = 0; a <= 372; a += 9) {
+        circ.push([cx + Math.cos(a * Math.PI / 180) * (r + (Math.random() - 0.5) * 6),
+                   cy + Math.sin(a * Math.PI / 180) * (r + (Math.random() - 0.5) * 6)]);
+    }
+    out.push({ pts: smooth(circ, 8), w: 1 });
+    for (let i = 0; i < 12; i++) {
+        const a = i * Math.PI / 6;
+        const dx = Math.sin(a), dy = -Math.cos(a);
+        out.push({
+            pts: [[cx + dx * (r - 6), cy + dy * (r - 6)],
+                  [cx + dx * (r - (i % 3 === 0 ? 34 : 24)), cy + dy * (r - (i % 3 === 0 ? 34 : 24))]],
+            w: i % 3 === 0 ? 1 : 0.7,
+        });
+    }
+    const hand = (ang, len, off) => {
+        const dx = Math.sin(ang), dy = -Math.cos(ang);
+        const ox = -dy * off, oy = dx * off;
+        return smooth([[cx - dx * r * 0.10 + ox, cy - dy * r * 0.10 + oy],
+                       [cx + dx * len * 0.55 + ox * 0.6, cy + dy * len * 0.55 + oy * 0.6],
+                       [cx + dx * len + ox * 0.2, cy + dy * len + oy * 0.2]], 8);
+    };
+    const mAng = d.getMinutes() * Math.PI / 30;
+    const hAng = ((d.getHours() % 12) + d.getMinutes() / 60) * Math.PI / 6;
+    out.push({ pts: hand(hAng, r * 0.54, -4), w: 1.1 });
+    out.push({ pts: hand(hAng, r * 0.54, 4).reverse(), w: 1.1 });
+    out.push({ pts: hand(mAng, r * 0.84, -3.5), w: 1 });
+    out.push({ pts: hand(mAng, r * 0.84, 3.5).reverse(), w: 1 });
+    const hub = [];
+    for (let a = 0; a <= 390; a += 30) {
+        hub.push([cx + Math.cos(a * Math.PI / 180) * 9, cy + Math.sin(a * Math.PI / 180) * 9]);
+    }
+    out.push({ pts: smooth(hub, 4), w: 1 });
+    return out;
+}
+
+// Alles, was in Ansicht m in den Sand gehört: Uhrbild plus Umschalt-Symbol
+function contentItems(m, d) {
+    const items = [];
+    if (m === 'digital') {
+        const text = fmt(d);
+        for (let i = 0; i < 5; i++) {
+            for (const pts of glyphStrokes(text[i], slots[i])) items.push({ pts, w: 1 });
+        }
+        items.push(...iconStrokes('analog'));
+    } else {
+        items.push(...dialStrokes(d));
+        items.push(...iconStrokes('digital'));
+    }
+    return items;
+}
+
+function stampInstant(m, d) {
     cctx.clearRect(0, 0, W, H);
-    for (let i = 0; i < 5; i++) {
-        for (const pts of glyphStrokes(text[i], slots[i])) {
-            if (pts.length === 1) { carveDot(pts[0][0], pts[0][1]); continue; }
-            for (let k = 0; k < pts.length - 1; k++) {
-                carveSeg(pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1]);
-            }
+    for (const it of contentItems(m, d)) {
+        if (it.pts.length === 1) { carveDot(it.pts[0][0], it.pts[0][1], it.w); continue; }
+        for (let k = 0; k < it.pts.length - 1; k++) {
+            carveSeg(it.pts[k][0], it.pts[k][1], it.pts[k + 1][0], it.pts[k + 1][1], it.w);
         }
     }
 }
@@ -277,21 +389,25 @@ const PARK_X = () => W - 150;
 const cart = { x: 0, sx: 0, sy: 0, wheelRot: 0, armUp: true };
 let writer = null;        // { jobs:[{pts, carve:true/false}], job, t }
 
-// Klick in den Sand: Welle sofort losschicken
-canvas.addEventListener('click', () => {
+// Klick in den Sand: Welle sofort losschicken; ein Klick auf das geritzte
+// Uhrensymbol merkt sich zusätzlich den Ansichtswechsel für danach
+canvas.addEventListener('click', (e) => {
     const pNow = performance.now() / 1000;
-    if (pNow - waveStart > 10) waveStart = pNow;
+    if (pNow - waveStart <= 10) return;
+    if (e.clientX >= ICON.x - 16 && e.clientX <= ICON.x + ICON.w + 16 &&
+        e.clientY >= ICON.y - 16 && e.clientY <= ICON.y + ICON.h + 16) {
+        pendingMode = mode === 'digital' ? 'analog' : 'digital';
+    }
+    waveStart = pNow;
 });
 
-function buildWriter(text) {
+function buildWriter(items) {
     const jobs = [];
     let cur = [PARK_X(), TEXT.baseY];
-    for (let i = 0; i < 5; i++) {
-        for (const pts of glyphStrokes(text[i], slots[i])) {
-            jobs.push({ pts: [cur, pts[0]], carve: false });
-            jobs.push({ pts, carve: true });
-            cur = pts[pts.length - 1];
-        }
+    for (const it of items) {
+        jobs.push({ pts: [cur, it.pts[0]], carve: false });
+        jobs.push({ pts: it.pts, carve: true, w: it.w });
+        cur = it.pts[it.pts.length - 1];
     }
     jobs.push({ pts: [cur, [PARK_X(), TEXT.y + TEXT.h * 0.5]], carve: false });
     return { jobs, job: 0, t: 0 };
@@ -304,7 +420,14 @@ function stepWriter(dt) {
     while (remaining > 0 && wr.job < wr.jobs.length) {
         const j = wr.jobs[wr.job];
         const pts = j.pts;
-        if (pts.length === 1) { wr.job++; wr.t = 0; continue; }
+        if (pts.length === 1) {
+            // Doppelpunkt-Tupfer: kurz anhalten und punkten
+            if (j.carve) carveDot(pts[0][0], pts[0][1], j.w || 1);
+            cart.sx = pts[0][0]; cart.sy = pts[0][1];
+            wr.job++; wr.t = 0;
+            remaining -= 0.15;
+            continue;
+        }
         const speed = j.carve ? 300 : 800;
         const i = Math.floor(wr.t);
         if (i >= pts.length - 1) { wr.job++; wr.t = 0; continue; }
@@ -313,14 +436,14 @@ function stepWriter(dt) {
         const need = (1 - (wr.t - i)) * segLen / speed;
         const frac = wr.t - i;
         if (remaining >= need) {
-            if (j.carve) carveSeg(p[0] + (q[0] - p[0]) * frac, p[1] + (q[1] - p[1]) * frac, q[0], q[1]);
+            if (j.carve) carveSeg(p[0] + (q[0] - p[0]) * frac, p[1] + (q[1] - p[1]) * frac, q[0], q[1], j.w || 1);
             cart.sx = q[0]; cart.sy = q[1];
             remaining -= need;
             wr.t = i + 1;
         } else {
             const nf = frac + remaining * speed / segLen;
             const nx = p[0] + (q[0] - p[0]) * nf, ny = p[1] + (q[1] - p[1]) * nf;
-            if (j.carve) carveSeg(p[0] + (q[0] - p[0]) * frac, p[1] + (q[1] - p[1]) * frac, nx, ny);
+            if (j.carve) carveSeg(p[0] + (q[0] - p[0]) * frac, p[1] + (q[1] - p[1]) * frac, nx, ny, j.w || 1);
             cart.sx = nx; cart.sy = ny;
             remaining = 0;
             wr.t = i + nf;
@@ -515,7 +638,8 @@ function frame(now) {
     if (prevPhase < 8.4 && sec >= 8.4) needsWrite = true;
     prevPhase = sec;
     if (needsWrite && sec >= WRITE_START && !writer) {
-        writer = buildWriter(fmt(nd));
+        if (pendingMode) { mode = pendingMode; pendingMode = null; }
+        writer = buildWriter(contentItems(mode, nd));
         needsWrite = false;
     }
     if (writer) stepWriter(dt);
