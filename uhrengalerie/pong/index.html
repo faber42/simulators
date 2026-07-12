@@ -295,7 +295,7 @@ function predictY(planeX) {
 function paddleStep(pad, isLeft, dt) {
     const plane = isLeft ? PLX + PAD_W / 2 + BR : PRX - PAD_W / 2 - BR;
     const toward = ball.live && ((isLeft && ball.vx < 0) || (!isLeft && ball.vx > 0));
-    let target, spd;
+    let target = null, spd = PSPD;
     if (toward) {
         const iy = predictY(plane);
         const misses = pend && ((pend.side === 'm') === isLeft);
@@ -304,17 +304,31 @@ function paddleStep(pad, isLeft, dt) {
             if (!pend.missDir) pend.missDir = iy > GH / 2 ? -1 : 1;
             target = iy + pend.missDir * (PAD_H * 0.9 + 28);
             spd = PSPD * 0.4;
-        } else {
+        } else if (phase === 'catchup') {
             target = iy + pad.aim;
-            spd = PSPD;
+        } else {
+            // Mensch statt Algorithmus: erst stehen bleiben und die Flugbahn
+            // einschätzen, dann so spät loslaufen, dass es gerade eben reicht
+            if (!pad.appr) pad.appr = { margin: 0.08 + Math.random() * 0.14, go: false };
+            if (!pad.appr.go) {
+                const tArr = (plane - ball.x) / ball.vx;
+                const dist = Math.abs(iy + pad.aim - pad.y);
+                if (tArr <= dist / PSPD + pad.appr.margin) pad.appr.go = true;
+            }
+            if (pad.appr.go) target = iy + pad.aim;
         }
     } else {
+        pad.appr = null;
         target = GH / 2 + Math.sin(tGlobal * (isLeft ? 0.6 : 0.75) + (isLeft ? 0 : 2.1)) * 34;
         spd = PSPD * 0.45;
     }
-    const dy = target - pad.y;
-    pad.y += Math.sign(dy) * Math.min(Math.abs(dy), spd * dt);
-    pad.y = Math.max(PAD_H / 2 + 1, Math.min(GH - PAD_H / 2 - 1, pad.y));
+    const before = pad.y;
+    if (target !== null) {
+        const dy = target - pad.y;
+        pad.y += Math.sign(dy) * Math.min(Math.abs(dy), spd * dt);
+        pad.y = Math.max(PAD_H / 2 + 1, Math.min(GH - PAD_H / 2 - 1, pad.y));
+    }
+    pad.spdNow = Math.abs(pad.y - before) / (dt || 0.001);   // fürs Glühen
 }
 
 function step(dt) {
@@ -389,18 +403,21 @@ function drawGame(dt) {
     pctx.fillStyle = `rgba(0,0,0,${1 - Math.exp(-dt / 0.05)})`;
     pctx.fillRect(0, 0, GW, GH);
     pctx.fillStyle = '#eef2fa';
-    pctx.shadowColor = 'rgba(220,230,255,0.6)';
     pctx.shadowBlur = 5;
-    // Mittellinie
+    // Mittellinie & Punktestand stehen still — halbes Glühen genügt
+    pctx.shadowColor = 'rgba(220,230,255,0.3)';
     for (let y = 3; y < GH; y += 16) pctx.fillRect(GW / 2 - 1.5, y, 3, 8);
-    // Punktestand: Stunden links, Minuten rechts der Mittellinie
     const p2 = n => String(n).padStart(2, '0');
     drawDigits(pctx, p2(score.h), GW / 2 - 26 - 35, 15, 5);
     drawDigits(pctx, p2(score.m), GW / 2 + 26, 15, 5);
-    // Schläger
+    // Schläger: das Glühen zieht mit der eigenen Bewegung an
+    const pGlow = p => 'rgba(220,230,255,' + (0.3 + 0.3 * Math.min(1, (p.spdNow || 0) / 150)).toFixed(3) + ')';
+    pctx.shadowColor = pGlow(pl);
     pctx.fillRect(PLX - PAD_W / 2, pl.y - PAD_H / 2, PAD_W, PAD_H);
+    pctx.shadowColor = pGlow(pr);
     pctx.fillRect(PRX - PAD_W / 2, pr.y - PAD_H / 2, PAD_W, PAD_H);
-    // Ball (zwischen den Ballwechseln bleibt der Schirm leer — wie damals)
+    // Ball voll leuchtend (zwischen den Ballwechseln bleibt der Schirm leer)
+    pctx.shadowColor = 'rgba(220,230,255,0.6)';
     if (ball.live) pctx.fillRect(ball.x - BR, ball.y - BR, BR * 2, BR * 2);
     pctx.shadowBlur = 0;
 }
