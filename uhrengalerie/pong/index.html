@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pong-Uhr</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { overflow: hidden; background: #07080a; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    canvas { display: block; position: fixed; inset: 0; }
+    .back {
+        position: fixed; top: 1rem; left: 1rem; z-index: 10;
+        color: #cfd3d8; background: rgba(18,20,24,0.7);
+        padding: 0.4rem 0.75rem; border-radius: 999px;
+        text-decoration: none; font-size: 0.85rem;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .back:hover { background: rgba(40,44,52,0.85); }
+    .soundbtn {
+        position: fixed; top: 1rem; right: 1rem; z-index: 10;
+        background: rgba(18,20,24,0.7); color: #cfd3d8;
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+        padding: 0.4rem 0.8rem; font-size: 0.85rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .soundbtn:hover { background: rgba(40,44,52,0.85); }
+    .demos {
+        position: fixed; bottom: 2.9rem; left: 0; right: 0; z-index: 10;
+        display: flex; gap: 0.5rem; justify-content: center; align-items: center;
+        font-size: 0.8rem; color: #8b9096;
+        font-family: ui-monospace, Consolas, monospace;
+    }
+    .demos button {
+        background: rgba(18,20,24,0.75); color: #cfd3d8;
+        border: 1px solid #3a3f46; border-radius: 6px;
+        padding: 0.28rem 0.7rem; font-size: 0.78rem;
+        cursor: pointer; font-family: inherit;
+    }
+    .demos button:hover { background: rgba(50,55,64,0.9); border-color: #6a707a; }
+    .caption {
+        position: fixed; bottom: 1.0rem; left: 0; right: 0;
+        text-align: center;
+        color: rgba(200,205,212,0.45);
+        font-size: 0.8rem;
+        pointer-events: none;
+    }
+</style>
+</head>
+<body>
+    <a class="back" href="../">&larr; Uhrengalerie</a>
+    <button class="soundbtn" id="soundBtn" title="Piepser an/aus">&#128263; Ton aus</button>
+    <canvas id="canvas"></canvas>
+    <div class="demos"><span>Vorf&uuml;hren:</span>
+        <button data-demo="minute">Minutenpunkt</button>
+        <button data-demo="stunde">Stundenwechsel</button>
+        <button data-demo="mitternacht">Mitternacht</button>
+    </div>
+    <div class="caption">Links spielen die Stunden, rechts die Minuten. Nach dem Einschalten jagt das Spiel von 00:00 auf die aktuelle Zeit &mdash; danach verliert der linke Schl&auml;ger jede Minute einen Ballwechsel, einmal pro Stunde trifft es den rechten.</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================================
+// Pong-Uhr — das alte Videospiel als Uhr
+//  - Punktestand oben: zwei Ziffern links (Stunden), zwei rechts (Minuten).
+//  - Nach dem Einschalten steht es 00:00; die Spieler jagen mit schnellen
+//    Ballwechseln den aktuellen Stand hoch. Danach halten beide den Ball
+//    im Feld — bis die Anzeige um eine Minute falsch ist: dann verliert
+//    der linke Spieler den Ballwechsel (Minutenpunkt). Beim Stundenwechsel
+//    verliert der rechte, die Minuten laufen dabei auf 00 über; um
+//    Mitternacht laufen beim selben Punktetreffer beide Zähler auf 00.
+//  - Optik wie am alten Fernseher: fette Bildpunkte, Phosphor-Nachleuchten,
+//    Zeilenraster, Vignette — und Kanalwechsel-Flackern bei Zeitsprüngen.
+//  - Ton: die klassischen Rechteck-Piepser (Schläger, Bande, Punkt).
+// ============================================================================
+
+const GW = 440, GH = 330;              // logisches Spielfeld (4:3)
+const PLX = 26, PRX = GW - 26;         // Schlägerachsen
+const PAD_W = 7, PAD_H = 44, BR = 3.5; // Schlägermaße, halbe Ballkante
+const VX_STEADY = 200, VX_FAST = 520;  // Ballgeschwindigkeit ruhig/Aufholjagd
+const VY_MAX = 150;
+const PSPD = 330;                      // Schlägertempo
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0;
+const SCR = { x: 0, y: 0, w: 4, h: 3 };
+let overlay = null;                    // Zeilenraster + Vignette, vorgerendert
+
+// Leuchtschicht in Spielauflösung — hochskaliert ohne Glättung ergibt
+// die fetten Fernseh-Bildpunkte, das Nachleuchten entsteht durch Abklingen
+const phos = document.createElement('canvas');
+phos.width = GW; phos.height = GH;
+const pctx = phos.getContext('2d');
+pctx.fillStyle = '#000';
+pctx.fillRect(0, 0, GW, GH);
+
+function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W; canvas.height = H;
+    const w = Math.min(W * 0.88, (H * 0.84) * 4 / 3);
+    SCR.w = Math.round(w);
+    SCR.h = Math.round(w * 3 / 4);
+    SCR.x = Math.round((W - SCR.w) / 2);
+    SCR.y = Math.round((H - SCR.h) / 2 - H * 0.015);
+    // Zeilenraster und Vignette einmalig backen
+    overlay = document.createElement('canvas');
+    overlay.width = SCR.w; overlay.height = SCR.h;
+    const g = overlay.getContext('2d');
+    g.fillStyle = 'rgba(0,0,0,0.20)';
+    for (let y = 0; y < SCR.h; y += 3) g.fillRect(0, y, SCR.w, 1);
+    const v = g.createRadialGradient(SCR.w / 2, SCR.h / 2, SCR.h * 0.35, SCR.w / 2, SCR.h / 2, SCR.h * 0.85);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(0,0,0,0.42)');
+    g.fillStyle = v;
+    g.fillRect(0, 0, SCR.w, SCR.h);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---- Zeit (virtuell für die Vorführungen) ------------------------------------
+let tOfs = 0, demoUntil = 0;
+const vNow = () => new Date(Date.now() + tOfs);
+
+// ---- Ton: Rechteck-Piepser ----------------------------------------------------
+let audioOn = false, actx = null, master = null;
+function ensureAudio() {
+    if (actx) return;
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    master = actx.createGain();
+    master.gain.value = 0.2;
+    master.connect(actx.destination);
+}
+function beep(freq, dur) {
+    if (!audioOn || !actx) return;
+    const t = actx.currentTime;
+    const o = actx.createOscillator();
+    o.type = 'square';
+    o.frequency.value = freq;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.5, t + 0.004);
+    g.gain.setValueAtTime(0.5, t + Math.max(0.01, dur - 0.02));
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    o.connect(g).connect(master);
+    o.start(t);
+    o.stop(t + dur + 0.03);
+}
+const soundBtn = document.getElementById('soundBtn');
+soundBtn.addEventListener('click', () => {
+    audioOn = !audioOn;
+    soundBtn.innerHTML = audioOn ? '&#128266; Ton an' : '&#128263; Ton aus';
+    if (audioOn) { ensureAudio(); actx.resume(); }
+});
+
+// ---- Klötzchen-Ziffern (3x5, wie auf dem Automaten) -----------------------------
+const DIG = {
+    '0': [7, 5, 5, 5, 7], '1': [2, 6, 2, 2, 7], '2': [7, 1, 7, 4, 7],
+    '3': [7, 1, 7, 1, 7], '4': [5, 5, 7, 1, 1], '5': [7, 4, 7, 1, 7],
+    '6': [7, 4, 7, 5, 7], '7': [7, 1, 1, 1, 1], '8': [7, 5, 7, 5, 7],
+    '9': [7, 5, 7, 1, 7],
+};
+function drawDigits(g, str, x, y, c) {
+    for (const ch of str) {
+        const rows = DIG[ch];
+        for (let r = 0; r < 5; r++) {
+            for (let k = 0; k < 3; k++) {
+                if (rows[r] & (4 >> k)) g.fillRect(x + k * c, y + r * c, c - 0.7, c - 0.7);
+            }
+        }
+        x += 4 * c;
+    }
+}
+
+// ---- Spielzustand ----------------------------------------------------------------
+const score = { h: 0, m: 0 };          // angezeigter Stand (links/rechts)
+let phase = 'catchup';                  // catchup | steady
+let boot = true;                        // Erst-Aufholjagd ab 00:00 läuft noch
+let pend = null;                        // {side:'m'|'h', missDir} — wer den nächsten Punkt BEKOMMT
+let glitch = 0;                         // Kanalwechsel-Flackern (s)
+let lastDir = 1;
+let tGlobal = 0;
+
+const ball = { x: GW / 2, y: GH / 2, vx: 0, vy: 0, live: false };
+let serveT = 0.8;
+const pl = { y: GH / 2, aim: 0 };
+const pr = { y: GH / 2, aim: 0 };
+
+// Seite 'm': rechter Spieler punktet, der linke muss verfehlen (Ball links raus).
+// Seite 'h': linker Spieler punktet, der rechte muss verfehlen (Ball rechts raus).
+
+function decide() {
+    const d = vNow();
+    const th = d.getHours(), tm = d.getMinutes();
+    if (phase === 'catchup') {
+        if (score.h === th && score.m === tm) {
+            phase = 'steady';
+            boot = false;
+            pend = null;
+        } else if (!pend) {
+            const needH = (th - score.h + 24) % 24;
+            const needM = (tm - score.m + 60) % 60;
+            pend = { side: needM >= needH ? 'm' : 'h', missDir: 0 };
+        }
+        return;
+    }
+    if (!pend && (score.h !== th || score.m !== tm)) {
+        const minuteStep = score.h === th && tm === (score.m + 1) % 60 && tm !== 0;
+        const hourStep = score.m === 59 && tm === 0 && th === (score.h + 1) % 24;
+        if (minuteStep || hourStep) {
+            pend = { side: minuteStep ? 'm' : 'h', missDir: 0 };
+        } else {
+            // größerer Zeitsprung: kurz aufholen, bei sehr großen umschalten wie
+            // beim Kanalwechsel (nach der Erst-Aufholjagd)
+            const needH = (th - score.h + 24) % 24;
+            const needM = (tm - score.m + 60) % 60;
+            if (!boot && needH + needM > 20) snapTo(d);
+            else phase = 'catchup';
+        }
+    }
+}
+
+function snapTo(d) {
+    score.h = d.getHours();
+    score.m = d.getMinutes();
+    phase = 'steady';
+    boot = false;
+    pend = null;
+    ball.live = false;
+    serveT = 0.9;
+    glitch = 0.4;
+    beep(170, 0.1);
+}
+
+function launch() {
+    let dir, y = GH * (0.25 + Math.random() * 0.5);
+    if (pend) {
+        dir = pend.side === 'm' ? -1 : 1;          // Aufschlag Richtung Verlierer
+        if (phase === 'catchup' && Math.random() < 0.18) {
+            dir = -dir;                             // erst noch ein Return des Gewinners
+            const w = dir < 0 ? pl : pr;
+            y = Math.max(20, Math.min(GH - 20, w.y + (Math.random() - 0.5) * 56));
+        }
+    } else {
+        lastDir = -lastDir;
+        dir = lastDir;
+    }
+    ball.x = GW / 2;
+    ball.y = y;
+    ball.vx = dir * (phase === 'catchup' ? VX_FAST : VX_STEADY);
+    ball.vy = (Math.random() < 0.5 ? -1 : 1) * (40 + Math.random() * 90);
+    ball.live = true;
+    pl.aim = (Math.random() - 0.5) * PAD_H * 0.5;
+    pr.aim = (Math.random() - 0.5) * PAD_H * 0.5;
+}
+
+function resolvePoint(exit) {
+    ball.live = false;
+    beep(490, 0.24);
+    if (pend) {
+        const expected = pend.side === 'm' ? 'L' : 'R';
+        if (exit === expected) {
+            if (phase === 'catchup') {
+                // Aufholjagd: die Zähler rasen unabhängig zum Ziel
+                if (pend.side === 'm') score.m = (score.m + 1) % 60;
+                else score.h = (score.h + 1) % 24;
+            } else {
+                // Minuten-/Stundenpunkt samt Überläufen: der Stand wird die
+                // aktuelle Zeit (59->00 wickelt sich hier ab, um Mitternacht beides)
+                const d = vNow();
+                score.h = d.getHours();
+                score.m = d.getMinutes();
+            }
+            pend = null;
+        } else {
+            pend.missDir = 0;                       // falsche Seite? Nochmal anlaufen.
+        }
+    }
+    serveT = phase === 'catchup' ? 0.2 : 1.15;
+}
+
+function predictY(planeX) {
+    if (!ball.live) return GH / 2;
+    const t = (planeX - ball.x) / ball.vx;
+    if (t <= 0) return ball.y;
+    const lo = BR + 1, hi = GH - BR - 1, span = hi - lo;
+    let y = ball.y + ball.vy * t;
+    y = ((y - lo) % (2 * span) + 2 * span) % (2 * span);
+    return (y > span ? 2 * span - y : y) + lo;
+}
+
+function paddleStep(pad, isLeft, dt) {
+    const plane = isLeft ? PLX + PAD_W / 2 + BR : PRX - PAD_W / 2 - BR;
+    const toward = ball.live && ((isLeft && ball.vx < 0) || (!isLeft && ball.vx > 0));
+    let target, spd;
+    if (toward) {
+        const iy = predictY(plane);
+        const misses = pend && ((pend.side === 'm') === isLeft);
+        if (misses) {
+            // der klassische Pong-Patzer: zu langsam und in die falsche Richtung
+            if (!pend.missDir) pend.missDir = iy > GH / 2 ? -1 : 1;
+            target = iy + pend.missDir * (PAD_H * 0.9 + 28);
+            spd = PSPD * 0.4;
+        } else {
+            target = iy + pad.aim;
+            spd = PSPD;
+        }
+    } else {
+        target = GH / 2 + Math.sin(tGlobal * (isLeft ? 0.6 : 0.75) + (isLeft ? 0 : 2.1)) * 34;
+        spd = PSPD * 0.45;
+    }
+    const dy = target - pad.y;
+    pad.y += Math.sign(dy) * Math.min(Math.abs(dy), spd * dt);
+    pad.y = Math.max(PAD_H / 2 + 1, Math.min(GH - PAD_H / 2 - 1, pad.y));
+}
+
+function step(dt) {
+    decide();
+    if (!ball.live) {
+        serveT -= dt;
+        if (serveT <= 0) launch();
+    } else {
+        const prevX = ball.x, prevY = ball.y;
+        ball.x += ball.vx * dt;
+        ball.y += ball.vy * dt;
+        // Bande oben/unten
+        if (ball.y < BR + 1 && ball.vy < 0) {
+            ball.y = 2 * (BR + 1) - ball.y;
+            ball.vy = -ball.vy;
+            beep(226, 0.04);
+        } else if (ball.y > GH - BR - 1 && ball.vy > 0) {
+            ball.y = 2 * (GH - BR - 1) - ball.y;
+            ball.vy = -ball.vy;
+            beep(226, 0.04);
+        }
+        // Schläger (Ebenen-Querung, damit bei hohem Tempo nichts durchtunnelt)
+        const LS = PLX + PAD_W / 2 + BR, RS = PRX - PAD_W / 2 - BR;
+        if (ball.vx < 0 && prevX >= LS && ball.x < LS) {
+            const yAt = prevY + (ball.y - prevY) * ((LS - prevX) / (ball.x - prevX || -0.001));
+            if (Math.abs(yAt - pl.y) <= PAD_H / 2 + BR) {
+                ball.x = LS + (LS - ball.x);
+                ball.vx = -ball.vx;
+                ball.vy = Math.max(-VY_MAX, Math.min(VY_MAX,
+                    ((yAt - pl.y) / (PAD_H / 2)) * VY_MAX * 0.85 + (Math.random() - 0.5) * 24));
+                pr.aim = (Math.random() - 0.5) * PAD_H * 0.5;
+                beep(459, 0.045);
+            }
+        } else if (ball.vx > 0 && prevX <= RS && ball.x > RS) {
+            const yAt = prevY + (ball.y - prevY) * ((RS - prevX) / (ball.x - prevX || 0.001));
+            if (Math.abs(yAt - pr.y) <= PAD_H / 2 + BR) {
+                ball.x = RS - (ball.x - RS);
+                ball.vx = -ball.vx;
+                ball.vy = Math.max(-VY_MAX, Math.min(VY_MAX,
+                    ((yAt - pr.y) / (PAD_H / 2)) * VY_MAX * 0.85 + (Math.random() - 0.5) * 24));
+                pl.aim = (Math.random() - 0.5) * PAD_H * 0.5;
+                beep(459, 0.045);
+            }
+        }
+        if (ball.x < -20) resolvePoint('L');
+        else if (ball.x > GW + 20) resolvePoint('R');
+    }
+    paddleStep(pl, true, dt);
+    paddleStep(pr, false, dt);
+}
+
+// ---- Vorführungen -----------------------------------------------------------------
+function demo(kind) {
+    const now = new Date();
+    const t = new Date(now);
+    if (kind === 'minute') t.setSeconds(52, 0);
+    else if (kind === 'stunde') t.setMinutes(59, 52, 0);
+    else t.setHours(23, 59, 52, 0);
+    tOfs = t.getTime() - now.getTime();
+    demoUntil = tGlobal + 18;
+    snapTo(vNow());
+}
+for (const b of document.querySelectorAll('.demos button')) {
+    b.addEventListener('click', () => demo(b.dataset.demo));
+}
+
+// ---- Zeichnen ------------------------------------------------------------------------
+function drawGame(dt) {
+    // Phosphor klingt ab
+    pctx.shadowBlur = 0;
+    pctx.globalAlpha = 1;
+    pctx.fillStyle = `rgba(0,0,0,${1 - Math.exp(-dt / 0.05)})`;
+    pctx.fillRect(0, 0, GW, GH);
+    pctx.fillStyle = '#eef2fa';
+    pctx.shadowColor = 'rgba(220,230,255,0.6)';
+    pctx.shadowBlur = 5;
+    // Mittellinie
+    for (let y = 3; y < GH; y += 16) pctx.fillRect(GW / 2 - 1.5, y, 3, 8);
+    // Punktestand: Stunden links, Minuten rechts der Mittellinie
+    const p2 = n => String(n).padStart(2, '0');
+    drawDigits(pctx, p2(score.h), GW / 2 - 26 - 35, 15, 5);
+    drawDigits(pctx, p2(score.m), GW / 2 + 26, 15, 5);
+    // Schläger
+    pctx.fillRect(PLX - PAD_W / 2, pl.y - PAD_H / 2, PAD_W, PAD_H);
+    pctx.fillRect(PRX - PAD_W / 2, pr.y - PAD_H / 2, PAD_W, PAD_H);
+    // Ball (zwischen den Ballwechseln bleibt der Schirm leer — wie damals)
+    if (ball.live) pctx.fillRect(ball.x - BR, ball.y - BR, BR * 2, BR * 2);
+    pctx.shadowBlur = 0;
+}
+
+function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    tGlobal += dt;
+    glitch = Math.max(0, glitch - dt);
+
+    if (demoUntil && tGlobal > demoUntil) {
+        demoUntil = 0;
+        tOfs = 0;
+        snapTo(new Date());
+    }
+
+    step(dt);
+    drawGame(dt);
+
+    // Zimmer & Gehäuse
+    ctx.fillStyle = '#07080a';
+    ctx.fillRect(0, 0, W, H);
+    const halo = ctx.createRadialGradient(W / 2, SCR.y + SCR.h / 2, SCR.h * 0.3, W / 2, SCR.y + SCR.h / 2, SCR.h * 1.1);
+    halo.addColorStop(0, 'rgba(160,180,220,0.05)');
+    halo.addColorStop(1, 'rgba(160,180,220,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, W, H);
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(SCR.x - 16, SCR.y - 16, SCR.w + 32, SCR.h + 32, 26);
+    else ctx.rect(SCR.x - 16, SCR.y - 16, SCR.w + 32, SCR.h + 32);
+    ctx.fillStyle = '#15171c';
+    ctx.fill();
+
+    // Bildröhre: Leuchtschicht grob hochskalieren, Raster und Vignette darüber
+    ctx.save();
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(SCR.x, SCR.y, SCR.w, SCR.h, 16);
+    else ctx.rect(SCR.x, SCR.y, SCR.w, SCR.h);
+    ctx.clip();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(SCR.x, SCR.y, SCR.w, SCR.h);
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = Math.min(1, 0.96 + 0.025 * Math.sin(tGlobal * 8.3) + 0.015 * Math.sin(tGlobal * 27.7));
+    ctx.drawImage(phos, SCR.x, SCR.y, SCR.w, SCR.h);
+    ctx.globalAlpha = 1;
+    ctx.drawImage(overlay, SCR.x, SCR.y);
+    if (glitch > 0) {
+        // Kanalwechsel: Störstreifen und ein heller Blitz
+        const a = glitch / 0.4;
+        ctx.globalAlpha = a * 0.55;
+        for (let i = 0; i < 26; i++) {
+            ctx.fillStyle = Math.random() < 0.5 ? '#fff' : '#8fa2bd';
+            ctx.fillRect(SCR.x + Math.random() * SCR.w * 0.8, SCR.y + Math.random() * SCR.h,
+                         SCR.w * (0.05 + Math.random() * 0.25), 1.5 + Math.random() * 2.5);
+        }
+        ctx.globalAlpha = a * 0.16;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(SCR.x, SCR.y, SCR.w, SCR.h);
+        ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+
+    requestAnimationFrame(frame);
+}
+let last = performance.now();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
