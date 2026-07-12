@@ -847,6 +847,12 @@ function frame(now) {
     if (flip) {
         pencil.x += (pencil.idleX - pencil.x) * Math.min(1, dt * 4);
         pencil.y += (pencil.idleY - pencil.y) * Math.min(1, dt * 4);
+    } else if (mode === 'analog' && analog && !analog.initial && !analog.cycle && !switchTarget) {
+        // Analoguhr in Ruhe: der Stift wird unter das Ziffernblatt gelegt,
+        // sonst sähe er in der Mitte wie ein Zeiger aus
+        pencil.x += (SHEET.x + DIAL.cx - 100 - pencil.x) * Math.min(1, dt * 3);
+        pencil.y += (SHEET.y + DIAL.cy + DIAL.r + 84 - pencil.y) * Math.min(1, dt * 3);
+        pencil.a += (0.06 - pencil.a) * Math.min(1, dt * 3);
     }
 
     // Zeichnen

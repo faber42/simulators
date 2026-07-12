@@ -287,6 +287,14 @@ function puff(x, y, n, spread, up) {
 
 // ---- Werkzeuge (Kreide & Schwamm) -------------------------------------------------
 const chalk = { x: 430, y: LEDGE.y + 46, a: 0.25, idleX: 430, idleY: LEDGE.y + 46, idleA: 0.25 };
+
+// Kreide so setzen, dass ihre Schreibkante (lokales Ende bei x=-6) exakt
+// den Strichpunkt berührt — der Körper zeigt nach rechts oben
+function moveChalkTo(x, y) {
+    chalk.a = -0.6;
+    chalk.x = x + 5;
+    chalk.y = y - 3.4;
+}
 const sponge = { x: 1240, y: LEDGE.y + 52, a: 0, idleX: 1240, idleY: LEDGE.y + 52, idleA: 0 };
 
 function drawChalk(g) {
@@ -427,7 +435,7 @@ function processQueue(dt) {
             if (pts.length === 1) {
                 // Punkt (Doppelpunkt): dicker Tupfer
                 for (let k = 0; k < 9; k++) chalkDab(pts[0][0], pts[0][1], a.width * 1.1, 1);
-                chalk.x = pts[0][0] + 26; chalk.y = pts[0][1] + 14;
+                moveChalkTo(pts[0][0], pts[0][1]);
                 a.stroke++; a.t = 0;
                 remaining -= 30 / speed;
                 continue;
@@ -450,7 +458,7 @@ function processQueue(dt) {
             const ny = p[1] + (q[1] - p[1]) * nf;
             chalkDab(nx, ny, a.width, 1);
             if (Math.random() < 0.10) puff(nx, ny + 8, 1, 10, false);
-            chalk.x = nx + 26; chalk.y = ny + 14; chalk.a = -0.6;
+            moveChalkTo(nx, ny);
             a.t = nf >= 1 ? i + 1 : i + nf;
         }
         setTone(0.035 + Math.random() * 0.02, 0);
@@ -680,7 +688,7 @@ function stampPaintJob(job, toLen) {
             const y = s.p[1] + (s.q[1] - s.p[1]) * t;
             chalkDab(x, y, s.width, 1);
             if (Math.random() < 0.05) puff(x, y + 8, 1, 10, false);
-            chalk.x = x + 26; chalk.y = y + 14; chalk.a = -0.6;
+            moveChalkTo(x, y);
         }
     }
     job.done = toLen;
@@ -847,6 +855,12 @@ function frame(now) {
         sponge.x += (sponge.idleX - sponge.x) * Math.min(1, dt * 2.5);
         sponge.y += (sponge.idleY - sponge.y) * Math.min(1, dt * 2.5);
         sponge.a += (sponge.idleA - sponge.a) * Math.min(1, dt * 2.5);
+    }
+    if (mode === 'analog' && analog && !analog.initial && !analog.cycle && !pendingMode) {
+        // Analoguhr in Ruhe: die Kreide wird auf die Ablage zurückgelegt
+        chalk.x += (chalk.idleX - chalk.x) * Math.min(1, dt * 2.5);
+        chalk.y += (chalk.idleY - chalk.y) * Math.min(1, dt * 2.5);
+        chalk.a += (chalk.idleA - chalk.a) * Math.min(1, dt * 2.5);
     }
 
     // Staub
