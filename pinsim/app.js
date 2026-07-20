@@ -554,7 +554,9 @@ function fixedCollider(desc, friction, restitution, tag) {
     wall(W * 2, T - 0.56, 0, 0.56 + (T - 0.56) / 2, ZF);
     wall(W - LANE.kickIn, 1.3, -(LANE.kickIn + W) / 2, 0.0, ZF);
     wall(W - LANE.kickIn, 1.3, (LANE.kickIn + W) / 2, 0.0, ZF);
-    box(scene, LANE.kickIn * 2, 0.07, 0.05, mat.hazard, 0, 0.60, ZF + 0.10);
+    // Warnstreifen flach an der Maskenfront — liegt HINTER den Pindeck-
+    // Kameras, ragt also auch bei breitem Viewport nicht mehr ins Bild
+    box(scene, LANE.kickIn * 2, 0.07, 0.04, mat.hazard, 0, 0.60, ZF + 0.05);
 
     for (const z of [-0.5, 0.4, 1.3, 2.2, 2.9]) {
         box(scene, W * 2 - 0.1, 0.09, 0.06, mat.darkSteel, 0, T - 0.07, z, { cast: true });
@@ -1861,8 +1863,8 @@ function drainContacts() {
 // ============ Kameras & HUD ================================================
 
 const CAMS = [
-    { n: 'PINDECK LINKS',    pos: [-0.70, 0.62, -0.80], look: [0.14, 0.24, 0.55], fov: 60 },
-    { n: 'PINDECK RECHTS',   pos: [0.70, 0.62, -0.80],  look: [-0.14, 0.24, 0.55], fov: 60 },
+    { n: 'PINDECK LINKS',    pos: [-0.70, 0.62, -0.74], look: [0.14, 0.24, 0.55], fov: 60 },
+    { n: 'PINDECK RECHTS',   pos: [0.70, 0.62, -0.74],  look: [-0.14, 0.24, 0.55], fov: 60 },
     { n: 'TISCH & MAGAZIN',  pos: [0.60, 1.62, -0.72],  look: [-0.10, 0.58, 0.55], fov: 64 },
     { n: 'AUFZUG & GRUBE',   pos: [-0.88, 1.92, 0.15],  look: [0.18, 0.32, 2.25], fov: 72 },
     { n: 'GRUBE & BALLTÜR',  pos: [-0.58, 0.45, 1.34],  look: [0.72, -0.50, 1.54], fov: 74 },
@@ -2174,7 +2176,7 @@ renderer.setAnimationLoop(() => {
 
 // ---- Debug-Schnittstelle (für Tests) --------------------------------------
 window.PINSIM = {
-    machine, transport, pins, ball, V, world, RAPIER, orbit,
+    machine, transport, pins, ball, V, world, RAPIER, orbit, camera,
     throwNow: t => { if (machine.state === 'IDLE') doThrow(t || pickThrowType()); },
     setSpeed: s => { timeScale = s; },
     setCam,
