@@ -29,14 +29,26 @@ Originalgeräts abgestimmt — die folgenden Details sind verbindlich.
    2–3 s umher und fällt in eine der **14 Zahlentaschen**. Reihenfolge der
    Taschenziffern von links nach rechts:
    **4 1 3 2 4 3 1 4 2 4 3 1 2 4**
+   Gegenüber der Klammer, auf gleicher Höhe oben rechts, sitzt ein
+   **Gumminoppen (Poller)**: Mit voller Kraft geschleuderte Kugeln, die an
+   der Ringwand entlang bis zur Gegenseite flitzen, prallen an ihm
+   chaotisch ins Nadelfeld zurück, statt vorhersagbar rechts in eine
+   Tasche zu fallen.
 4. Der Taschensensor sitzt **am Eingang der Tasche**, direkt unter der
    Ziffer: In dem Moment, in dem die Kugel die Zahl unterquert, **erlischt
    „SPIEL FREI“** und die Ziffer leuchtet im Zahlenfeld auf — noch bevor
-   die Kugel den Taschenboden erreicht. Die Kugel fällt in den mittigen Halter,
-   der Automat wartet ca. **3 Sekunden** (Programmwerk schaltet hörbar
-   weiter) und gibt sie für den nächsten Wurf wieder frei — „SPIEL FREI“
-   geht mit der Freigabe wieder an. Nach dem **dritten** Wurf bleibt die
-   Kugel im mittigen Halter, bis die nächste Münze fällt.
+   die Kugel den Taschenboden erreicht. Die Kugel fällt in den mittigen
+   Halter, das Programmwerk schaltet hörbar weiter, dann wird sie für den
+   nächsten Wurf wieder freigegeben — „SPIEL FREI“ geht mit der Freigabe
+   wieder an. Die Haltezeit bestimmt der **Programmschalter**: Zwischen
+   zwei Kugelfreigaben liegen **mindestens 9 Sekunden** (`TUNE.RELEASE_GAP`,
+   am Original nachempfunden). Flitzt die Kugel schnell durch das
+   Nadelfeld, hält der Automat sie entsprechend länger fest; hat der Wurf
+   ohnehin länger gedauert (z. B. weil der Spieler trödelt), bekommt er
+   sie nach der Mindesthaltezeit von ca. **1 Sekunde** (`TUNE.HOLD_MIN`)
+   zügig wieder. Nach dem
+   **dritten** Wurf bleibt die Kugel im mittigen Halter, bis die nächste
+   Münze fällt.
 5. **Zu schwacher Wurf:** Erreicht die Kugel die Klammer nicht, rollt sie
    die Bahn zurück ans Schlagwerk — der Durchgang zählt **nicht**, der Wurf
    wird wiederholt.

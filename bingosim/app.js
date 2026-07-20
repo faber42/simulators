@@ -61,6 +61,9 @@ const PICKET_X0 = 142, PICKET_PITCH = 34, PICKET_N = 15;
 const PICKET_TOP = 600, PICKET_BOT = 688, PICKET_R = 4;
 const FLOOR_Y = 688;
 const SENSOR_Y = 632;   // Taschensensor am Eingang: löst aus, sobald die Kugel die Ziffer unterquert
+// Gumminoppen (Poller) gegenüber der Klammer, auf gleicher Höhe: wirft mit
+// voller Kraft geschleuderte Kugeln chaotisch ins Nadelfeld zurück
+const BUMPER = { ...clockPt(40, 246), r: 14 };
 // Keile, die die äußersten Taschen zur Ringwand hin abdichten
 const WEDGES = [
     { x1: 152, y1: 568, x2: 142, y2: 602 },
@@ -94,6 +97,8 @@ const TUNE = {
     ROLL: 60,                    // Rollreibung auf der Bahn px/s²
     DRAG: 0.0001,                // quadratischer Widerstand auf der Bahn
     V_MIN: 1170, V_MAX: 1630,    // Abschussgeschwindigkeit bei Kraft 0..1
+    RELEASE_GAP: 9.0,            // Mindestabstand zwischen zwei Kugelfreigaben (s)
+    HOLD_MIN: 1.0,               // Mindesthaltezeit im Kugelhalter (s), wenn getrödelt wurde
 };
 const REST_PIN = 0.55, REST_WALL = 0.45, REST_PICKET = 0.4, REST_FLOOR = 0.2;
 
@@ -224,6 +229,8 @@ const S = {
     autoWait: 0,
     autoPrev: null,
     autoCharging: false,
+    simT: 0,             // Simulationsuhr (s)
+    lastReleaseT: -99,   // Zeitpunkt der letzten Kugelfreigabe (Programmschalter-Regel)
 };
 
 // ---- Lampenlogik --------------------------------------------------------------
@@ -363,6 +370,7 @@ const AudioFX = (() => {
         thock()   { blip(110, 0.5, 0.08, 'sine'); noiseBurst(0.3, 0.05, 700); }, // Schlagwerk
         tick(v)   { noiseBurst(clamp(v, 0.05, 0.35), 0.03, 1900 + Math.random() * 900); }, // Nadel
         plop()    { blip(240, 0.4, 0.1, 'sine'); blip(90, 0.3, 0.12, 'sine'); },  // Tasche
+        bumper(v) { blip(150, clamp(v, 0.15, 0.5), 0.07, 'sine'); noiseBurst(clamp(v * 0.6, 0.1, 0.3), 0.04, 600); }, // Gumminoppen
         ratchet() { noiseBurst(0.12, 0.025, 1300); },                          // Programmwerk
         coin()    { noiseBurst(0.35, 0.1, 3400); blip(3000 + Math.random() * 500, 0.12, 0.09, 'triangle'); },
         typebar() { noiseBurst(0.16, 0.02, 2300 + Math.random() * 1500); if (Math.random() < 0.3) blip(2600 + Math.random() * 900, 0.05, 0.025, 'triangle'); },
@@ -411,6 +419,7 @@ function startRelease() {
     b.x = HOLE.x; b.y = HOLE.y; b.vx = 0; b.vy = 0;
     b.pocket = -1;
     S.spielFrei = true;
+    S.lastReleaseT = S.simT;
 }
 function launch() {
     if (S.mode !== 'AIM') return;
@@ -464,6 +473,7 @@ function spawnPayCoin() {
 
 // ---- Physik: ein fester Zeitschritt ----------------------------------------------
 function update(dt) {
+    S.simT += dt;
     const b = S.ball;
 
     // Kraftbalken (Pendeln zwischen 0 und 1, solange gehalten — auch schon,
@@ -680,7 +690,14 @@ function update(dt) {
                     S.payStep = 0;
                     setMode('PAYRUN', 0.6);
                 } else {
-                    setMode('PROGRAM', 3.0);
+                    // Programmschalter-Regel: zwischen zwei Kugelfreigaben
+                    // liegen mindestens RELEASE_GAP Sekunden. Wer beim Wurf
+                    // trödelt, bekommt die Kugel nach der Mindesthaltezeit
+                    // fast sofort wieder. (−0.3 s für die Freigabe-Stufe.)
+                    const wait = Math.max(
+                        TUNE.RELEASE_GAP - (S.simT - S.lastReleaseT) - 0.3,
+                        TUNE.HOLD_MIN);
+                    setMode('PROGRAM', wait);
                     S.ratchetT = 0.4;
                 }
             }
@@ -701,6 +718,26 @@ function update(dt) {
 
 // Kollisionsbehandlung der frei fliegenden Kugel
 function collideFree(b) {
+    // Gumminoppen (Poller): fängt Kugeln ab, die mit voller Kraft an der
+    // Ringwand entlang bis zur Gegenseite flitzen, und wirft sie mit leicht
+    // unregelmäßigem Abpraller zurück ins Nadelfeld
+    {
+        const dx = b.x - BUMPER.x, dy = b.y - BUMPER.y;
+        const rr = BALL_R + BUMPER.r;
+        if (dx * dx + dy * dy < rr * rr) {
+            const d = Math.hypot(dx, dy) || 0.001;
+            const jit = (Math.random() - 0.5) * 0.35;   // Gummi federt unregelmäßig
+            const cj = Math.cos(jit), sj = Math.sin(jit);
+            const nx = (dx / d) * cj - (dy / d) * sj;
+            const ny = (dx / d) * sj + (dy / d) * cj;
+            b.x = BUMPER.x + (dx / d) * rr;
+            b.y = BUMPER.y + (dy / d) * rr;
+            const vn = b.vx * nx + b.vy * ny;
+            reflect(b, nx, ny, 0.8, 0.99);
+            S.bumperHits = (S.bumperHits || 0) + 1;
+            if (vn < -80) AudioFX.bumper(-vn / 1100);
+        }
+    }
     // Ringwand (Kugel bleibt im Kreis)
     if (b.y < 606) {
         const dx = b.x - C.x, dy = b.y - C.y;
@@ -953,7 +990,7 @@ function buildBackground() {
     g.fillStyle = hg; g.fill();
     g.strokeStyle = '#8a6d2f'; g.lineWidth = 2; g.stroke();
 
-    // Ösen (Klammer-Austritt oben links, Zieröse oben rechts)
+    // Ösen: links der Klammer-Austritt, rechts sitzt im Ring der Gumminoppen
     for (const deg of [320, 40]) {
         const p = clockPt(deg, BAND_IN);
         g.beginPath(); g.arc(p.x, p.y, 13, 0, Math.PI * 2);
@@ -961,6 +998,14 @@ function buildBackground() {
         g.beginPath(); g.arc(p.x, p.y, 13, 0, Math.PI * 2);
         g.strokeStyle = 'rgba(90,70,20,0.8)'; g.lineWidth = 1.5; g.stroke();
     }
+    // Gumminoppen: dunkler Gummidom in der rechten Öse
+    const rubber = g.createRadialGradient(BUMPER.x - 3, BUMPER.y - 3, 1, BUMPER.x, BUMPER.y, BUMPER.r);
+    rubber.addColorStop(0, '#4e4e58');
+    rubber.addColorStop(0.6, '#26262c');
+    rubber.addColorStop(1, '#101014');
+    g.beginPath(); g.arc(BUMPER.x, BUMPER.y, BUMPER.r - 1, 0, Math.PI * 2);
+    g.fillStyle = rubber; g.fill();
+    g.strokeStyle = '#000'; g.lineWidth = 1; g.stroke();
 
     g.restore(); // Glas-Clip Ende
 
