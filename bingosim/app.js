@@ -379,13 +379,17 @@ const AudioFX = (() => {
         // Hauptklick plus leiser Nachschlag
         payIdle() { noiseBurst(0.3, 0.03, 1900); noiseBurst(0.12, 0.025, 2500, 0.035); },
         kasching() {
-            // schwerer Auszahlhebel drückt die unterste Münze aus der Säule …
-            blip(85 + Math.random() * 20, 0.6, 0.11, 'sine');
-            noiseBurst(0.45, 0.05, 800);
-            // … und die Münzsäule rutscht klirrend um eine Münzbreite nach
-            noiseBurst(0.4, 0.07, 3100, 0.05);
-            blip(2300 + Math.random() * 700, 0.18, 0.07, 'triangle', 0.06);
-            noiseBurst(0.3, 0.06, 4300, 0.1);
+            // PENG: der schwere Auszahlhebel hämmert die Münze in den Schacht —
+            // ein Hammerschlag, Metall auf Metall
+            blip(120 + Math.random() * 15, 0.7, 0.09, 'sine');   // Masse / Wucht
+            noiseBurst(0.85, 0.018, 700);                        // harter Anschlag
+            // metallischer Nachklang (unharmonische Teiltöne, schnell abklingend)
+            blip(520, 0.35, 0.12, 'square', 0.008);
+            blip(1350, 0.2, 0.09, 'square', 0.008);
+            blip(2100, 0.12, 0.07, 'triangle', 0.008);
+            // nur dezentes Klimpern: Münze fällt, Säule rutscht nach
+            noiseBurst(0.14, 0.05, 3100, 0.07);
+            blip(2800 + Math.random() * 500, 0.08, 0.05, 'triangle', 0.1);
         },
         roll(v)   { if (rollGain && !muted) rollGain.gain.value = clamp(Math.abs(v) / 2600, 0, 1) * 0.22; },
         rollOff() { if (rollGain) rollGain.gain.value = 0; },
