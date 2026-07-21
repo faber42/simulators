@@ -26,6 +26,9 @@ Es gibt bewusst keine Bahn-Außenwelt: Nur die Vorgänge im Automaten selbst.
 
 Die Würfe variieren automatisch (Strike-Tasche, Brooklyn, frontal, dünn,
 Kanten-Treffer, Gasse); der zweite Wurf zielt auf die Stehengebliebenen.
+Der Zielwurf-Button nimmt den vordersten noch stehenden Pin ins Visier —
+steht er außermittig, läuft die Kugel leicht schräg aus der Bahnmitte an
+(volles Rack: praktisch ein Frontalwurf auf Pin 1).
 Wertung mit Strike-/Spare-/Split-Erkennung.
 
 ## Bedienung
@@ -35,7 +38,7 @@ Wertung mit Strike-/Spare-/Split-Erkennung.
 | `1`–`6` oder Buttons | Kamera wählen (Pindeck links/rechts, Tisch & Magazin, Aufzug & Grube, Grube & Balltür, freie Service-Kamera) |
 | Maus ziehen / Rad | freie Kamera drehen / zoomen (nur Kamera 6) |
 | `N` | sofort werfen |
-| Wurf-Buttons | Strike-, Split-, Gassen- oder Zufallswurf (laufender Zyklus: wird vorgemerkt) |
+| Wurf-Buttons | Strike-, Split-, Ziel-, Gassen- oder Zufallswurf (laufender Zyklus: wird vorgemerkt) |
 | Reset Frame | alle Pins abräumen und ein frisches Rack stellen (wie an echten Bahnen) |
 | Reset Game | Pinfeld zurücksetzen und Zählung wieder bei Frame 1 beginnen |
 | `A` / Auto | Automatikbetrieb an/aus (startet ausgeschaltet) |

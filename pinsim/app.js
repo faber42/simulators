@@ -1619,6 +1619,28 @@ const THROW_DEFS = {
     gutter:   () => { const s = Math.random() < 0.5 ? 1 : -1;
                       return { x: s * (LANE.half + LANE.gutterW / 2), vx: 0, v: rand(6.4, 7.4),
                                y: 0.064, gutter: true }; },
+    // Zielwurf: nimmt den vordersten noch stehenden Pin ins Visier. Die Kugel
+    // startet immer in Bahnmitte und läuft bei außermittigem Ziel leicht
+    // schräg an — beim vollen Rack also praktisch ein Frontalwurf auf Pin 1.
+    ziel:     () => {
+        const standing = surveyPins().standing;
+        let tx = 0, tz = 0;               // leeres Deck: auf den Kopf-Pin-Spot
+        if (standing.length) {
+            const order = standing.map(s => s.spot).sort((a, b) =>
+                (SPOTS[a][1] - SPOTS[b][1]) ||                      // vorderste Reihe
+                (Math.abs(SPOTS[a][0]) - Math.abs(SPOTS[b][0])));   // dann nah zur Mitte
+            // Spiegel-Patt (z. B. 7–10): fairer Münzwurf unter den Gleichauf-Pins
+            const tied = order.filter(s =>
+                SPOTS[s][1] === SPOTS[order[0]][1] &&
+                Math.abs(SPOTS[s][0]) === Math.abs(SPOTS[order[0]][0]));
+            const spot = tied[Math.floor(Math.random() * tied.length)];
+            tx = SPOTS[spot][0]; tz = SPOTS[spot][1];
+        }
+        const v = rand(7.2, 8.1);
+        const x0 = rand(-0.02, 0.02);
+        const t = (tz - (LANE.zFront + 0.15)) / v; // Flugzeit bis zum Ziel-Spot
+        return { x: x0, vx: (tx + rand(-0.02, 0.02) - x0) / t, v };
+    },
 };
 
 const AUTO_WEIGHTS = [
