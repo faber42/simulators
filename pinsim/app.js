@@ -1414,7 +1414,7 @@ const machine = {
     pendingDef: null, launchT: 0, launchedAt: 0,
     q: [], step: null,
     frame: 1, wurf: 1,
-    auto: false, pending: null,
+    auto: false, pending: [],             // vorgemerkte Würfe, in Klickreihenfolge
     phase: 'BEREIT',
     thrownType: '',
     sweepRetries: 0,
@@ -1537,6 +1537,9 @@ function buildCycle() {
 // der Frame beginnt wieder mit Wurf 1). Reset Game macht dasselbe und setzt
 // zusätzlich die Zählung auf Frame 1 zurück — das gehört immer zusammen.
 function buildReset(resetGame) {
+    // Reset heißt reiner Tisch — auch für die vorgemerkten Würfe
+    machine.pending.length = 0;
+    updateThrowButtons();
     const steps = [];
     steps.push(stPhase(resetGame ? 'RESET GAME: ABRÄUMEN' : 'RESET: ABRÄUMEN'),
                stMove({ sweepY: SWEEP.yDown }, 0.7));
@@ -1556,9 +1559,11 @@ function machineUpdate(dt) {
     if (machine.state === 'IDLE') {
         machine.idleT += dt;
         const delay = machine.wurf === 1 ? 1.5 : 1.2;
-        if (machine.pending && machine.idleT > 0.5) {
-            doThrow(machine.pending);
-            machine.pending = null;
+        if (machine.pending.length && machine.idleT > 0.5) {
+            const t = machine.pending.shift();
+            updateThrowButtons();
+            // 'random' erst jetzt auflösen: beim Abspielen kann Wurf 2 anstehen
+            doThrow(t === 'random' ? pickThrowType() : t);
         } else if (machine.auto && machine.idleT > delay) {
             doThrow(pickThrowType());
         }
@@ -1978,11 +1983,29 @@ CAMS.forEach((c, i) => {
     camBtnBox.appendChild(b);
 });
 
-document.querySelectorAll('[data-throw]').forEach(b => {
+const throwBtns = [...document.querySelectorAll('[data-throw]')];
+
+// Zähler auf den Schaltflächen: "Strike-Wurf (2)" = zweimal vorgemerkt
+function updateThrowButtons() {
+    for (const b of throwBtns) {
+        const n = machine.pending.filter(t => t === b.dataset.throw).length;
+        b.textContent = b.dataset.base + (n ? ` (${n})` : '');
+    }
+}
+
+throwBtns.forEach(b => {
+    b.dataset.base = b.textContent;
     b.addEventListener('click', () => {
-        const t = b.dataset.throw === 'random' ? pickThrowType() : b.dataset.throw;
-        if (machine.state === 'IDLE') { doThrow(t === '_second' ? '_second' : t); }
-        else { machine.pending = t; toast('WURF VORGEMERKT'); }
+        // Nur direkt werfen, wenn nichts wartet — sonst hinten anstellen
+        // (auch im kurzen IDLE-Fenster, bevor die Warteschlange weiterspielt)
+        if (machine.state === 'IDLE' && !machine.pending.length) {
+            doThrow(b.dataset.throw === 'random' ? pickThrowType() : b.dataset.throw);
+        } else {
+            machine.pending.push(b.dataset.throw);
+            updateThrowButtons();
+            const n = machine.pending.length;
+            toast(n > 1 ? n + ' WÜRFE VORGEMERKT' : 'WURF VORGEMERKT');
+        }
     });
 });
 
@@ -2020,7 +2043,7 @@ addEventListener('keydown', e => {
     if (e.key >= '1' && e.key <= '6') setCam(+e.key - 1);
     else if (e.key === ' ') { e.preventDefault(); el.btnPause.click(); }
     else if (e.key === 'n' || e.key === 'N') {
-        if (machine.state === 'IDLE') doThrow(pickThrowType());
+        if (machine.state === 'IDLE' && !machine.pending.length) doThrow(pickThrowType());
     }
     else if (e.key === 'a' || e.key === 'A') el.btnAuto.click();
     else if (e.key === 'm' || e.key === 'M') el.btnSound.click();

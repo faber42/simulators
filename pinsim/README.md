@@ -39,7 +39,7 @@ Wertung mit Strike-/Spare-/Split-Erkennung.
 | `1`–`6` oder Buttons | Kamera wählen (Pindeck links/rechts, Tisch & Magazin, Aufzug & Grube, Grube & Balltür, freie Service-Kamera) |
 | Maus ziehen / Rad | freie Kamera drehen / zoomen (nur Kamera 6) |
 | `N` | sofort werfen |
-| Wurf-Buttons | Strike-, Split-, Ziel-, Gassen- oder Zufallswurf (laufender Zyklus: wird vorgemerkt) |
+| Wurf-Buttons | Strike-, Split-, Ziel-, Gassen- oder Zufallswurf. Läuft noch ein Zyklus, wird jeder Klick vorgemerkt — der Zähler auf der Schaltfläche („Strike-Wurf (2)") zeigt es, abgespielt wird in Klickreihenfolge; Reset leert die Warteschlange |
 | Reset Frame | alle Pins abräumen und ein frisches Rack stellen (wie an echten Bahnen) |
 | Reset Game | Pinfeld zurücksetzen und Zählung wieder bei Frame 1 beginnen |
 | `A` / Auto | Automatikbetrieb an/aus (startet ausgeschaltet) |
