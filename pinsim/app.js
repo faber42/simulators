@@ -2111,6 +2111,11 @@ function fixedStep() {
 
 let acc = 0, lastNow = performance.now(), lastAlpha = 0;
 
+// Render-Deckel: rAF feuert mit Monitor-Frequenz (60/120/144 Hz), die Szene
+// braucht aber keine 144 Bilder/s — 30 reichen und schonen die GPU.
+const FPS_MAX = 30, FRAME_MS = 1000 / FPS_MAX;
+let lastRender = -FRAME_MS;
+
 function renderFrame(a) {
     // Physik-/Rail-Posen
     for (const p of pins) p.track.apply(p.mesh, a);
@@ -2151,6 +2156,12 @@ function renderFrame(a) {
 
 renderer.setAnimationLoop(() => {
     const now = performance.now();
+    // Auf den 30-Hz-Takt heruntersieben. Anker per Restglied statt auf `now`,
+    // sonst driftet die Rate unter FPS_MAX, wenn rAF-Ticks das Raster verfehlen.
+    const sinceRender = now - lastRender;
+    if (sinceRender < FRAME_MS) return;
+    lastRender = now - (sinceRender % FRAME_MS);
+
     let dt = (now - lastNow) / 1000;
     lastNow = now;
     dt = Math.min(dt, 0.1);
@@ -2176,7 +2187,7 @@ renderer.setAnimationLoop(() => {
 
 // ---- Debug-Schnittstelle (für Tests) --------------------------------------
 window.PINSIM = {
-    machine, transport, pins, ball, V, world, RAPIER, orbit, camera,
+    machine, transport, pins, ball, V, world, RAPIER, orbit, camera, renderer,
     throwNow: t => { if (machine.state === 'IDLE') doThrow(t || pickThrowType()); },
     setSpeed: s => { timeScale = s; },
     setCam,
