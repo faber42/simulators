@@ -651,8 +651,11 @@ for (const k in V) S[k] = new STrack(V[k]);
 {
     const g = new THREE.Group();
     g.position.set(0, V.deckY, DECK.cz);
-    // Tischplatte aus getöntem Acryl: man sieht von oben durch auf die Pins
-    box(g, 1.26, 0.05, 1.02, mat.plexi, 0, 0, 0);
+    // Tischplatte aus getöntem Acryl: man sieht von oben durch auf die Pins.
+    // In den Rahmen geklemmt: Kanten stecken 5 mm in den Profilen, Scheibe
+    // dünner als der Rahmen und leicht abgesenkt — keine Fläche liegt
+    // koplanar zum Rahmen (sonst Z-Fighting auf den Auflagestreifen).
+    box(g, 1.21, 0.03, 0.98, mat.plexi, 0, -0.008, 0);
     // Metallrahmen drumherum
     box(g, 1.30, 0.05, 0.05, mat.darkSteel, 0, 0, -0.51, { cast: true });
     box(g, 1.30, 0.05, 0.05, mat.darkSteel, 0, 0, 0.51, { cast: true });
