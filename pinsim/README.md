@@ -24,8 +24,9 @@ Es gibt bewusst keine Bahn-Außenwelt: Nur die Vorgänge im Automaten selbst.
 - Staulogik wie in echt: Ist das Magazin voll, halten Band und Rad an; fehlen
   Pins fürs Rack, wartet die Maschine ("WARTE AUF PINNACHSCHUB")
 
-Die Würfe variieren automatisch (Strike-Tasche, Brooklyn, frontal, dünn,
-Kanten-Treffer, Gasse); der zweite Wurf zielt auf die Stehengebliebenen.
+Die Würfe variieren automatisch (Strike-Tasche, Brooklyn, frontal, Zielwurf,
+dünn, Kanten-Treffer, Gasse); der zweite Wurf zielt auf die Stehengebliebenen —
+meist auf deren Schwerpunkt, gelegentlich als Zielwurf auf den vordersten Pin.
 Der Zielwurf-Button nimmt den vordersten noch stehenden Pin ins Visier —
 steht er außermittig, läuft die Kugel leicht schräg aus der Bahnmitte an
 (volles Rack: praktisch ein Frontalwurf auf Pin 1).

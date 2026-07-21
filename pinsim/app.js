@@ -1644,12 +1644,14 @@ const THROW_DEFS = {
 };
 
 const AUTO_WEIGHTS = [
-    ['pocket', 38], ['brooklyn', 8], ['headon', 11], ['thin', 13],
+    ['pocket', 38], ['brooklyn', 8], ['headon', 6], ['ziel', 5], ['thin', 13],
     ['five', 12], ['edge', 10], ['gutter', 8],
 ];
 
 function pickThrowType() {
-    if (machine.wurf === 2) return '_second';
+    // Zweiter Wurf: meist aufs Grüppchen (Schwerpunkt), gelegentlich als
+    // Zielwurf gezielt auf den vordersten stehenden Pin.
+    if (machine.wurf === 2) return Math.random() < 0.35 ? 'ziel' : '_second';
     let sum = 0;
     for (const [, w] of AUTO_WEIGHTS) sum += w;
     let r = Math.random() * sum;
