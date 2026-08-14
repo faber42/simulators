@@ -62,6 +62,7 @@ const PIT = {
     zLedge:   1.98, ledgeH: 0.07,         // Fangleiste vor dem Rad
     carpetV:  0.34,                       // Bandgeschwindigkeit des Teppichs
     seamLap:  0.30,                       // Überlappung der beiden Bodenplatten
+    slabD:    0.20,                       // halbe Dicke der Bodenplatten
     floorAt(z) {
         if (z <= this.zRamp0) return this.yLip;
         if (z >= this.zRamp1) return this.yTrough;
@@ -637,12 +638,17 @@ function fixedCollider(desc, friction, restitution, tag) {
         // des Teppichs auf). Vergraben stören beide Kanten nicht mehr.
         // Wenig Reibung: Bei 12° Gefälle muss das Holz von selbst anrollen —
         // sonst bleibt es liegen und schläft ein.
+        // Dick, nicht dünn: Eine 6-cm-Platte kann ein Pin beim Aufprall halb
+        // durchdringen und klemmt dann zwischen Ober- und Unterseite fest —
+        // die beiden Kontakte heben sich auf, und kein Schub bekommt ihn je
+        // wieder frei. Mit 40 cm Dicke erreicht er die Unterseite nie.
         const nY = Math.cos(tilt), nZ = Math.sin(tilt);
-        fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.03, rLen / 2 + PIT.seamLap / 2)
+        const D = PIT.slabD;
+        fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, D, rLen / 2 + PIT.seamLap / 2)
             .setRotation(quatX(tilt))
             .setTranslation(0,
-                midY - 0.03 * nY - (PIT.seamLap / 2) * Math.sin(tilt),
-                midZ - 0.03 * nZ + (PIT.seamLap / 2) * Math.cos(tilt)), 0.16, 0.02, 'pit');
+                midY - D * nY - (PIT.seamLap / 2) * Math.sin(tilt),
+                midZ - D * nZ + (PIT.seamLap / 2) * Math.cos(tilt)), 0.16, 0.02, 'pit');
     }
     // Mulde: flache Sohle unter dem Aufzugsrad
     {
@@ -654,8 +660,8 @@ function fixedCollider(desc, friction, restitution, tag) {
         M.pitFloor.receiveShadow = true;
         scene.add(M.pitFloor);
         // ebenso nach vorn verlängert — ihre Stirnkante liegt dann unter der Rampe
-        fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.03, tLen / 2 + PIT.seamLap / 2)
-            .setTranslation(0, PIT.yTrough - 0.03, tMid - PIT.seamLap / 2), 0.16, 0.02, 'pit');
+        fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, PIT.slabD, tLen / 2 + PIT.seamLap / 2)
+            .setTranslation(0, PIT.yTrough - PIT.slabD, tMid - PIT.seamLap / 2), 0.16, 0.02, 'pit');
     }
     // Fangleiste: hält das rollende Holz vor dem Rad an — genau dort holen es
     // die Schaufeln ab. Ohne sie liefe alles unter das Rad und läge fest.
@@ -1408,17 +1414,22 @@ function transportUpdate(dt) {
         // richtet eine gleichmäßige Schubkraft nichts aus, egal wie groß sie ist.
         // Das Rütteln löst die Verspannung, wie bei jedem Rüttelförderer.
         if (vz < PIT.carpetV * 0.8) {
+            p.slatStall = Math.min((p.slatStall || 0) + dt, 3);
             const ph = Math.floor((V.carpet + t.z) / TILE_M);
             if (p.slatPh === undefined) p.slatPh = ph;
             if (ph !== p.slatPh) {
                 p.slatPh = ph;
-                // Angriffspunkt unten am Pin, nicht im Schwerpunkt: Die Leiste
-                // stellt ihn dadurch auf und löst ihn aus der Verzahnung.
+                // Die Leiste schiebt vor allem NACH VORN und hebt nur leicht
+                // an — sonst hüpft der Pin auf der Stelle. Angriffspunkt unten
+                // am Pin, nicht im Schwerpunkt: So rollt er über die Kante ab,
+                // statt sich nur zu heben. Je länger er schon liegt, desto
+                // beherzter greift die Leiste zu.
+                const k = 1 + p.slatStall * 0.5;
                 p.body.applyImpulseAtPoint(
-                    { x: m * rand(-0.06, 0.06), y: m * 0.16, z: m * 0.10 },
+                    { x: m * rand(-0.05, 0.05), y: m * 0.09, z: m * 0.26 * k },
                     { x: t.x, y: PIT.floorAt(t.z), z: t.z }, true);
             }
-        }
+        } else p.slatStall = 0;
     }
     tr.carpetRun = inPitPins.length > 0;
     if (tr.carpetRun) V.carpet += dt * PIT.carpetV;   // in Metern Bandweg
