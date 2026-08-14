@@ -12,6 +12,12 @@ Es gibt bewusst keine Bahn-Außenwelt: Nur die Vorgänge im Automaten selbst.
   Kickbacks, Rinnen, Sturz in die Grube, Anschlag ans Ballpolster)
 - Das Abräumen: Der Kehrbalken ist ein kinematischer Körper, der das liegende
   Holz physikalisch in die Grube schiebt
+- Der Weg durch die Grube: Der Boden ist eine Rampe mit 12° Gefälle, die in
+  einer Mulde unter dem Aufzugsrad endet. Das Holz rollt selbst hinunter,
+  wird vom Grubenteppich (Förderband) nachgezogen und staut sich an einer
+  Fangleiste — dort greifen die Schaufeln des Rades darunter. Eine
+  Umlenkleiste vor dem Ballpolster kippt Pins um, die aufrecht stehen
+  geblieben sind; liegend passen sie unter das Polster hindurch.
 
 **Choreografiert "wie auf Schienen"** (kinematisch, mit Übergabepunkten):
 
@@ -21,8 +27,9 @@ Es gibt bewusst keine Bahn-Außenwelt: Nur die Vorgänge im Automaten selbst.
   bis alles liegt ("HOLZ KOMMT ZUR RUHE"), und holt den Tisch herunter.
 - Greifertisch senkt sich, Greifer fassen die stehenden Pins am Hals, heben
   sie an, der Kehrbalken fährt darunter durch, danach wird nachgesetzt
-- Grubenteppich → Aufzugsrad (5 Schaufeln) → Laufband oben → Karussell-Magazin
-  (10 Becher) → Tisch → neues Rack. Es zirkulieren 22 Pins.
+- Aufzugsrad (5 Schaufeln) → Laufband oben → Karussell-Magazin (10 Becher) →
+  Tisch → neues Rack. Es zirkulieren 22 Pins. Ab der Schaufel läuft der Pin
+  auf Schienen; in der Grube davor ist er ein normaler physikalischer Körper.
 - Ballrücklauf: Grube → Pendelklappe → Schienen → Beschleuniger-Reifen →
   Tunnel Richtung Spieler
 - Staulogik wie in echt: Ist das Magazin voll, halten Band und Rad an; fehlen

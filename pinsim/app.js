@@ -49,8 +49,29 @@ const SPOTS = [                           // Pin 1..10 (Index 0..9)
 const PIN  = { h: 0.381, rBelly: 0.0605, density: 684 };   // ergibt ~1,5 kg
 const BALL = { r: 0.108, density: 1335 };                  // ergibt ~7,05 kg (15,5 lb)
 
-const PIT     = { floorY: -0.55, zEnd: 3.05 };
-const CUSHION = { z0: 1.52, z1: 1.66, yBot: -0.36, yTop: 0.56 };
+// Die Grube ist keine Wanne, sondern eine schiefe Ebene: Hinter der Deckkante
+// fällt der Boden als Rampe ab und endet in einer flachen Mulde direkt unter
+// dem Aufzugsrad. Das Holz rollt die Rampe hinunter (Schwerkraft, dazu der
+// Zug des Grubenteppichs) und liegt dort, wo die Schaufeln es aufnehmen —
+// keine Abkürzung quer durch das Ballpolster.
+const PIT = {
+    yLip:    -0.16,                       // Boden an der Deckkante
+    yTrough: -0.30,                       // Sohle der Mulde am Aufzug
+    zRamp0:  1.05, zRamp1: 1.70,
+    zEnd:     3.05,
+    zLedge:   1.98, ledgeH: 0.07,         // Fangleiste vor dem Rad
+    carpetV:  0.34,                       // Bandgeschwindigkeit des Teppichs
+    floorAt(z) {
+        if (z <= this.zRamp0) return this.yLip;
+        if (z >= this.zRamp1) return this.yTrough;
+        return this.yLip + (this.yTrough - this.yLip) *
+               (z - this.zRamp0) / (this.zRamp1 - this.zRamp0);
+    },
+};
+// Das Polster hängt frei über der Grube — hoch genug, dass auch ein Haufen
+// Holz darunter durchgezogen wird, ohne sich zu verkeilen. Die Kugel fängt
+// die Maschine vorher an der Balltür ab (siehe captureChecks).
+const CUSHION = { z0: 1.52, z1: 1.66, yBot: 0.0, yTop: 0.56 };
 
 const SWEEP = {
     width: 1.52, height: 0.22,
@@ -66,8 +87,9 @@ const DECK = {
 
 const WHEEL = {                           // Pin-Aufzugsrad (dreht um die x-Achse)
     cx: 0.15, cy: 0.30, cz: 2.36,
-    r: 0.70, shelfR: 0.55, shelves: 5, period: 12,
-    pickA0: 0.30, pickA1: 0.60,           // Winkelfenster Aufnahme (unten)
+    rimR: 0.47,                           // Seitenringe laufen INNEN
+    shelfR: 0.55, shelves: 5, period: 9,
+    pickA0: 0.45, pickA1: 0.72,           // Winkelfenster Aufnahme (an der Fangleiste)
     dropA: 2.50, dropA1: 2.95,            // Übergabe ans Laufband (oben vorn)
 };
 
@@ -85,7 +107,7 @@ const TURRET = {                          // Karussell-Magazin über dem Tisch
 };
 
 const RETURN = {                          // Ballrücklauf rechts
-    x: 0.885, railY: -0.19,
+    x: 0.885, railY: -0.13,
     zDoor: 1.50, zAccel: 0.72, zExit: -0.32,
 };
 
@@ -108,6 +130,11 @@ const _q1     = new THREE.Quaternion();
 
 function quatZ(a) {
     const q = new THREE.Quaternion().setFromAxisAngle(Z_AXIS, a);
+    return { x: q.x, y: q.y, z: q.z, w: q.w };
+}
+
+function quatX(a) {
+    const q = new THREE.Quaternion().setFromAxisAngle(X_AXIS, a);
     return { x: q.x, y: q.y, z: q.z, w: q.w };
 }
 
@@ -506,19 +533,61 @@ function fixedCollider(desc, friction, restitution, tag) {
             .setTranslation(kx, 0.13, (HOUSING.zBack - 0.70) / 2), 0.2, 0.6, 'kick');
     }
 
-    // ---- Grube, Polster, Rückwand ----
-    const pitLen = PIT.zEnd - LANE.tailEnd, pitMid = (LANE.tailEnd + PIT.zEnd) / 2;
-    M.pitFloor = new THREE.Mesh(new THREE.PlaneGeometry(LANE.kickIn * 2, pitLen), mat.carpet);
-    M.pitFloor.rotation.x = -Math.PI / 2;
-    M.pitFloor.position.set(0, PIT.floorY, pitMid);
-    M.pitFloor.receiveShadow = true;
-    scene.add(M.pitFloor);
-    fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.03, pitLen / 2)
-        .setTranslation(0, PIT.floorY - 0.03, pitMid), 0.9, 0.0, 'pit');
+    // ---- Grube: Rampe, Mulde, Fangleiste ----
+    // Rampe: schiefe Ebene von der Deckkante hinunter zur Mulde. Reibung
+    // niedrig genug, dass das Holz von selbst rollt.
+    {
+        const dz = PIT.zRamp1 - PIT.zRamp0, dy = PIT.yLip - PIT.yTrough;
+        const rLen = Math.hypot(dz, dy), tilt = Math.atan2(dy, dz);
+        const midY = (PIT.yLip + PIT.yTrough) / 2, midZ = (PIT.zRamp0 + PIT.zRamp1) / 2;
+        M.pitRamp = new THREE.Mesh(new THREE.PlaneGeometry(LANE.kickIn * 2, rLen), mat.carpet);
+        M.pitRamp.rotation.x = -Math.PI / 2 + tilt;
+        M.pitRamp.position.set(0, midY, midZ);
+        M.pitRamp.receiveShadow = true;
+        scene.add(M.pitRamp);
+        // Kollisionsplatte 3 cm unter der Oberfläche, entlang der Flächennormalen
+        const nY = Math.cos(tilt), nZ = Math.sin(tilt);
+        // Wenig Reibung: Bei 12° Gefälle muss das Holz von selbst anrollen —
+        // sonst bleibt es liegen und schläft ein.
+        fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.03, rLen / 2)
+            .setRotation(quatX(tilt))
+            .setTranslation(0, midY - 0.03 * nY, midZ - 0.03 * nZ), 0.16, 0.02, 'pit');
+    }
+    // Mulde: flache Sohle unter dem Aufzugsrad
+    {
+        const tLen = PIT.zEnd - PIT.zRamp1, tMid = (PIT.zRamp1 + PIT.zEnd) / 2;
+        M.pitFloor = new THREE.Mesh(new THREE.PlaneGeometry(LANE.kickIn * 2, tLen), mat.carpet);
+        M.pitFloor.rotation.x = -Math.PI / 2;
+        M.pitFloor.position.set(0, PIT.yTrough, tMid);
+        M.pitFloor.receiveShadow = true;
+        scene.add(M.pitFloor);
+        fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.03, tLen / 2)
+            .setTranslation(0, PIT.yTrough - 0.03, tMid), 0.16, 0.02, 'pit');
+    }
+    // Fangleiste: hält das rollende Holz vor dem Rad an — genau dort holen es
+    // die Schaufeln ab. Ohne sie liefe alles unter das Rad und läge fest.
+    box(scene, LANE.kickIn * 2, PIT.ledgeH, 0.05, mat.darkSteel,
+        0, PIT.yTrough + PIT.ledgeH / 2, PIT.zLedge, { cast: true });
+    fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, PIT.ledgeH / 2, 0.025)
+        .setTranslation(0, PIT.yTrough + PIT.ledgeH / 2, PIT.zLedge), 0.5, 0.02, 'pit');
 
-    box(scene, LANE.kickIn * 2, 0.5, 0.04, mat.rubber, 0, -0.31, LANE.tailEnd + 0.02);
-    fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.25, 0.02)
-        .setTranslation(0, -0.30, LANE.tailEnd + 0.02), 0.5, 0.1, 'pit');
+    // Sturzblech an der Deckkante (Vorderwand der Grube)
+    box(scene, LANE.kickIn * 2, 0.18, 0.04, mat.rubber, 0, PIT.yLip - 0.085, LANE.tailEnd + 0.02);
+    fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.09, 0.02)
+        .setTranslation(0, PIT.yLip - 0.085, LANE.tailEnd + 0.02), 0.5, 0.1, 'pit');
+
+    // Umlenkleiste vor dem Polster: Ein Pin, der in der Grube aufrecht stehen
+    // bleibt, passt nicht darunter durch und würde den Nachschub blockieren.
+    // Die Leiste trifft ihn am Kopf — also über dem Schwerpunkt — und kippt
+    // ihn um; liegendes Holz läuft weit darunter hindurch.
+    // Sie steht bewusst ein Stück vor dem Polster: Das gekippte Holz hat so
+    // Platz, flach zu liegen, bevor es unter das Polster gezogen wird.
+    box(scene, LANE.kickIn * 2, 0.14, 0.03, mat.rubber, 0, 0.09, 1.36, { cast: true });
+    fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.07, 0.015)
+        .setTranslation(0, 0.09, 1.36), 0.35, 0.05, 'pit');
+    for (const sx of [-0.55, 0, 0.55]) {
+        cyl(scene, 0.012, 0.012, 0.22, mat.darkSteel, sx, 0.25, 1.36);
+    }
 
     const czMid = (CUSHION.z0 + CUSHION.z1) / 2;
     box(scene, LANE.kickIn * 2 - 0.02, CUSHION.yTop - CUSHION.yBot, CUSHION.z1 - CUSHION.z0,
@@ -692,14 +761,17 @@ for (const k in V) S[k] = new STrack(V[k]);
 {
     const g = new THREE.Group();
     g.position.set(WHEEL.cx, WHEEL.cy, WHEEL.cz);
+    // Seitenringe und Speichen bleiben INNERHALB der Schaufeln: Die Schaufel
+    // ist das äußerste Teil am Rad und streift damit die Muldensohle, ohne
+    // dass ein Ring durch den Grubenboden pflügen müsste.
     for (const ox of [-0.29, 0.29]) {
-        const rim = new THREE.Mesh(new THREE.TorusGeometry(WHEEL.r - 0.03, 0.024, 10, 44), mat.steel);
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(WHEEL.rimR, 0.024, 10, 44), mat.steel);
         rim.rotation.y = Math.PI / 2;
         rim.position.x = ox;
         rim.castShadow = true;
         g.add(rim);
         for (let i = 0; i < WHEEL.shelves; i++) {
-            const sp = cyl(g, 0.012, 0.012, (WHEEL.r - 0.05) * 2, mat.darkSteel, ox, 0, 0, { cast: true });
+            const sp = cyl(g, 0.012, 0.012, (WHEEL.shelfR - 0.03) * 2, mat.darkSteel, ox, 0, 0, { cast: true });
             sp.rotation.x = i * TAU / WHEEL.shelves;
         }
     }
@@ -726,8 +798,10 @@ for (const k in V) S[k] = new STrack(V[k]);
     g.position.set(BELT.cx, midY, midZ);
     g.rotation.x = tilt;
     box(g, BELT.w, 0.05, BELT.len + 0.06, mat.belt, 0, 0, 0, { cast: true });
-    box(g, 0.035, 0.10, BELT.len + 0.06, mat.darkSteel, -BELT.w / 2 - 0.02, 0.02, 0, { cast: true });
-    box(g, 0.035, 0.10, BELT.len + 0.06, mat.darkSteel, BELT.w / 2 + 0.02, 0.02, 0, { cast: true });
+    // Seitenführungen enden vor dem Rad — dort schwingen die Schaufeln durch
+    const railLen = BELT.len - 0.30;
+    box(g, 0.035, 0.10, railLen, mat.darkSteel, -BELT.w / 2 - 0.02, 0.02, -0.15, { cast: true });
+    box(g, 0.035, 0.10, railLen, mat.darkSteel, BELT.w / 2 + 0.02, 0.02, -0.15, { cast: true });
     cyl(g, 0.045, 0.045, BELT.w, mat.rubber, 0, -0.01, -BELT.len / 2 - 0.03, { rz: Math.PI / 2, cast: true });
     cyl(g, 0.045, 0.045, BELT.w, mat.rubber, 0, -0.01, BELT.len / 2 + 0.03, { rz: Math.PI / 2, cast: true });
     scene.add(g);
@@ -777,15 +851,15 @@ for (const k in V) S[k] = new STrack(V[k]);
     // dunkle Öffnung im Kickback
     const hole = new THREE.Mesh(new THREE.PlaneGeometry(0.30, 0.40),
         new THREE.MeshBasicMaterial({ color: 0x000000 }));
-    hole.position.set(kx - 0.002, -0.33, RETURN.zDoor);
+    hole.position.set(kx - 0.002, RETURN.railY, RETURN.zDoor);
     hole.rotation.y = -Math.PI / 2;
     scene.add(hole);
-    box(scene, 0.015, 0.44, 0.05, mat.hazard, kx + 0.01, -0.33, RETURN.zDoor - 0.17);
-    box(scene, 0.015, 0.44, 0.05, mat.hazard, kx + 0.01, -0.33, RETURN.zDoor + 0.17);
+    box(scene, 0.015, 0.44, 0.05, mat.hazard, kx + 0.01, RETURN.railY, RETURN.zDoor - 0.17);
+    box(scene, 0.015, 0.44, 0.05, mat.hazard, kx + 0.01, RETURN.railY, RETURN.zDoor + 0.17);
 
     // Pendelklappe (öffnet zur Rinne hin)
     const flap = new THREE.Group();
-    flap.position.set(kx + 0.05, -0.13, RETURN.zDoor);
+    flap.position.set(kx + 0.05, RETURN.railY + 0.07, RETURN.zDoor);
     const plate = box(flap, 0.02, 0.38, 0.30, mat.steel, 0, -0.19, 0, { cast: true });
     plate.material = mat.steel;
     scene.add(flap);
@@ -868,7 +942,6 @@ class PinEnt {
         this.spot = -1;                   // zugewiesener Aufstell-Spot
         this.beltPos = 0;
         this.slotIdx = -1;
-        this.qSlot = -1;
         this.stillT = 0;
         this.setRailMode();
     }
@@ -979,8 +1052,13 @@ function cellPose(spotIdx) {
     return _tp;
 }
 
-function queuePose(slot) {
-    _tp.p.set(0.15 + ((slot % 3) - 1) * 0.30, PIT.floorY + PIN.rBelly, 2.02 - Math.floor(slot / 3) * 0.18);
+// Ablageplatz in der Mulde: Das Holz liegt physisch dort, wo es hingerollt
+// ist — diese Pose dient nur dem Nachschieben von außen (Restholz, das die
+// Maschine von Hand aus dem Deck räumt).
+function pitDropPose(n) {
+    _tp.p.set(WHEEL.cx - 0.19 + (n % 2 ? 0.10 : -0.10),
+              PIT.yTrough + PIN.rBelly + 0.01,
+              PIT.zLedge - 0.16 - (n % 5) * 0.15);
     _tp.q.copy(Q_LYING);
     return _tp;
 }
@@ -1053,10 +1131,10 @@ function captureBall(silent) {
     ball.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
     ball.mode = 'rail';
     ball.railT = 0;
-    const yPit = PIT.floorY + BALL.r;
+    const yPit = PIT.floorAt(1.32) + BALL.r;
     ball.railQ = [
         { p: [0.45, yPit, 1.32], dur: 0.8 },
-        { p: [0.68, yPit, RETURN.zDoor], dur: 0.5, flap: true },
+        { p: [0.68, PIT.floorAt(RETURN.zDoor) + BALL.r, RETURN.zDoor], dur: 0.5, flap: true },
         { p: [RETURN.x, RETURN.railY, RETURN.zDoor], dur: 0.45, flap: true },
         { p: [RETURN.x, RETURN.railY, RETURN.zAccel], dur: 0.8 },
         { p: [RETURN.x, RETURN.railY, RETURN.zExit], dur: 0.35, accel: true },
@@ -1094,8 +1172,6 @@ function ballRailUpdate(dt) {
 // ============ Transport (Grube -> Rad -> Band -> Magazin -> Tisch) =========
 
 const transport = {
-    queue: [],                             // wartende Pins in der Mulde (FIFO)
-    qSlots: new Array(9).fill(null),
     shelfPins: new Array(WHEEL.shelves).fill(null),
     beltPins: [],                          // [0] ist vorderster Pin
     slots: new Array(10).fill(null),       // Karussell-Becher
@@ -1107,21 +1183,26 @@ const transport = {
 
 const turretCount = () => transport.slots.filter(Boolean).length;
 const pinsInDeckCount = () => pins.filter(p => p.st === 'deck').length;
-const transitCount = () => pins.filter(p =>
-    ['toQueue', 'queue', 'toShelf', 'shelf', 'toBelt', 'belt', 'toTurret'].includes(p.st)).length;
 
+// Liegt der Pin körperlich in der Grube (also hinter der Deckkante, vor dem
+// Rad)? Solche Pins sind dynamisch — sie rollen die Rampe hinunter und warten
+// an der Fangleiste auf die nächste Schaufel.
+function inPit(p) {
+    if (p.mode !== 'phys') return false;
+    const t = p.body.translation();
+    return t.z > LANE.tailEnd + 0.04 && t.z < PIT.zLedge + 0.12 && t.y < 0.05;
+}
+const pitCount = () => pins.filter(inPit).length;
+const transitCount = () => pitCount() + pins.filter(p =>
+    ['toShelf', 'shelf', 'toBelt', 'belt', 'toTurret'].includes(p.st)).length;
+
+// Holz, das die Maschine selbst aus dem Deck räumt (Klemmer, Reset), wird
+// hinten in die Mulde gelegt — dynamisch, damit es sich normal einreiht.
+let pitDropN = 0;
 function capturePinToPit(p) {
-    p.setRailMode();
-    p.st = 'toQueue';
+    const pose = pitDropPose(pitDropN++);
+    p.setPhysAt(pose.p.x, pose.p.y, pose.p.z, pose.q);
     p.stillT = 0;
-    let qs = transport.qSlots.findIndex(s => s === null);
-    if (qs < 0) qs = 8;
-    transport.qSlots[qs] = p;
-    p.qSlot = qs;
-    transport.queue.push(p);
-    railBlend(p, () => queuePose(p.qSlot), rand(1.1, 1.6), {
-        onDone: () => { p.st = 'queue'; railAttach(p, () => queuePose(p.qSlot)); },
-    });
 }
 
 function slotAngleDist(i, target) {
@@ -1132,10 +1213,24 @@ function slotAngleDist(i, target) {
 function transportUpdate(dt) {
     const tr = transport;
 
-    // Teppich läuft, solange Nachschub in der Grube liegt oder anrollt
-    tr.carpetRun = tr.queue.length > 0 ||
-        pins.some(p => p.st === 'toQueue') ||
-        pins.some(p => p.mode === 'phys' && p.body.translation().z > LANE.tailEnd);
+    // ---- Grubenteppich ----
+    // Der Grubenboden ist ein Förderband: Es zieht das aufliegende Holz nach
+    // hinten gegen die Fangleiste. Zusammen mit dem Gefälle der Rampe kommt
+    // jeder Pin von selbst dort an, wo ihn die Schaufeln abholen.
+    const inPitPins = [];
+    for (const p of pins) {
+        if (!inPit(p)) continue;
+        inPitPins.push(p);
+        const t = p.body.translation();
+        if (t.y > PIT.floorAt(t.z) + 0.32) continue;       // fliegt gerade noch
+        // Mitnahme wie von einem Band: Das Holz wird auf Bandgeschwindigkeit
+        // gezogen (begrenzte Kraft, damit ein Stau nicht durchgeschoben wird).
+        // Der Impuls weckt auch schlafende Körper wieder auf.
+        const dv = PIT.carpetV - p.body.linvel().z;
+        if (dv > 0) p.body.applyImpulse(
+            { x: 0, y: 0, z: p.body.mass() * Math.min(dv, 6 * dt) }, true);
+    }
+    tr.carpetRun = inPitPins.length > 0;
     if (tr.carpetRun) V.carpet += dt * 0.35;
 
     // Kopf des Laufbands blockiert? (Magazin voll oder Übergabe belegt)
@@ -1144,7 +1239,7 @@ function transportUpdate(dt) {
     const headStuck = headWaiting && (tr.dropBusy || tr.unload || turretCount() === 10);
 
     // ---- Aufzugsrad ----
-    const hasWork = tr.queue.length > 0 || tr.shelfPins.some(Boolean);
+    const hasWork = inPitPins.length > 0 || tr.shelfPins.some(Boolean);
     const nearDrop = tr.shelfPins.some((p, i) => {
         if (!p) return false;
         const a = shelfAngle(i);
@@ -1153,24 +1248,30 @@ function transportUpdate(dt) {
     tr.wheelRun = hasWork && !(nearDrop && headStuck);
     if (tr.wheelRun) V.wheel += dt * TAU / WHEEL.period;
 
-    // Aufnahme aus der Mulde
-    if (tr.queue.length) {
-        for (let s = 0; s < WHEEL.shelves; s++) {
-            if (tr.shelfPins[s]) continue;
-            const a = shelfAngle(s);
-            if (a >= WHEEL.pickA0 && a <= WHEEL.pickA1) {
-                const p = tr.queue.shift();
-                tr.qSlots[p.qSlot] = null;
-                p.qSlot = -1;
-                tr.shelfPins[s] = p;
-                p.st = 'toShelf';
-                railBlend(p, () => shelfPose(s), 0.85, {
-                    arc: 0.10,
-                    onDone: () => { p.st = 'shelf'; railAttach(p, () => shelfPose(s)); },
-                });
-                break;
-            }
+    // Aufnahme an der Fangleiste: Die Schaufel fährt durch die Mulde und nimmt
+    // den Pin mit, der ihr am nächsten liegt. Der Übergabeweg ist kurz — der
+    // Pin springt nicht mehr aus der Grube hoch, er wird untergriffen.
+    for (let s = 0; s < WHEEL.shelves; s++) {
+        if (tr.shelfPins[s]) continue;
+        const a = shelfAngle(s);
+        if (a < WHEEL.pickA0 || a > WHEEL.pickA1) continue;
+        let best = null, bestZ = -1e9;
+        for (const p of inPitPins) {
+            const t = p.body.translation();
+            if (t.z < PIT.zLedge - 0.45) continue;          // noch außer Reichweite
+            const v = p.body.linvel();
+            if (v.x * v.x + v.y * v.y + v.z * v.z > 0.6) continue;   // rollt noch
+            if (t.z > bestZ) { bestZ = t.z; best = p; }
         }
+        if (!best) break;
+        const p = best;
+        p.setRailMode();
+        tr.shelfPins[s] = p;
+        p.st = 'toShelf';
+        railBlend(p, () => shelfPose(s), 0.55, {
+            onDone: () => { p.st = 'shelf'; railAttach(p, () => shelfPose(s)); },
+        });
+        break;
     }
 
     // Übergabe Rad -> Band
@@ -1383,22 +1484,15 @@ function releaseDeckPins() {
     }
 }
 
-function forceCaptureLeftovers() {
-    for (const p of pins) {
-        if (p.mode !== 'phys') continue;
-        const t = p.body.translation();
-        if (t.z > LANE.tailEnd - 0.05 && t.y < 0.1) capturePinToPit(p);
-    }
-}
-
 // Vor dem Neuaufstellen darf NICHTS mehr auf dem Deck liegen oder stehen —
-// sonst würde das neue Rack in Altbestand hineingesetzt.
+// sonst würde das neue Rack in Altbestand hineingesetzt. Was in der Grube
+// liegt, bleibt liegen: Das ist der normale Weg zum Aufzug.
 function clearDeckCompletely() {
     let n = 0;
     for (const p of pins) {
         if (p.mode !== 'phys') continue;
         const t = p.body.translation();
-        if (t.z < LANE.tailEnd + 0.06 && t.z > -0.8 && t.y < 0.5) {
+        if (t.z < LANE.tailEnd + 0.06 && t.z > -0.8 && t.y > PIT.yLip - 0.02) {
             capturePinToPit(p);
             n++;
         }
@@ -1557,7 +1651,6 @@ function buildCycle() {
     } else {
         // Strike oder zweiter Wurf: alles räumen, neues Rack aus dem Magazin
         pushSweepStrokes(steps);
-        steps.push(stCall(forceCaptureLeftovers));
         steps.push(stCall(clearDeckCompletely));
         pushRackSetSteps(steps);
         steps.push(stCall(() => { machine.wurf = 1; machine.frame++; machine.cycles++; }));
@@ -1576,7 +1669,6 @@ function buildReset(resetGame) {
     steps.push(stPhase(resetGame ? 'RESET GAME: ABRÄUMEN' : 'RESET: ABRÄUMEN'),
                stMove({ sweepY: SWEEP.yDown }, 0.7));
     pushSweepStrokes(steps);
-    steps.push(stCall(forceCaptureLeftovers));
     steps.push(stCall(clearDeckCompletely));
     pushRackSetSteps(steps);
     steps.push(stCall(() => {
@@ -1622,6 +1714,10 @@ function machineUpdate(dt) {
         let quiet = true;
         for (const p of pins) {
             if (p.mode !== 'phys') continue;
+            // Nur das Holz auf dem Deck zählt. Was in der Grube rollt, geht
+            // den Zyklus nichts an — sonst wartet die Maschine auf einen Pin,
+            // der längst auf dem Weg zum Aufzug ist.
+            if (p.body.translation().z > LANE.tailEnd) continue;
             const lv = p.body.linvel(), av = p.body.angvel();
             if (lv.x * lv.x + lv.y * lv.y + lv.z * lv.z > 0.012 ||
                 av.x * av.x + av.y * av.y + av.z * av.z > 0.08) { quiet = false; break; }
@@ -1781,9 +1877,11 @@ function captureChecks() {
         const t = ball.body.translation();
         const v = ball.body.linvel();
         const speed2 = v.x * v.x + v.y * v.y + v.z * v.z;
+        // Die Kugel wird gleich nach dem Anschlag ans Polster abgeholt —
+        // sie soll gar nicht erst die Rampe hinunter zum Aufzug rollen.
         if (t.z > 1.10) {
             ball.pitT += H;
-            if (speed2 < 1.0 || ball.pitT > 1.4) captureBall();
+            if (speed2 < 1.0 || ball.pitT > 0.40) captureBall();
         }
         if (machine.rollT - machine.launchedAt > 7) { captureBall(true); toast('KUGEL MANUELL ENTFERNT'); }
         if (t.y < -0.75) captureBall(true);
@@ -1791,17 +1889,14 @@ function captureChecks() {
     for (const p of pins) {
         if (p.mode !== 'phys') continue;
         const t = p.body.translation();
-        if (Math.abs(t.x) > 1.02 || t.z < -1.2 || t.y < -0.8) {
+        if (Math.abs(t.x) > 1.02 || t.z < -1.2 || t.y < -0.9) {
             capturePinToPit(p);
             toast('PIN AUSSER BEREICH – ENTFERNT');
             continue;
         }
-        if (t.z > LANE.tailEnd + 0.06 && t.y < -0.12) {
-            const v = p.body.linvel();
-            if (v.x * v.x + v.y * v.y + v.z * v.z < 0.36) p.stillT += H;
-            else p.stillT = 0;
-            if (p.stillT > 0.3) capturePinToPit(p);
-        }
+        // Hinter die Fangleiste gehüpft: zurück vor das Rad legen, sonst
+        // läge der Pin für immer unter dem Aufzug.
+        if (t.z > PIT.zLedge + 0.12) capturePinToPit(p);
     }
 }
 
