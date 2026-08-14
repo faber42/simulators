@@ -352,27 +352,35 @@ const panelTex = makeTexture(256, 256, (ctx, w, h) => {
     ctx.strokeRect(4, 4, w - 8, h - 8);
 }, true);
 
-const carpetTex = makeTexture(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#141518';
+// Kachelmaß der laufenden Bänder in Metern. Jede Fläche leitet ihre
+// Wiederholung aus ihrer eigenen Länge davon ab — sonst wären die Leisten
+// auf der kurzen Rampe gestaucht und liefen dort langsamer als in der Mulde.
+const TILE_M = 0.27;
+
+// Vier kräftige Querleisten je Kachel, also alle 6,75 cm. Feiner darf das
+// Muster nicht sein: Bei 30 Bildern/s und 0,34 m/s wandert es sonst um mehr
+// als eine halbe Leiste pro Bild und die Laufrichtung kippt optisch um
+// (Wagenrad-Effekt) — genau daran lag es, dass der Teppich rückwärts lief.
+const slatted = (base, hell, dunkel, koerner) => (ctx, w, h) => {
+    ctx.fillStyle = base;
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(255,255,255,0.045)';
-    for (let y = 0; y < h; y += 16) ctx.fillRect(0, y, w, 2);
-    noiseOver(ctx, w, h, 1400, 0.10, false);
-}, true);
-// Kantenlänge einer Teppichmasche in Metern. Rampe und Mulde sind
-// unterschiedlich lang und bekommen daraus ihre eigene Wiederholung — sonst
-// wären die Maschen auf der kurzen Rampe gestaucht und liefen dort auch
-// langsamer als in der Mulde.
-const CARPET_TILE = 0.27;
+    const step = h / 4;
+    for (let i = 0; i < 4; i++) {
+        const y = i * step;
+        ctx.fillStyle = hell;
+        ctx.fillRect(0, y, w, Math.round(step * 0.16));
+        ctx.fillStyle = dunkel;
+        ctx.fillRect(0, y + Math.round(step * 0.16), w, Math.round(step * 0.07));
+    }
+    noiseOver(ctx, w, h, koerner, 0.09, false);
+};
+
+const carpetTex = makeTexture(256, 256,
+    slatted('#141518', 'rgba(255,255,255,0.075)', 'rgba(0,0,0,0.45)', 900), true);
 carpetTex.repeat.set(2, 5);
 
-const beltTex = makeTexture(128, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#1c1e21';
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(255,255,255,0.10)';
-    for (let y = 0; y < h; y += 20) ctx.fillRect(0, y, w, 4);
-    noiseOver(ctx, w, h, 400, 0.08, false);
-}, true);
+const beltTex = makeTexture(128, 256,
+    slatted('#1c1e21', 'rgba(255,255,255,0.13)', 'rgba(0,0,0,0.40)', 300), true);
 beltTex.repeat.set(1, 4);
 
 const hazardTex = makeTexture(128, 128, (ctx, w, h) => {
@@ -613,7 +621,7 @@ function fixedCollider(desc, friction, restitution, tag) {
         const midY = (PIT.yLip + PIT.yTrough) / 2, midZ = (PIT.zRamp0 + PIT.zRamp1) / 2;
         const rampTex = carpetTex.clone();
         rampTex.needsUpdate = true;
-        rampTex.repeat.set(2, rLen / CARPET_TILE);
+        rampTex.repeat.set(2, rLen / TILE_M);
         M.carpetRampTex = rampTex;
         M.pitRamp = new THREE.Mesh(new THREE.PlaneGeometry(LANE.kickIn * 2, rLen),
             new THREE.MeshStandardMaterial({ map: rampTex, roughness: 0.97 }));
@@ -632,7 +640,7 @@ function fixedCollider(desc, friction, restitution, tag) {
     // Mulde: flache Sohle unter dem Aufzugsrad
     {
         const tLen = PIT.zEnd - PIT.zRamp1, tMid = (PIT.zRamp1 + PIT.zEnd) / 2;
-        carpetTex.repeat.set(2, tLen / CARPET_TILE);
+        carpetTex.repeat.set(2, tLen / TILE_M);
         M.pitFloor = new THREE.Mesh(new THREE.PlaneGeometry(LANE.kickIn * 2, tLen), mat.carpet);
         M.pitFloor.rotation.x = -Math.PI / 2;
         M.pitFloor.position.set(0, PIT.yTrough, tMid);
@@ -925,6 +933,7 @@ for (const k in V) S[k] = new STrack(V[k]);
     const g = new THREE.Group();
     g.position.set(BELT.cx, midY, midZ);
     g.rotation.x = tilt;
+    beltTex.repeat.set(1, (BELT.len + 0.06) / TILE_M);
     box(g, BELT.w, 0.05, BELT.len + 0.06, mat.belt, 0, 0, 0, { cast: true });
     // Seitenführungen enden vor dem Rad — dort schwingen die Schaufeln durch
     const railLen = BELT.len - 0.30;
@@ -2469,10 +2478,12 @@ function renderFrame(a) {
     // Der Teppich zieht nach HINTEN zum Aufzug. Auf beiden Grubenflächen
     // wächst die v-Achse nach vorn, also muss der Versatz wachsen, damit das
     // Muster nach hinten läuft — mit steigendem Versatz wandert es zu -v.
-    const carpetOff = (S.carpet.val(a) / CARPET_TILE) % 1;
+    const carpetOff = (S.carpet.val(a) / TILE_M) % 1;
     carpetTex.offset.y = carpetOff;
     M.carpetRampTex.offset.y = carpetOff;
-    beltTex.offset.y = -(S.belt.val(a) * 1.4) % 1;
+    // Beim Laufband zeigt die v-Achse zum Magazin, also läuft das Muster bei
+    // FALLENDEM Versatz mit den Pins mit.
+    beltTex.offset.y = -(S.belt.val(a) / TILE_M) % 1;
 
     if (CAMS[camIdx].orbit) applyCamera();
 
