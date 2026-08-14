@@ -15,6 +15,10 @@ Es gibt bewusst keine Bahn-Außenwelt: Nur die Vorgänge im Automaten selbst.
 
 **Choreografiert "wie auf Schienen"** (kinematisch, mit Übergabepunkten):
 
+- Der Kehrbalken hängt am Ballpolster-Schalter statt am Räumzyklus: Er fällt
+  in dem Moment, in dem die Kugel hinten anschlägt, und sperrt das Pindeck ab —
+  noch während das Holz durcheinanderfliegt. Erst danach wartet die Maschine,
+  bis alles liegt ("HOLZ KOMMT ZUR RUHE"), und holt den Tisch herunter.
 - Greifertisch senkt sich, Greifer fassen die stehenden Pins am Hals, heben
   sie an, der Kehrbalken fährt darunter durch, danach wird nachgesetzt
 - Grubenteppich → Aufzugsrad (5 Schaufeln) → Laufband oben → Karussell-Magazin

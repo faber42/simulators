@@ -1412,6 +1412,7 @@ const machine = {
     state: 'IDLE',                        // IDLE | ROLLING | CYCLE
     idleT: 0, rollT: 0,
     pendingDef: null, launchT: 0, launchedAt: 0,
+    guard: null,                          // laufender Schranken-Abwurf
     q: [], step: null,
     frame: 1, wurf: 1,
     auto: false, pending: [],             // vorgemerkte Würfe, in Klickreihenfolge
@@ -1441,6 +1442,32 @@ const stUntil = (cond, waitPhase) => ({
     enter() { if (waitPhase) machine.phase = waitPhase; },
     update: () => cond(),
 });
+
+// ---- Ballpolster-Schalter ------------------------------------------------
+// In echten Automaten hängt die Schranke nicht am Räumzyklus: Sie fällt in
+// dem Moment, in dem die Kugel hinten ans Polster schlägt. Das ist ihr
+// eigentlicher Zweck: das Pindeck absperren, bevor Restholz zurückspringt
+// oder ein zweiter Ball nachkommt. Der Zyklus wartet danach weiter, bis das
+// Holz liegt — das sieht man der Schranke dann aber nicht mehr an.
+function armSweepGuard() {
+    if (machine.state !== 'ROLLING') return;
+    if (machine.guard || V.sweepY <= SWEEP.yDown + 1e-4) return;
+    machine.guard = { t: 0, from: V.sweepY, dur: 0.55 };
+    machine.phase = 'KEHRWERK SENKT SICH';
+}
+
+function guardUpdate(dt) {
+    const g = machine.guard;
+    if (!g) return;
+    g.t += dt;
+    const k = smooth(clamp(g.t / g.dur, 0, 1));
+    V.sweepY = lerp(g.from, SWEEP.yDown, k);
+    if (g.t >= g.dur) {
+        V.sweepY = SWEEP.yDown;
+        machine.guard = null;
+        if (machine.state === 'ROLLING') machine.phase = 'HOLZ KOMMT ZUR RUHE';
+    }
+}
 
 function pushSweepStrokes(steps) {
     steps.push(stPhase('KEHRWERK RÄUMT'), stMove({ sweepZ: SWEEP.zEnd }, 1.25));
@@ -1503,13 +1530,18 @@ function finishCycleSteps(steps) {
 }
 
 function buildCycle() {
+    // Notfall-Auslöser: Steckt die Kugel irgendwo auf der Bahn, hat der
+    // Polsterschalter nie ausgelöst — dann sperrt der Zyklus das Deck jetzt.
+    armSweepGuard();
     const survey = surveyPins();
     scoreThrow(survey);
     const steps = [];
     const n = survey.standing.length;
     const isBall1 = machine.wurf === 1;
 
-    steps.push(stPhase('KEHRWERK SENKT SICH'), stMove({ sweepY: SWEEP.yDown }, 0.7));
+    // Die Schranke fällt nicht mehr hier: Sie ist beim Anschlag ans Ballpolster
+    // schon unten. Läuft der Abwurf noch, wartet der Zyklus ihn ab.
+    if (machine.guard) steps.push(stPhase('KEHRWERK SENKT SICH'), stUntil(() => !machine.guard));
 
     if (isBall1 && n > 0) {
         // Erster Wurf, es steht noch etwas (auch: gar nichts gefallen):
@@ -1556,6 +1588,7 @@ function buildReset(resetGame) {
 }
 
 function machineUpdate(dt) {
+    guardUpdate(dt);                      // läuft zustandsübergreifend zu Ende
     if (machine.state === 'IDLE') {
         machine.idleT += dt;
         const delay = machine.wurf === 1 ? 1.5 : 1.2;
@@ -1581,6 +1614,10 @@ function machineUpdate(dt) {
             return;
         }
         const since = machine.rollT - machine.launchedAt;
+        // Auslöser der Schranke ist der Polsterkontakt (siehe drainContacts).
+        // Bleibt der aus, weil die Kugel schon vorher in der Grube liegen
+        // bleibt, löst die Grube selbst aus.
+        if (ball.mode !== 'roll' || ball.pitT > 0.12) armSweepGuard();
         const ballGone = ball.mode !== 'roll' || ball.body.translation().z > 1.10;
         let quiet = true;
         for (const p of pins) {
@@ -1886,7 +1923,7 @@ function drainContacts() {
         const x = body ? body.translation().x : 0;
         const pair = t1 < t2 ? t1 + ':' + t2 : t2 + ':' + t1;
         if (pair === 'ball:pin') { sfx.thud(f / 4000, x); sfx.clack(f * 0.8, x); }
-        else if (pair === 'ball:cushion') sfx.boom();
+        else if (pair === 'ball:cushion') { sfx.boom(); armSweepGuard(); }
         else if (pair === 'pin:pin' || pair === 'kick:pin' || pair === 'lane:pin' || pair === 'pin:sweep' || pair === 'pin:pit') sfx.clack(f, x);
         else if (pair === 'ball:lane' && f > 800) sfx.thud(f / 6000, x);
     });
