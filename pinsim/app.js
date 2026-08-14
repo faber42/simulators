@@ -359,6 +359,11 @@ const carpetTex = makeTexture(256, 256, (ctx, w, h) => {
     for (let y = 0; y < h; y += 16) ctx.fillRect(0, y, w, 2);
     noiseOver(ctx, w, h, 1400, 0.10, false);
 }, true);
+// Kantenlänge einer Teppichmasche in Metern. Rampe und Mulde sind
+// unterschiedlich lang und bekommen daraus ihre eigene Wiederholung — sonst
+// wären die Maschen auf der kurzen Rampe gestaucht und liefen dort auch
+// langsamer als in der Mulde.
+const CARPET_TILE = 0.27;
 carpetTex.repeat.set(2, 5);
 
 const beltTex = makeTexture(128, 256, (ctx, w, h) => {
@@ -606,7 +611,12 @@ function fixedCollider(desc, friction, restitution, tag) {
         const dz = PIT.zRamp1 - PIT.zRamp0, dy = PIT.yLip - PIT.yTrough;
         const rLen = Math.hypot(dz, dy), tilt = Math.atan2(dy, dz);
         const midY = (PIT.yLip + PIT.yTrough) / 2, midZ = (PIT.zRamp0 + PIT.zRamp1) / 2;
-        M.pitRamp = new THREE.Mesh(new THREE.PlaneGeometry(LANE.kickIn * 2, rLen), mat.carpet);
+        const rampTex = carpetTex.clone();
+        rampTex.needsUpdate = true;
+        rampTex.repeat.set(2, rLen / CARPET_TILE);
+        M.carpetRampTex = rampTex;
+        M.pitRamp = new THREE.Mesh(new THREE.PlaneGeometry(LANE.kickIn * 2, rLen),
+            new THREE.MeshStandardMaterial({ map: rampTex, roughness: 0.97 }));
         M.pitRamp.rotation.x = -Math.PI / 2 + tilt;
         M.pitRamp.position.set(0, midY, midZ);
         M.pitRamp.receiveShadow = true;
@@ -622,6 +632,7 @@ function fixedCollider(desc, friction, restitution, tag) {
     // Mulde: flache Sohle unter dem Aufzugsrad
     {
         const tLen = PIT.zEnd - PIT.zRamp1, tMid = (PIT.zRamp1 + PIT.zEnd) / 2;
+        carpetTex.repeat.set(2, tLen / CARPET_TILE);
         M.pitFloor = new THREE.Mesh(new THREE.PlaneGeometry(LANE.kickIn * 2, tLen), mat.carpet);
         M.pitFloor.rotation.x = -Math.PI / 2;
         M.pitFloor.position.set(0, PIT.yTrough, tMid);
@@ -1376,7 +1387,7 @@ function transportUpdate(dt) {
             { x: 0, y: 0, z: p.body.mass() * Math.min(dv, 6 * dt) }, true);
     }
     tr.carpetRun = inPitPins.length > 0;
-    if (tr.carpetRun) V.carpet += dt * 0.35;
+    if (tr.carpetRun) V.carpet += dt * PIT.carpetV;   // in Metern Bandweg
 
     // Kopf des Laufbands blockiert? (Magazin voll oder Übergabe belegt)
     const head = tr.beltPins[0];
@@ -2455,7 +2466,12 @@ function renderFrame(a) {
     M.turret.rotation.y = S.turret.val(a);
     M.flap.rotation.z = S.flap.val(a) * 1.15;
     M.tire.children[0].rotation.x = S.tire.val(a) + performance.now() * 0.0004;
-    carpetTex.offset.y = -(S.carpet.val(a) * 0.8) % 1;
+    // Der Teppich zieht nach HINTEN zum Aufzug. Auf beiden Grubenflächen
+    // wächst die v-Achse nach vorn, also muss der Versatz wachsen, damit das
+    // Muster nach hinten läuft — mit steigendem Versatz wandert es zu -v.
+    const carpetOff = (S.carpet.val(a) / CARPET_TILE) % 1;
+    carpetTex.offset.y = carpetOff;
+    M.carpetRampTex.offset.y = carpetOff;
     beltTex.offset.y = -(S.belt.val(a) * 1.4) % 1;
 
     if (CAMS[camIdx].orbit) applyCamera();
