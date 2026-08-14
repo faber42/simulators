@@ -90,3 +90,15 @@ Wertung mit Strike-/Spare-/Split-Erkennung.
   `body.sleep()` schlafen legen: Der Collider landet nie in der Broad-Phase
   und ist für alle Kollisionen unsichtbar — und nichts kann ihn je aufwecken.
   Stattdessen wach lassen; ruhende Pins schlafen von selbst ein.
+- Böden, auf die etwas **aufschlägt**, nicht als dünne Platte bauen. Dringt
+  ein Körper tief genug ein, berührt er Ober- *und* Unterseite; die beiden
+  Kontaktnormalen heben sich auf und er sitzt unlösbar fest — kein Impuls
+  bekommt ihn je wieder frei. Platte nach unten dick machen (hier 40 cm), die
+  Oberfläche bleibt ja, wo sie ist.
+- Zwei aneinanderstoßende Platten (Rampe → Mulde) so bauen, dass sie sich
+  **unter**einander überlappen. Treffen ihre Stirnflächen frei aufeinander,
+  liefert die Kante eine Kontaktnormale entgegen der Laufrichtung, und
+  rollendes Holz bleibt genau dort stehen.
+- Eine gleichmäßige Schubkraft löst keinen verkeilten Haufen: Die Kräfte
+  gehen in die Seitenwände, egal wie groß sie sind. Es braucht ein Rütteln —
+  hier die Querleisten des Grubenbands, die unten am Pin angreifen.
