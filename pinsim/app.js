@@ -61,6 +61,7 @@ const PIT = {
     zEnd:     3.05,
     zLedge:   1.98, ledgeH: 0.07,         // Fangleiste vor dem Rad
     carpetV:  0.34,                       // Bandgeschwindigkeit des Teppichs
+    seamLap:  0.30,                       // Überlappung der beiden Bodenplatten
     floorAt(z) {
         if (z <= this.zRamp0) return this.yLip;
         if (z >= this.zRamp1) return this.yTrough;
@@ -629,13 +630,19 @@ function fixedCollider(desc, friction, restitution, tag) {
         M.pitRamp.position.set(0, midY, midZ);
         M.pitRamp.receiveShadow = true;
         scene.add(M.pitRamp);
-        // Kollisionsplatte 3 cm unter der Oberfläche, entlang der Flächennormalen
-        const nY = Math.cos(tilt), nZ = Math.sin(tilt);
+        // Kollisionsplatte 3 cm unter der Oberfläche, entlang der Flächennormalen.
+        // Sie ragt hinten unter die Muldensohle: Träfe ihre Stirnkante am Knick
+        // frei auf die Kante der Mulde, blieben rollende Pins genau dort hängen
+        // (die Kontaktnormale der Stirnfläche zeigt nach vorn und hebt den Zug
+        // des Teppichs auf). Vergraben stören beide Kanten nicht mehr.
         // Wenig Reibung: Bei 12° Gefälle muss das Holz von selbst anrollen —
         // sonst bleibt es liegen und schläft ein.
-        fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.03, rLen / 2)
+        const nY = Math.cos(tilt), nZ = Math.sin(tilt);
+        fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.03, rLen / 2 + PIT.seamLap / 2)
             .setRotation(quatX(tilt))
-            .setTranslation(0, midY - 0.03 * nY, midZ - 0.03 * nZ), 0.16, 0.02, 'pit');
+            .setTranslation(0,
+                midY - 0.03 * nY - (PIT.seamLap / 2) * Math.sin(tilt),
+                midZ - 0.03 * nZ + (PIT.seamLap / 2) * Math.cos(tilt)), 0.16, 0.02, 'pit');
     }
     // Mulde: flache Sohle unter dem Aufzugsrad
     {
@@ -646,8 +653,9 @@ function fixedCollider(desc, friction, restitution, tag) {
         M.pitFloor.position.set(0, PIT.yTrough, tMid);
         M.pitFloor.receiveShadow = true;
         scene.add(M.pitFloor);
-        fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.03, tLen / 2)
-            .setTranslation(0, PIT.yTrough - 0.03, tMid), 0.16, 0.02, 'pit');
+        // ebenso nach vorn verlängert — ihre Stirnkante liegt dann unter der Rampe
+        fixedCollider(RAPIER.ColliderDesc.cuboid(LANE.kickIn, 0.03, tLen / 2 + PIT.seamLap / 2)
+            .setTranslation(0, PIT.yTrough - 0.03, tMid - PIT.seamLap / 2), 0.16, 0.02, 'pit');
     }
     // Fangleiste: hält das rollende Holz vor dem Rad an — genau dort holen es
     // die Schaufeln ab. Ohne sie liefe alles unter das Rad und läge fest.
@@ -1388,12 +1396,29 @@ function transportUpdate(dt) {
         inPitPins.push(p);
         const t = p.body.translation();
         if (t.y > PIT.floorAt(t.z) + 0.32) continue;       // fliegt gerade noch
+        const m = p.body.mass(), vz = p.body.linvel().z;
         // Mitnahme wie von einem Band: Das Holz wird auf Bandgeschwindigkeit
         // gezogen (begrenzte Kraft, damit ein Stau nicht durchgeschoben wird).
         // Der Impuls weckt auch schlafende Körper wieder auf.
-        const dv = PIT.carpetV - p.body.linvel().z;
-        if (dv > 0) p.body.applyImpulse(
-            { x: 0, y: 0, z: p.body.mass() * Math.min(dv, 6 * dt) }, true);
+        const dv = PIT.carpetV - vz;
+        if (dv > 0) p.body.applyImpulse({ x: 0, y: 0, z: m * Math.min(dv, 6 * dt) }, true);
+        // Lattenband: Alle 6,75 cm läuft eine Querleiste unter dem Holz durch
+        // und hebt es kurz an. Das ist nicht Kosmetik — ein Haufen Pins verkeilt
+        // sich gegenseitig und gegen die Kickbacks, und gegen so eine Verspannung
+        // richtet eine gleichmäßige Schubkraft nichts aus, egal wie groß sie ist.
+        // Das Rütteln löst die Verspannung, wie bei jedem Rüttelförderer.
+        if (vz < PIT.carpetV * 0.8) {
+            const ph = Math.floor((V.carpet + t.z) / TILE_M);
+            if (p.slatPh === undefined) p.slatPh = ph;
+            if (ph !== p.slatPh) {
+                p.slatPh = ph;
+                // Angriffspunkt unten am Pin, nicht im Schwerpunkt: Die Leiste
+                // stellt ihn dadurch auf und löst ihn aus der Verzahnung.
+                p.body.applyImpulseAtPoint(
+                    { x: m * rand(-0.06, 0.06), y: m * 0.16, z: m * 0.10 },
+                    { x: t.x, y: PIT.floorAt(t.z), z: t.z }, true);
+            }
+        }
     }
     tr.carpetRun = inPitPins.length > 0;
     if (tr.carpetRun) V.carpet += dt * PIT.carpetV;   // in Metern Bandweg
@@ -1420,13 +1445,19 @@ function transportUpdate(dt) {
         if (tr.shelfPins[s]) continue;
         const a = shelfAngle(s);
         if (a < WHEEL.pickA0 || a > WHEEL.pickA1) continue;
+        // Maßgeblich ist das vorderste Ende des Pins, nicht sein Fußpunkt: Ein
+        // längs liegender Pin berührt die Fangleiste schon mit der Spitze,
+        // während sein Bezugspunkt noch 38 cm dahinter liegt. Nach dem Fußpunkt
+        // zu greifen hieße, ihn zu übersehen — und alles hinter ihm blockiert.
         let best = null, bestZ = -1e9;
         for (const p of inPitPins) {
-            const t = p.body.translation();
-            if (t.z < PIT.zLedge - 0.45) continue;          // noch außer Reichweite
+            const t = p.body.translation(), r = p.body.rotation();
+            const az = 2 * (r.y * r.z - r.w * r.x);         // z-Anteil der Pinachse
+            const front = t.z + Math.max(0, az) * PIN.h;
+            if (front < PIT.zLedge - 0.45) continue;        // noch außer Reichweite
             const v = p.body.linvel();
             if (v.x * v.x + v.y * v.y + v.z * v.z > 0.6) continue;   // rollt noch
-            if (t.z > bestZ) { bestZ = t.z; best = p; }
+            if (front > bestZ) { bestZ = front; best = p; }
         }
         if (!best) break;
         const p = best;

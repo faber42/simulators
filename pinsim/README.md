@@ -14,8 +14,12 @@ Es gibt bewusst keine Bahn-Außenwelt: Nur die Vorgänge im Automaten selbst.
   Holz physikalisch in die Grube schiebt
 - Der Weg durch die Grube: Der Boden ist eine Rampe mit 12° Gefälle, die in
   einer Mulde unter dem Aufzugsrad endet. Das Holz rollt selbst hinunter,
-  wird vom Grubenteppich (Förderband) nachgezogen und staut sich an einer
-  Fangleiste — dort greifen die Schaufeln des Rades darunter. Eine
+  wird vom Grubenteppich nachgezogen und staut sich an einer Fangleiste —
+  dort greifen die Schaufeln des Rades darunter. Der Teppich ist ein
+  Lattenband: Alle 6,75 cm läuft eine Querleiste unter dem Holz durch und
+  hebt es kurz an. Das ist keine Kosmetik — ein Haufen Pins verkeilt sich
+  gegenseitig, und gegen so eine Verspannung richtet eine gleichmäßige
+  Schubkraft nichts aus, egal wie groß sie ist. Eine
   Umlenkleiste vor dem Ballpolster kippt Pins um, die aufrecht stehen
   geblieben sind; liegend passen sie unter das Polster hindurch.
 
