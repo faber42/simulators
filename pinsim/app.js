@@ -91,6 +91,7 @@ const WHEEL = {                           // Pin-Aufzugsrad (dreht um die x-Achs
     cx: 0, cy: 0.30, cz: 2.36,            // Rad, Band und Magazin auf einer Achse
     rimR: 0.47,                           // Seitenringe laufen INNEN
     shelfR: 0.55, shelves: 5, period: 9,
+    plateOff: 0.02, plateT: 0.022,        // Lage und Dicke des Schaufelblechs
     pickA0: 0.45, pickA1: 0.72,           // Winkelfenster Aufnahme (an der Fangleiste)
     dropA: 2.50, dropA1: 2.95,            // Übergabe ans Laufband (oben vorn)
 };
@@ -929,7 +930,8 @@ for (const k in V) S[k] = new STrack(V[k]);
     for (let i = 0; i < WHEEL.shelves; i++) {
         const holder = new THREE.Group();
         holder.rotation.x = i * TAU / WHEEL.shelves;
-        box(holder, 0.56, 0.022, 0.17, mat.steel, 0, -WHEEL.shelfR - 0.02, 0.02, { cast: true });
+        box(holder, 0.56, WHEEL.plateT, 0.17, mat.steel,
+            0, -WHEEL.shelfR - WHEEL.plateOff, 0.02, { cast: true });
         box(holder, 0.56, 0.10, 0.02, mat.steel, 0, -WHEEL.shelfR + 0.02, 0.105, { cast: true });
         g.add(holder);
     }
@@ -1180,17 +1182,28 @@ for (let i = 0; i < 22; i++) pins.push(new PinEnt(i));
 
 const _tp = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
 
+// Der Pin liegt quer auf der Schaufel, sein Fuß ist der Bezugspunkt — also
+// muss die Pose um eine halbe Pinlänge zurückgesetzt werden, sonst hinge er
+// einseitig über das Blech hinaus. Und seine Achse gehört einen Bauchradius
+// über die Blechoberseite, sonst steckt der Körper im Blech.
+const SHELF_PIN_R = WHEEL.shelfR + WHEEL.plateOff - WHEEL.plateT / 2 - PIN.rBelly;
+
 function shelfPoseAt(a) {
-    _tp.p.set(WHEEL.cx, WHEEL.cy - WHEEL.shelfR * Math.cos(a), WHEEL.cz - WHEEL.shelfR * Math.sin(a));
+    _tp.p.set(WHEEL.cx - PIN.h / 2,
+              WHEEL.cy - SHELF_PIN_R * Math.cos(a),
+              WHEEL.cz - SHELF_PIN_R * Math.sin(a));
     _tp.q.copy(Q_LYING);
     return _tp;
 }
 function shelfAngle(i) { return norm2pi(V.wheel + i * TAU / WHEEL.shelves); }
 function shelfPose(i) { return shelfPoseAt(shelfAngle(i)); }
 
+// Ebenso auf dem Band: eine halbe Pinlänge zurück, damit er mittig liegt und
+// nicht durch die Seitenführung ragt, und auf statt über der Gurtfläche.
+// (Die Gurtoberseite liegt 4,3 mm unter BELT.yTop — Folge der Neigung.)
 function beltPose(d) {
     const z = BELT.z0 - d;
-    _tp.p.set(BELT.cx, BELT.yTop(z) + PIN.rBelly + 0.02, z);
+    _tp.p.set(BELT.cx - PIN.h / 2, BELT.yTop(z) - 0.0043 + PIN.rBelly, z);
     _tp.q.copy(Q_LYING);
     return _tp;
 }
