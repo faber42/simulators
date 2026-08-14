@@ -30,6 +30,13 @@ Es gibt bewusst keine Bahn-Außenwelt: Nur die Vorgänge im Automaten selbst.
 - Aufzugsrad (5 Schaufeln) → Laufband oben → Karussell-Magazin (10 Becher) →
   Tisch → neues Rack. Es zirkulieren 22 Pins. Ab der Schaufel läuft der Pin
   auf Schienen; in der Grube davor ist er ein normaler physikalischer Körper.
+- Vom Magazin in den Tisch geht es durch feste Rutschen: Die Acrylplatte hat
+  über jedem Greifer ein Loch, darüber steht ein oben offener Trog, der zu
+  „seinem" Becher hinaufführt. Das Karussell hält immer auf einem Vielfachen
+  von 36°, also trifft jeder Becher stets dieselbe Rutsche — die Zuordnung
+  Ringplatz → Aufstellplatz ist fest verbaut. Die Backen des Greifers stehen
+  beim Entladen offen, der Pin fällt durch sie hindurch und wird danach am
+  Hals gefasst.
 - Ballrücklauf: Grube → Pendelklappe → Schienen → Beschleuniger-Reifen →
   Tunnel Richtung Spieler
 - Staulogik wie in echt: Ist das Magazin voll, halten Band und Rad an; fehlen

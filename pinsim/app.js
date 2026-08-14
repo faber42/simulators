@@ -86,7 +86,7 @@ const DECK = {
 };
 
 const WHEEL = {                           // Pin-Aufzugsrad (dreht um die x-Achse)
-    cx: 0.15, cy: 0.30, cz: 2.36,
+    cx: 0, cy: 0.30, cz: 2.36,            // Rad, Band und Magazin auf einer Achse
     rimR: 0.47,                           // Seitenringe laufen INNEN
     shelfR: 0.55, shelves: 5, period: 9,
     pickA0: 0.45, pickA1: 0.72,           // Winkelfenster Aufnahme (an der Fangleiste)
@@ -94,17 +94,28 @@ const WHEEL = {                           // Pin-Aufzugsrad (dreht um die x-Achs
 };
 
 const BELT = {                            // Laufband oben, steigt zum Magazin an
-    cx: 0.15, z0: 2.16, z1: 0.82, y0: 0.86, y1: 1.30,
+    // Das Band endet vor dem Karussell: Sein Ende darf nicht in die Kreisbahn
+    // der Becher ragen, sonst führen die Becher durch das Band hindurch.
+    cx: 0, z0: 2.16, z1: 1.08, y0: 0.86, y1: 1.63,
     w: 0.46, speed: 0.42, gap: 0.30,
     yTop(z) { return this.y0 + (this.z0 - z) * (this.y1 - this.y0) / (this.z0 - this.z1); },
 };
 BELT.len = BELT.z0 - BELT.z1;
 
+// Das Magazin sitzt so hoch über dem Tisch, dass die Rutschen von den
+// Bechern zu den Löchern in der Tischplatte ein brauchbares Gefälle
+// bekommen (der äußerste Pin muss 32 cm zur Seite versetzt werden).
+// Der Ring ist weit: So kommen die Rutschen von außen an ihre Aufstellplätze
+// heran, statt sich über der Tischmitte zu drängeln (numerisch gesucht —
+// enger Ring heißt weniger Luft zwischen benachbarten Rutschen).
 const TURRET = {                          // Karussell-Magazin über dem Tisch
-    cx: 0, cy: 1.32, cz: 0.40, r: 0.34,
-    baseY: 1.13,                          // Pinfuß-Höhe im Becher
+    cx: 0, cy: 1.65, cz: 0.44, r: 0.46,
+    baseY: 1.46,                          // Pinfuß-Höhe im Becher
     stepSpeed: 2.0,                       // rad/s beim Weiterdrehen
 };
+
+const HOLE_R  = 0.077;                    // Loch in der Tischplatte je Greifer
+const CHUTE_R = 0.070;                    // lichte Weite der Rutschen
 
 const RETURN = {                          // Ballrücklauf rechts
     x: 0.885, railY: -0.13,
@@ -136,6 +147,61 @@ function quatZ(a) {
 function quatX(a) {
     const q = new THREE.Quaternion().setFromAxisAngle(X_AXIS, a);
     return { x: q.x, y: q.y, z: q.z, w: q.w };
+}
+
+// ---- Magazin-Ringplätze und ihre Rutschen ---------------------------------
+// Das Karussell hält beim Entladen immer auf einem Vielfachen von 36°; die
+// zehn Becher stehen dann stets an denselben zehn Stellen. Damit liegt auch
+// fest, welcher Platz welchen Aufstell-Spot beliefert — und genau so sind die
+// Rutschen gebaut (kürzeste Paare zuerst, damit sich keine kreuzt).
+function ringPos(k) {
+    const a = k * TAU / 10;
+    return { x: TURRET.cx + TURRET.r * Math.sin(a), z: TURRET.cz + TURRET.r * Math.cos(a) };
+}
+
+const CHUTE_MAP = (() => {
+    const cand = [];
+    for (let k = 0; k < 10; k++) {
+        const c = ringPos(k);
+        for (let j = 0; j < 10; j++) {
+            cand.push({ k, j, d: Math.hypot(c.x - SPOTS[j][0], c.z - SPOTS[j][1]) });
+        }
+    }
+    cand.sort((a, b) => a.d - b.d);
+    const map = new Array(10).fill(-1), used = new Set();
+    for (const c of cand) {
+        if (map[c.k] >= 0 || used.has(c.j)) continue;
+        map[c.k] = c.j;
+        used.add(c.j);
+    }
+    // Nachbessern: Gierig allein lässt einzelne Rutschen quer über den Tisch
+    // laufen. Paare tauschen, solange das den LÄNGSTEN Versatz verkürzt — der
+    // bestimmt, wie flach die flachste Rutsche werden muss.
+    const dist = k => Math.hypot(ringPos(k).x - SPOTS[map[k]][0], ringPos(k).z - SPOTS[map[k]][1]);
+    for (let iter = 0; iter < 60; iter++) {
+        let getauscht = false;
+        for (let a = 0; a < 10; a++) for (let b = a + 1; b < 10; b++) {
+            const vorher = Math.max(dist(a), dist(b));
+            const t = map[a]; map[a] = map[b]; map[b] = t;
+            if (Math.max(dist(a), dist(b)) < vorher - 1e-9) getauscht = true;
+            else { const u = map[a]; map[a] = map[b]; map[b] = u; }
+        }
+        if (!getauscht) break;
+    }
+    return map;
+})();
+
+// Weg eines Pinfußes vom Becher durch die Rutsche bis in den Greifer.
+// Der Bogen ist an beiden Enden senkrecht — oben steht der Pin im Becher,
+// unten fällt er senkrecht in die Halterung.
+function chuteCurve(k) {
+    const c = ringPos(k), s = SPOTS[CHUTE_MAP[k]];
+    const a = new THREE.Vector3(c.x, TURRET.baseY - 0.015, c.z);
+    const d = new THREE.Vector3(s[0], DECK.yHome + 0.015, s[1]);
+    const dy = (a.y - d.y) * 0.20;
+    return new THREE.CubicBezierCurve3(a,
+        new THREE.Vector3(a.x, a.y - dy, a.z),
+        new THREE.Vector3(d.x, d.y + dy, d.z), d);
 }
 
 // Pose-Interpolation für flüssiges Rendern zwischen den Physikschritten
@@ -724,18 +790,41 @@ for (const k in V) S[k] = new STrack(V[k]);
     // In den Rahmen geklemmt: Kanten stecken 5 mm in den Profilen, Scheibe
     // dünner als der Rahmen und leicht abgesenkt — keine Fläche liegt
     // koplanar zum Rahmen (sonst Z-Fighting auf den Auflagestreifen).
-    box(g, 1.21, 0.03, 0.98, mat.plexi, 0, -0.008, 0);
+    // Die Scheibe hat über jedem Greifer ein Loch: Von oben fällt der Pin
+    // hindurch, statt durch das Acryl zu schweben.
+    {
+        const shape = new THREE.Shape();
+        shape.moveTo(-0.605, -0.49); shape.lineTo(0.605, -0.49);
+        shape.lineTo(0.605, 0.49);   shape.lineTo(-0.605, 0.49);
+        shape.closePath();
+        for (const [sx, sz] of SPOTS) {
+            const h = new THREE.Path();
+            h.absarc(sx, DECK.cz - sz, HOLE_R, 0, TAU, true);
+            shape.holes.push(h);
+        }
+        const plate = new THREE.Mesh(new THREE.ShapeGeometry(shape, 16), mat.plexi);
+        plate.rotation.x = -Math.PI / 2;
+        plate.position.y = -0.008;
+        g.add(plate);
+    }
     // Metallrahmen drumherum
     box(g, 1.30, 0.05, 0.05, mat.darkSteel, 0, 0, -0.51, { cast: true });
     box(g, 1.30, 0.05, 0.05, mat.darkSteel, 0, 0, 0.51, { cast: true });
     box(g, 0.05, 0.05, 0.98, mat.darkSteel, -0.625, 0, 0, { cast: true });
     box(g, 0.05, 0.05, 0.98, mat.darkSteel, 0.625, 0, 0, { cast: true });
     box(g, 1.26, 0.02, 0.06, mat.red, 0, -0.02, -0.53, { cast: true });
+
+    // Greifer: oben ein offener Trichter im Loch, darunter die Backen. Der Pin
+    // fällt durch den Trichter zwischen die aufgeschwenkten Backen; die
+    // schließen sich um seinen Hals und halten ihn.
     M.grippers = [];
     for (const [sx, sz] of SPOTS) {
         const unit = new THREE.Group();
         unit.position.set(sx, -0.03, sz - DECK.cz);
-        box(unit, 0.075, 0.09, 0.05, mat.darkSteel, 0, -0.045, 0, { cast: true });
+        cyl(unit, HOLE_R + 0.008, 0.068, 0.10, mat.darkSteel, 0, -0.03, 0, { open: true, seg: 14, cast: true });
+        for (const bs of [-1, 1]) {                       // Halteblech seitlich
+            box(unit, 0.012, 0.10, 0.05, mat.darkSteel, bs * 0.062, -0.05, 0, { cast: true });
+        }
         const fingers = [];
         for (const fs of [-1, 1]) {
             const fin = new THREE.Group();
@@ -748,11 +837,39 @@ for (const k in V) S[k] = new STrack(V[k]);
         M.grippers.push(fingers);
         g.add(unit);
     }
+
+    // Rutschen vom Magazin zu den Löchern — als Käfig aus vier Stäben, damit
+    // man den Pin darin fallen sieht. Sie sitzen fest auf der Scheibe und
+    // fahren mit dem Tisch mit; das Karussell richtet sich auf sie aus.
+    for (let k = 0; k < 10; k++) {
+        const curve = chuteCurve(k);
+        const pts = curve.getPoints(16);
+        const s0 = curve.getPoint(0), s1 = curve.getPoint(1);
+        // Der Trog ist oben offen, und zwar zur Seite, über die sich der Pin
+        // in der Kurve legt. So kann sein Kopf herausragen, ohne durch einen
+        // Stab zu schneiden — genau wie bei einer offenen Rutsche.
+        const hl = Math.hypot(s1.x - s0.x, s1.z - s0.z) || 1;
+        const zu = Math.atan2((s0.z - s1.z) / hl, (s0.x - s1.x) / hl);
+        for (let i = 0; i < 5; i++) {
+            const ang = zu + (i / 4 - 0.5) * (4 * Math.PI / 3);
+            const ox = Math.cos(ang) * CHUTE_R, oz = Math.sin(ang) * CHUTE_R;
+            const rail = pts.map(p => new THREE.Vector3(
+                p.x + ox, p.y - DECK.yHome, p.z + oz - DECK.cz));
+            const tube = new THREE.Mesh(
+                new THREE.TubeGeometry(new THREE.CatmullRomCurve3(rail), 22, 0.006, 5, false),
+                mat.steel);
+            tube.castShadow = true;
+            g.add(tube);
+        }
+        // Einlauftrichter unter dem Becher
+        cyl(g, 0.090, CHUTE_R, 0.05, mat.steel,
+            s0.x, s0.y - DECK.yHome - 0.02, s0.z - DECK.cz, { open: true, seg: 14 });
+    }
     scene.add(g);
     M.deck = g;
     // vier Tragstangen (Länge beim Rendern angepasst)
     M.deckRods = [];
-    for (const [rx, rz] of [[-0.55, DECK.cz - 0.42], [0.55, DECK.cz - 0.42], [-0.55, DECK.cz + 0.42], [0.55, DECK.cz + 0.42]]) {
+    for (const [rx, rz] of [[-0.60, DECK.cz - 0.42], [0.60, DECK.cz - 0.42], [-0.60, DECK.cz + 0.42], [0.60, DECK.cz + 0.42]]) {
         M.deckRods.push(cyl(scene, 0.016, 0.016, 1, mat.steel, rx, 1.5, rz, { cast: true }));
     }
 }
@@ -806,7 +923,7 @@ for (const k in V) S[k] = new STrack(V[k]);
     cyl(g, 0.045, 0.045, BELT.w, mat.rubber, 0, -0.01, BELT.len / 2 + 0.03, { rz: Math.PI / 2, cast: true });
     scene.add(g);
     // Aufhängungen
-    for (const z of [1.0, 1.6, 2.1]) {
+    for (const z of [1.25, 1.7, 2.1]) {
         cyl(scene, 0.014, 0.014, HOUSING.yTop - BELT.yTop(z) - 0.1, mat.darkSteel,
             BELT.cx - BELT.w / 2 - 0.04, (HOUSING.yTop + BELT.yTop(z)) / 2 - 0.03, z);
         cyl(scene, 0.014, 0.014, HOUSING.yTop - BELT.yTop(z) - 0.1, mat.darkSteel,
@@ -985,9 +1102,14 @@ class PinEnt {
             const kRaw = clamp(b.t / b.dur, 0, 1);
             const k = smooth(kRaw);
             const tgt = b.targetFn();
-            this.pose.p.lerpVectors(b.from.p, tgt.p, k);
-            this.pose.p.y += (b.arc || 0) * Math.sin(Math.PI * kRaw);
-            this.pose.q.slerpQuaternions(b.from.q, tgt.q, k);
+            if (b.path) {
+                // vorgegebener Weg (Rutsche): Lage UND Neigung kommen daher
+                b.path(k, this.pose.p, this.pose.q);
+            } else {
+                this.pose.p.lerpVectors(b.from.p, tgt.p, k);
+                this.pose.p.y += (b.arc || 0) * Math.sin(Math.PI * kRaw);
+                this.pose.q.slerpQuaternions(b.from.q, tgt.q, k);
+            }
             if (b.t >= b.dur) {
                 this.pose.p.copy(tgt.p);
                 this.pose.q.copy(tgt.q);
@@ -1006,7 +1128,8 @@ function railBlend(pin, targetFn, dur, opts = {}) {
     pin.blend = {
         t: 0, dur,
         from: { p: pin.pose.p.clone(), q: pin.pose.q.clone() },
-        targetFn, arc: opts.arc || 0, onDone: opts.onDone || null,
+        targetFn, arc: opts.arc || 0, path: opts.path || null,
+        onDone: opts.onDone || null,
     };
     pin.attachFn = null;
 }
@@ -1043,6 +1166,28 @@ function slotPose(i) {
     _tp.p.set(TURRET.cx + TURRET.r * Math.sin(a), TURRET.baseY, TURRET.cz + TURRET.r * Math.cos(a));
     _tp.q.copy(Q_UP);
     return _tp;
+}
+
+// Fallweg eines Pins: erst durch die Rutsche, dann senkrecht in den Greifer.
+const CHUTE_SPLIT = 0.62;
+const _tan = new THREE.Vector3(), _upv = new THREE.Vector3(0, 1, 0);
+function chuteDropPath(k) {
+    const curve = chuteCurve(k);
+    const end = curve.getPoint(1);
+    return (u, outP, outQ) => {
+        if (u <= CHUTE_SPLIT) {
+            const s = u / CHUTE_SPLIT;
+            curve.getPoint(s, outP);
+            // Der Pin legt sich in die Rutsche: seine Achse folgt dem Bogen,
+            // sonst ragte sein Kopf in der Kurve aus dem Käfig heraus.
+            curve.getTangent(s, _tan).negate();
+            outQ.setFromUnitVectors(_upv, _tan);
+        } else {
+            const t = (u - CHUTE_SPLIT) / (1 - CHUTE_SPLIT);
+            outP.set(end.x, lerp(end.y, V.deckY - DECK.gripDrop, t), end.z);
+            outQ.identity();
+        }
+    };
 }
 
 function cellPose(spotIdx) {
@@ -1339,10 +1484,9 @@ function transportUpdate(dt) {
             tr.slots[aligned] = p;
             p.st = 'toTurret';
             p.slotIdx = aligned;
-            // Bandende liegt knapp über dem Becherrand: der Pin rutscht
-            // hinein, statt durch die Luft zu springen
+            // Das Bandende liegt über dem Becherrand — der Pin kippt herunter
+            // und fällt in den Becher, ohne Bogen nach oben.
             railBlend(p, () => slotPose(p.slotIdx), 0.8, {
-                arc: 0.05,
                 onDone: () => {
                     p.st = 'turret';
                     railAttach(p, () => slotPose(p.slotIdx));
@@ -1374,39 +1518,20 @@ function transportUpdate(dt) {
                 V.turret = target;
                 u.phase = 'launch';
                 u.t = 0;
-                u.launched = 0;
-                // Jeder Pin nimmt den kürzesten Weg in den Tisch: Becher und
-                // Aufstell-Spots werden paarweise nach minimaler Distanz
-                // zugeordnet (gierig, kürzeste Paare zuerst) — kein Kreuzflug.
-                const cups = [];
+                // Jeder Becher steht jetzt exakt über "seiner" Rutsche — die
+                // Zuordnung Ringplatz → Aufstell-Spot liegt fest (CHUTE_MAP).
+                u.order = [];
+                const m = Math.round(V.turret / stepAng);
                 for (let i = 0; i < 10; i++) {
                     if (!tr.slots[i] || tr.slots[i].st !== 'turret') continue;
-                    const a = V.turret + i * TAU / 10;
-                    cups.push({ slot: i,
-                                x: TURRET.cx + TURRET.r * Math.sin(a),
-                                z: TURRET.cz + TURRET.r * Math.cos(a) });
-                }
-                const cand = [];
-                for (const c of cups) {
-                    for (let j = 0; j < 10; j++) {
-                        const dx = c.x - SPOTS[j][0], dz = c.z - SPOTS[j][1];
-                        cand.push({ slot: c.slot, spot: j, d: Math.hypot(dx, dz) });
-                    }
-                }
-                cand.sort((a, b) => a.d - b.d);
-                const slotUsed = new Set(), spotUsed = new Set();
-                u.order = [];
-                for (const c of cand) {
-                    if (slotUsed.has(c.slot) || spotUsed.has(c.spot)) continue;
-                    slotUsed.add(c.slot);
-                    spotUsed.add(c.spot);
-                    u.order.push(c);
+                    const ring = ((m + i) % 10 + 10) % 10;
+                    u.order.push({ slot: i, ring, spot: CHUTE_MAP[ring] });
                 }
             }
         } else {
-            // Alle 10 Pins fallen GLEICHZEITIG aus dem Magazin in die
-            // geschlossenen Halterungen des Tisches (einheitliche Fallzeit,
-            // Zuordnung weiterhin zum nächstgelegenen Platz).
+            // Alle 10 Pins fallen GLEICHZEITIG los — jeder durch seine
+            // Rutsche und durch das Loch in der Tischplatte in die geöffneten
+            // Backen darunter.
             if (!u.dropped) {
                 u.dropped = true;
                 for (const pick of u.order) {
@@ -1415,8 +1540,8 @@ function transportUpdate(dt) {
                     p.st = 'toDeck';
                     p.spot = pick.spot;
                     p.slotIdx = -1;
-                    railBlend(p, () => cellPose(p.spot), 0.55, {
-                        arc: 0.05,
+                    railBlend(p, () => cellPose(p.spot), 0.8, {
+                        path: chuteDropPath(pick.ring),
                         onDone: () => { p.st = 'deck'; railAttach(p, () => cellPose(p.spot)); },
                     });
                 }
@@ -1607,9 +1732,12 @@ function pushRackSetSteps(steps) {
         turretCount() >= 10 && !transport.dropBusy &&
         transport.slots.every(p => !p || p.st === 'turret'),
         'WARTE AUF PINNACHSCHUB'));
-    steps.push(stPhase('MAGAZIN ENTLÄDT'), stMove({ grip: 0 }, 0.3));
+    // Backen auf, sonst kommt kein Pin durch die Halterung; sie schnappen erst
+    // zu, wenn alle zehn unten sind — dann hängen sie am Hals.
+    steps.push(stPhase('MAGAZIN ENTLÄDT'), stMove({ grip: 1 }, 0.25));
     steps.push(stCall(() => { transport.unload = { phase: 'align', t: 0 }; }));
     steps.push(stUntil(() => !transport.unload && pinsInDeckCount() === 10));
+    steps.push(stMove({ grip: 0 }, 0.16));    // Backen zu
     steps.push(stWait(0.5));                  // kurz setzen lassen, dann absetzen
     steps.push(stPhase('RACK WIRD GESETZT'), stMove({ deckY: DECK.yDown }, 1.15));
     pushSetDownSteps(steps);
@@ -2370,6 +2498,7 @@ renderer.setAnimationLoop(() => {
 // ---- Debug-Schnittstelle (für Tests) --------------------------------------
 window.PINSIM = {
     machine, transport, pins, ball, V, world, RAPIER, orbit, camera, renderer,
+    CHUTE_MAP, chuteCurve, chuteDropPath, ringPos,
     throwNow: t => { if (machine.state === 'IDLE') doThrow(t || pickThrowType()); },
     setSpeed: s => { timeScale = s; },
     setCam,
