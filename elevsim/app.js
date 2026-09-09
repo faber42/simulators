@@ -707,11 +707,16 @@ class Simulation {
         this.start();
     }
 
-    spawnPassenger() {
+    spawnPassenger(requestedFloor) {
         let startFloor, destFloor;
 
         // 60% chance ground floor, 40% other floors
-        if (Math.random() < 0.6) {
+        if (Number.isInteger(requestedFloor) && requestedFloor >= 0 && requestedFloor < CONFIG.FLOORS) {
+            startFloor = requestedFloor;
+            // Choose uniformly among all other floors.
+            destFloor = randInt(0, CONFIG.FLOORS - 2);
+            if (destFloor >= startFloor) destFloor++;
+        } else if (Math.random() < 0.6) {
             startFloor = 0;
             destFloor = randInt(1, CONFIG.FLOORS - 1);
         } else {
@@ -1056,9 +1061,58 @@ class Simulation {
 }
 
 // ===== INITIALIZATION =====
+function bindRepeatButton(button, action) {
+    let timer = null;
+    let pointer = null;
+    const stop = () => {
+        clearTimeout(timer);
+        timer = null;
+        pointer = null;
+    };
+    const repeat = () => {
+        if (pointer === null) return;
+        action();
+        timer = setTimeout(repeat, 150);
+    };
+    button.addEventListener('pointerdown', event => {
+        if (event.button !== 0 || pointer !== null) return;
+        pointer = event.pointerId;
+        button.setPointerCapture(pointer);
+        action();
+        timer = setTimeout(repeat, 400);
+    });
+    button.addEventListener('pointerup', stop);
+    button.addEventListener('pointercancel', stop);
+    button.addEventListener('lostpointercapture', stop);
+    window.addEventListener('blur', stop);
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) stop();
+    });
+    // Keyboard/assistive clicks have no pointerdown; mouse clicks already added one.
+    button.addEventListener('click', event => {
+        if (event.detail === 0) action();
+    });
+}
+
 function initApp() {
     const canvas = document.getElementById('canvas');
     const sim = new Simulation(canvas);
+    const floorControls = document.getElementById('floor-controls');
+    for (let floor = CONFIG.FLOORS - 1; floor >= 0; floor--) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'floor-add';
+        button.textContent = '+';
+        button.style.top = `${(floorY(floor) - 20) / CONFIG.CANVAS_H * 100}%`;
+        button.setAttribute('aria-label', `Passagier auf ${FLOOR_NAMES[floor]} hinzufügen`);
+        button.title = `${FLOOR_NAMES[floor]}: Passagier hinzufügen · gedrückt halten zum Wiederholen`;
+        bindRepeatButton(button, () => {
+            sim.spawnPassenger(floor);
+            sim.renderer.render(sim);
+            sim.updateUI();
+        });
+        floorControls.appendChild(button);
+    }
     canvas.addEventListener('click', event => {
         const rect = canvas.getBoundingClientRect();
         const x = (event.clientX - rect.left - canvas.clientLeft) * CONFIG.CANVAS_W / canvas.clientWidth;

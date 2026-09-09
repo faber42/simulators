@@ -41,6 +41,22 @@ canvas {
     flex-shrink: 0;
 }
 
+#simulation-view { position: relative; width: 960px; flex-shrink: 0; }
+#simulation-view canvas { display: block; }
+.floor-add {
+    position: absolute;
+    left: 0.5%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    font-size: 18px;
+    line-height: 1;
+    touch-action: none;
+    user-select: none;
+}
+.floor-add:active { background: #40608a; }
+
 #sidebar {
     width: 200px;
     display: flex;
@@ -185,6 +201,7 @@ button:focus-visible { outline: 2px solid #a7cfff; outline-offset: 2px; }
 
 @media (max-width: 1200px) {
     #main { flex-direction: column; }
+    #simulation-view { max-width: 100%; }
     canvas { max-width: 100%; height: auto !important; }
     #sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; }
     #sidebar > div { flex: 1; min-width: 180px; }

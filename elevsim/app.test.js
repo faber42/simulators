@@ -30,7 +30,7 @@ test('waiting queues keep visible passengers apart and refill vacated places', (
     assert.equal(sim.getWaitingQueue(0).length, 29);
 });
 
-function loadSimulation(seed = 1) {
+function loadSimulation(seed = 1, overrides = {}) {
     const math = Object.create(Math);
     math.random = () => {
         seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
@@ -40,10 +40,64 @@ function loadSimulation(seed = 1) {
         Math: math,
         document: { readyState: 'loading', addEventListener() {} },
         window: { devicePixelRatio: 1 },
+        ...overrides,
     });
     vm.runInContext(fs.readFileSync(require.resolve('./app.js'), 'utf8'), context);
-    return vm.runInContext('({ Passenger, Elevator, Simulation, CONFIG, floorY })', context);
+    return vm.runInContext('({ Passenger, Elevator, Simulation, CONFIG, floorY, bindRepeatButton })', context);
 }
+
+test('floor controls spawn on the requested floor with a different destination', () => {
+    const { Simulation, CONFIG } = loadSimulation();
+    const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+    for (let floor = 0; floor < CONFIG.FLOORS; floor++) {
+        for (let i = 0; i < 20; i++) {
+            sim.spawnPassenger(floor);
+            const p = sim.passengers.at(-1);
+            assert.equal(p.startFloor, floor);
+            assert.notEqual(p.destFloor, floor);
+            assert.ok(p.destFloor >= 0 && p.destFloor < CONFIG.FLOORS);
+        }
+    }
+    assert.equal(sim.stats.total, 200);
+});
+
+test('holding plus repeats and release or cancellation stops it without a duplicate click', () => {
+    const events = {};
+    const windowEvents = {};
+    const timers = new Map();
+    let timerId = 0;
+    const { bindRepeatButton } = loadSimulation(1, {
+        window: { addEventListener: (name, fn) => { windowEvents[name] = fn; } },
+        setTimeout: fn => { timers.set(++timerId, fn); return timerId; },
+        clearTimeout: id => timers.delete(id),
+    });
+    let count = 0;
+    bindRepeatButton({
+        addEventListener: (name, fn) => { events[name] = fn; },
+        setPointerCapture() {},
+    }, () => count++);
+    events.pointerdown({ button: 0, pointerId: 1 });
+    assert.equal(count, 1);
+    const tick = () => {
+        const [id, fn] = timers.entries().next().value;
+        timers.delete(id);
+        fn();
+    };
+    tick();
+    tick();
+    assert.equal(count, 3);
+    events.pointerup();
+    events.click({ detail: 1 });
+    assert.equal(count, 3);
+    assert.equal(timers.size, 0);
+    for (const cancel of [events.pointercancel, events.lostpointercapture, windowEvents.blur]) {
+        events.pointerdown({ button: 0, pointerId: 1 });
+        cancel();
+        assert.equal(timers.size, 0);
+    }
+    events.click({ detail: 0 });
+    assert.equal(count, 7);
+});
 
 test('boarding reaches the cabin from either side at every slider speed', () => {
     const { Passenger } = loadSimulation();
