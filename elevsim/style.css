@@ -133,6 +133,8 @@ button:hover {
     background: #3a3a6a;
 }
 
+button:disabled { opacity: 0.4; cursor: default; }
+
 button.active {
     background: #5a3a3a;
     border-color: #7a4a4a;

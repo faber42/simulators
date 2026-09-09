@@ -7,14 +7,14 @@ const CONFIG = {
     CANVAS_H: 660,
 
     BUILDING_LEFT: 55,
-    BUILDING_RIGHT: 780,
+    BUILDING_RIGHT: 940,
     BUILDING_TOP: 38,
     WAITING_X: 258,
     WAITING_SPACING: 16,
     SHAFT_X0: 330,
     SHAFT_W: 46,
-    SHAFT_GAP: 16,
-    EXIT_X: 620,
+    SHAFT_GAP: 8,
+    EXIT_X: 900,
 
     PASSENGER_SPEED: 1.8,
     EXIT_SPACING: 18,
@@ -168,6 +168,7 @@ class Elevator {
         this.doorPhase = 'none';
 
         this.capacity = CONFIG.CAPACITY;
+        this.retiring = false;
         this.departureFloor = null;
     }
 
@@ -366,6 +367,7 @@ class ElevatorController {
     }
 
     calculateCost(elev, floor, direction) {
+        if (elev.retiring) return Infinity;
         // A full cabin cannot collect anyone. Let another cabin take the call.
         if (elev.passengers.length >= elev.capacity) return Infinity;
         // Finish departing before accepting another call from the serviced floor.
@@ -415,8 +417,8 @@ class Renderer {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
 
-        this.drawBuilding();
-        this.drawElevatorShafts();
+        this.drawBuilding(sim.elevators.length);
+        this.drawElevatorShafts(sim.elevators.length);
 
         for (const elev of sim.elevators) {
             this.drawElevator(elev);
@@ -455,7 +457,7 @@ class Renderer {
         this.drawEntranceArrow(sim);
     }
 
-    drawBuilding() {
+    drawBuilding(cabinCount) {
         const ctx = this.ctx;
         const top = CONFIG.BUILDING_TOP;
         const bot = floorY(0);
@@ -471,7 +473,7 @@ class Renderer {
         ctx.fillRect(left, top, CONFIG.SHAFT_X0 - left - 10, bot - top);
 
         // Right corridor (lighter)
-        const rightCorridorStart = shaftX(CONFIG.NUM_ELEVATORS - 1) + CONFIG.SHAFT_W + 10;
+        const rightCorridorStart = shaftX(cabinCount - 1) + CONFIG.SHAFT_W + 10;
         ctx.fillStyle = '#181830';
         ctx.fillRect(rightCorridorStart, top, right - rightCorridorStart, bot - top);
 
@@ -502,9 +504,9 @@ class Renderer {
         ctx.fillText('EINGANG', left - 1, floorY(0) + 12);
     }
 
-    drawElevatorShafts() {
+    drawElevatorShafts(cabinCount) {
         const ctx = this.ctx;
-        for (let i = 0; i < CONFIG.NUM_ELEVATORS; i++) {
+        for (let i = 0; i < cabinCount; i++) {
             const x = shaftX(i);
             ctx.fillStyle = '#0e0e20';
             ctx.fillRect(x, CONFIG.BUILDING_TOP, CONFIG.SHAFT_W, floorY(0) - CONFIG.BUILDING_TOP);
@@ -699,6 +701,8 @@ class Simulation {
     }
 
     init() {
+        this.selectedElevatorId = null;
+        this.nextElevatorId = CONFIG.NUM_ELEVATORS;
         this.elevators = [];
         for (let i = 0; i < CONFIG.NUM_ELEVATORS; i++) {
             this.elevators.push(new Elevator(i, i));
@@ -715,6 +719,39 @@ class Simulation {
         this.stop();
         this.init();
         this.start();
+    }
+
+    addCabin() {
+        const retiring = this.elevators.find(e => e.retiring);
+        if (retiring) retiring.retiring = false;
+        else if (this.elevators.length < 10) {
+            this.elevators.push(new Elevator(this.nextElevatorId++, this.elevators.length));
+        }
+    }
+
+    removeCabin() {
+        const active = this.elevators.filter(e => !e.retiring);
+        if (active.length <= 1) return;
+        const elev = active[active.length - 1];
+        elev.retiring = true;
+        elev.pickupStops.clear();
+        this.removeEmptyCabins();
+    }
+
+    removeEmptyCabins() {
+        for (let i = this.elevators.length - 1; i >= 0; i--) {
+            const elev = this.elevators[i];
+            if (!elev.retiring || elev.passengers.length || elev.doorState !== 'CLOSED') continue;
+            this.elevators.splice(i, 1);
+            if (this.selectedElevatorId === elev.id) this.selectedElevatorId = null;
+        }
+        this.elevators.forEach((e, index) => {
+            e.shaftIndex = index;
+            e.x = shaftX(index);
+            for (const p of e.passengers) {
+                if (p.state === 'BOARDING') p.targetX = shaftCenterX(index);
+            }
+        });
     }
 
     spawnPassenger(requestedFloor) {
@@ -802,6 +839,7 @@ class Simulation {
         // Clean up done passengers
         this.passengers = this.passengers.filter(p => p.state !== 'DONE');
         this.layoutWaitingQueues();
+        this.removeEmptyCabins();
     }
 
     waitingSlots() {
@@ -886,6 +924,7 @@ class Simulation {
                 }
 
                 const eligible = this.passengers.filter(p =>
+                    !elev.retiring &&
                     p.state === 'WAITING' &&
                     p.startFloor === elev.currentFloor &&
                     elev.passengers.length < elev.capacity &&
@@ -1013,7 +1052,10 @@ class Simulation {
 
     updateProgramUI() {
         const elev = this.elevators.find(e => e.id === this.selectedElevatorId);
-        if (!elev) return;
+        if (!elev) {
+            document.getElementById('programContent').textContent = 'Klicke auf eine Kabine oder einen Aufzug in der Seitenleiste, um seine geplanten Halte zu sehen.';
+            return;
+        }
         const phases = {
             exiting: 'Ausstieg prüfen', waitExit: 'Passagiere aussteigen lassen',
             boarding: 'Einstieg prüfen', waitBoard: 'Auf einsteigende Passagiere warten',
@@ -1031,7 +1073,7 @@ class Simulation {
             if (stop.dropoff) reasons.push(`Fahrtziel von ${stop.riders} Passagier(en) in dieser Kabine`);
             return `<tr><td>${FLOOR_NAMES[stop.floor]}${stop.current ? ' · aktueller Halt' : stop.next ? ' · nächstes Steuerungsziel' : ''}</td><td>${reasons.join(' · ')}</td></tr>`;
         }).join('');
-        const html = `<p><strong>A${elev.id + 1}</strong> · ${state} · ${direction} · ${elev.passengers.length}/${elev.capacity} Plätze belegt</p>
+        const html = `<p><strong>A${elev.id + 1}</strong> · ${state} · ${direction} · ${elev.passengers.length}/${elev.capacity} Plätze belegt${elev.retiring ? ' · Wird entfernt: bringt verbleibende Fahrgäste ans Ziel' : ''}</p>
             ${rows ? `<table><thead><tr><th>Stockwerk</th><th>Grund für den Halt</th></tr></thead><tbody>${rows}</tbody></table>` : '<p>Keine weiteren Halte geplant.</p>'}
             <p class="program-note">Live-Ansicht, nach Stockwerk sortiert. Die Steuerung bedient Halte in Fahrtrichtung und kehrt um, wenn dort keine weiteren Ziele liegen. Neue Rufe und einsteigende Passagiere können den Plan ändern. Abholrufe bleiben bis zum Schließen der Türen eingetragen; der Einstieg hängt von Fahrtrichtung und freien Plätzen ab.</p>`;
         const content = document.getElementById('programContent');
@@ -1049,26 +1091,33 @@ class Simulation {
 
         // Elevator status
         const statusDiv = document.getElementById('elevStatus');
-        if (!statusDiv.children.length) {
+        const cabinIds = this.elevators.map(e => e.id).join(',');
+        if (statusDiv.dataset.cabinIds !== cabinIds) {
+            statusDiv.dataset.cabinIds = cabinIds;
             statusDiv.innerHTML = this.elevators.map(e =>
                 `<button type="button" class="elev-info" data-elevator="${e.id}"></button>`).join('');
         }
-        this.elevators.forEach(e => {
+        this.elevators.forEach((e, index) => {
             const dirClass = e.direction === 'UP' ? 'dir-up' :
                 e.direction === 'DOWN' ? 'dir-down' : 'dir-idle';
             const dirSymbol = e.direction === 'UP' ? '\u25B2' :
                 e.direction === 'DOWN' ? '\u25BC' : '\u25CF';
             const doorStr = e.doorState !== 'CLOSED' ? ' \uD83D\uDEAA' : '';
-            const button = statusDiv.children[e.id];
+            const button = statusDiv.children[index];
             button.setAttribute('aria-pressed', String(e.id === this.selectedElevatorId));
             const html = `
                 <span class="elev-label">A${e.id + 1}</span>
                 <span class="elev-dir ${dirClass}">${dirSymbol}</span>
-                ${FLOOR_NAMES[e.currentFloor]} | ${e.passengers.length}/${e.capacity}${doorStr}
+                ${FLOOR_NAMES[e.currentFloor]} | ${e.passengers.length}/${e.capacity}${doorStr}${e.retiring ? ' · läuft aus' : ''}
             `;
             if (button.innerHTML !== html) button.innerHTML = html;
         });
         this.updateProgramUI();
+        const active = this.elevators.filter(e => !e.retiring).length;
+        const retiring = this.elevators.length - active;
+        document.getElementById('addCabinBtn').disabled = active >= 10;
+        document.getElementById('removeCabinBtn').disabled = active <= 1;
+        document.getElementById('cabinCount').textContent = `${active} Kabinen aktiv${retiring ? ` · ${retiring} laufen aus` : ''}`;
     }
 }
 
@@ -1149,7 +1198,8 @@ function initApp() {
     const spawnSlider = document.getElementById('spawnSlider');
     const pauseBtn = document.getElementById('pauseBtn');
     const resetBtn = document.getElementById('resetBtn');
-    const spawnBtn = document.getElementById('spawnBtn');
+    const addCabinBtn = document.getElementById('addCabinBtn');
+    const removeCabinBtn = document.getElementById('removeCabinBtn');
 
     speedSlider.addEventListener('input', () => {
         const val = Number(speedSlider.value);
@@ -1175,9 +1225,13 @@ function initApp() {
         pauseBtn.classList.remove('active');
     });
 
-    spawnBtn.addEventListener('click', () => {
-        sim.spawnPassenger();
-    });
+    for (const [button, action] of [[addCabinBtn, () => sim.addCabin()], [removeCabinBtn, () => sim.removeCabin()]]) {
+        button.addEventListener('click', () => {
+            action();
+            sim.renderer.render(sim);
+            sim.updateUI();
+        });
+    }
 
     // Set initial speed
     sim.speedMultiplier = Number(speedSlider.value);

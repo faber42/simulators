@@ -3,6 +3,64 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+test('cabin count stays within 1–10 and resets to four', () => {
+    const { Simulation, CONFIG } = loadSimulation();
+    const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+    assert.equal(sim.elevators.length, 4);
+    for (let i = 0; i < 20; i++) sim.addCabin();
+    assert.equal(sim.elevators.length, 10);
+    assert.ok(sim.elevators.at(-1).x + CONFIG.SHAFT_W < CONFIG.EXIT_X);
+    assert.equal(sim.controller.elevators, sim.elevators);
+    for (let i = 0; i < 20; i++) sim.removeCabin();
+    assert.equal(sim.elevators.length, 1);
+    sim.init();
+    assert.equal(sim.elevators.length, 4);
+});
+
+test('retiring cabin delivers boarding and riding passengers before disappearing', () => {
+    const { Simulation, Passenger } = loadSimulation();
+    const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+    sim.spawnRate = 0;
+    const elev = sim.elevators.at(-1);
+    elev.doorState = 'OPEN';
+    elev.doorPhase = 'waitBoard';
+    elev.direction = 'UP';
+    for (const floor of [2, 8]) {
+        const p = new Passenger(0, floor, 0);
+        p.startBoard(elev);
+        elev.passengers.push(p);
+        elev.dropoffStops.add(floor);
+        sim.passengers.push(p);
+    }
+    const passengers = [...elev.passengers];
+    elev.pickupStops.add(5);
+    sim.selectedElevatorId = elev.id;
+    sim.removeCabin();
+    assert.equal(elev.retiring, true);
+    assert.equal(elev.pickupStops.size, 0);
+    assert.equal(sim.elevators.length, 4);
+    assert.equal(sim.controller.calculateCost(elev, 3, 'UP'), Infinity);
+    for (let i = 0; i < 3000 && sim.elevators.includes(elev); i++) sim.update();
+    assert.equal(sim.elevators.includes(elev), false);
+    assert.equal(sim.elevators.length, 3);
+    assert.equal(sim.selectedElevatorId, null);
+    assert.ok(passengers.every(p => ['EXITING', 'LEAVING', 'DONE'].includes(p.state)));
+    assert.equal(sim.controller.elevators, sim.elevators);
+});
+
+test('adding while a cabin is retiring restores it without exceeding ten shafts', () => {
+    const { Simulation } = loadSimulation();
+    const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+    for (let i = 0; i < 6; i++) sim.addCabin();
+    const elev = sim.elevators.at(-1);
+    elev.doorState = 'OPEN';
+    sim.removeCabin();
+    assert.equal(elev.retiring, true);
+    sim.addCabin();
+    assert.equal(elev.retiring, false);
+    assert.equal(sim.elevators.length, 10);
+});
+
 test('eight exiting passengers walk in sequence at every slider speed', () => {
     const { Simulation, Passenger, CONFIG } = loadSimulation();
     for (let tenth = 1; tenth <= 100; tenth++) {
