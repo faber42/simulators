@@ -3,6 +3,68 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+test('shutdown unloads everyone at the next landing and closes the doors', () => {
+    for (const direction of ['UP', 'DOWN']) {
+        for (const speed of [0.1, 2, 10]) {
+            const { Simulation, Passenger, floorY } = loadSimulation();
+            const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+            sim.spawnRate = 0;
+            sim.speedMultiplier = speed;
+            const elev = sim.elevators[0];
+            elev.y = (floorY(4) + floorY(5)) / 2;
+            elev.direction = direction;
+            elev.updateFloorFromY();
+            for (let i = 0; i < 8; i++) {
+                const p = new Passenger(0, 9, 0);
+                p.state = 'RIDING';
+                p.elevator = elev;
+                elev.passengers.push(p);
+                sim.passengers.push(p);
+            }
+            elev.addDropoff(9);
+            const passengers = [...elev.passengers];
+            sim.setEnabled(false);
+            const landing = direction === 'UP' ? 5 : 4;
+            assert.equal(elev.shutdownFloor, landing);
+            for (let i = 0; i < 4000 && elev.shutdownPhase; i++) sim.update();
+            assert.equal(elev.shutdownPhase, null);
+            assert.equal(elev.y, floorY(landing));
+            assert.equal(elev.doorState, 'CLOSED');
+            assert.equal(elev.passengers.length, 0);
+            assert.equal(elev.dropoffStops.size, 0);
+            assert.ok(passengers.every(p => ['EXITING', 'LEAVING', 'DONE'].includes(p.state)));
+            sim.callCabin(elev, 7);
+            for (let i = 0; i < 2000; i++) sim.update();
+            assert.equal(elev.y, floorY(7));
+            assert.equal(elev.doorState, 'CLOSED');
+        }
+    }
+});
+
+test('shutdown at an open landing unloads before executing a queued manual command', () => {
+    const { Simulation, Passenger, floorY } = loadSimulation();
+    const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+    sim.spawnRate = 0;
+    const elev = sim.elevators[0];
+    elev.doorState = 'OPEN';
+    elev.doorOpenness = 1;
+    const p = new Passenger(0, 8, 0);
+    p.state = 'RIDING';
+    p.elevator = elev;
+    elev.passengers.push(p);
+    sim.passengers.push(p);
+    sim.setEnabled(false);
+    sim.callCabin(elev, 6);
+    while (elev.shutdownPhase) {
+        sim.update();
+        assert.equal(elev.y, floorY(0));
+    }
+    assert.equal(elev.passengers.length, 0);
+    assert.equal(elev.manualTarget, 6);
+    for (let i = 0; i < 300; i++) sim.update();
+    assert.equal(elev.y, floorY(6));
+});
+
 test('empty cabin continues toward waiting passengers before reversing to an assigned call', () => {
     for (const reverse of [false, true]) {
         const { Simulation, Passenger, floorY } = loadSimulation();

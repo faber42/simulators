@@ -422,7 +422,7 @@ class ElevatorController {
     }
 
     calculateCost(elev, floor, direction) {
-        if (elev.retiring) return Infinity;
+        if (elev.retiring || elev.shutdownPhase) return Infinity;
         // A full cabin cannot collect anyone. Let another cabin take the call.
         if (elev.passengers.length >= elev.capacity) return Infinity;
         // Finish departing before accepting another call from the serviced floor.
@@ -807,9 +807,62 @@ class Simulation {
                 }
                 elev.passengers = elev.passengers.filter(p => p.state === 'RIDING');
                 elev.dropoffStops = new Set(elev.passengers.map(p => p.destFloor));
-                if (elev.doorState !== 'CLOSED') elev.startClosing();
+                if (elev.passengers.length && !elev.shutdownPhase) {
+                    const position = (floorY(0) - elev.y) / CONFIG.FLOOR_HEIGHT;
+                    const floor = elev.direction === 'UP' ? Math.ceil(position) :
+                        elev.direction === 'DOWN' ? Math.floor(position) : Math.round(position);
+                    elev.shutdownFloor = Math.max(0, Math.min(CONFIG.FLOORS - 1, floor));
+                    elev.shutdownPhase = 'moving';
+                    if (elev.y === floorY(elev.shutdownFloor)) {
+                        elev.shutdownPhase = 'unloading';
+                        if (elev.doorState !== 'OPEN') elev.doorState = 'OPENING';
+                        elev.doorTimer = 0;
+                    } else if (elev.doorState !== 'CLOSED') elev.startClosing();
+                } else if (!elev.shutdownPhase && elev.doorState !== 'CLOSED') elev.startClosing();
             }
             this.layoutWaitingQueues();
+        }
+    }
+
+    updateShutdown(elev, speed) {
+        if (elev.shutdownPhase === 'moving') {
+            // Preserve operator commands; the shutdown stop must finish first.
+            const target = elev.manualTarget;
+            const reason = elev.manualReason;
+            elev.manualTarget = elev.shutdownFloor;
+            elev.updateManual(speed, true);
+            elev.manualTarget = target;
+            elev.manualReason = reason;
+            if (elev.y === floorY(elev.shutdownFloor)) {
+                elev.shutdownPhase = 'unloading';
+                elev.doorTimer = 0;
+            }
+            return;
+        }
+        if (elev.shutdownPhase === 'closing') {
+            elev.updateDoor(speed);
+            if (elev.doorState === 'CLOSED') {
+                elev.shutdownPhase = null;
+                elev.dropoffStops.clear();
+                elev.direction = 'IDLE';
+            }
+            return;
+        }
+        if (elev.doorState !== 'OPEN') {
+            elev.updateDoor(speed);
+            return;
+        }
+        elev.doorTimer -= speed;
+        if (elev.doorTimer > 0) return;
+        if (elev.passengers.length) {
+            const p = elev.passengers.shift();
+            p.startExit();
+            p.x = shaftCenterX(elev.shaftIndex);
+            p.y = elev.y - CONFIG.PASSENGER_RADIUS;
+            elev.doorTimer = CONFIG.EXIT_SPACING / CONFIG.PASSENGER_SPEED;
+        } else {
+            elev.shutdownPhase = 'closing';
+            elev.startClosing();
         }
     }
 
@@ -932,6 +985,10 @@ class Simulation {
 
         // Update elevators
         for (const elev of this.elevators) {
+            if (elev.shutdownPhase) {
+                this.updateShutdown(elev, speed);
+                continue;
+            }
             if (!this.enabled || elev.manualTarget !== null) elev.updateManual(speed, this.enabled);
             else elev.update(speed);
             if (this.enabled) this.handleDoorPhases(elev, speed);
@@ -1217,7 +1274,7 @@ class Simulation {
             boarding: 'Einstieg prüfen', waitBoard: 'Auf einsteigende Passagiere warten',
             pausing: 'Kurze Pause vor dem Schließen',
         };
-        const state = !this.enabled && elev.doorState === 'CLOSED' && elev.manualTarget === null
+        const state = elev.shutdownPhase ? `Abschalten: Ausstieg auf ${FLOOR_NAMES[elev.shutdownFloor]}` : !this.enabled && elev.doorState === 'CLOSED' && elev.manualTarget === null
             ? 'Anlage aus · wartet auf manuellen Ruf' : elev.doorState === 'OPENING' ? 'Türen öffnen' :
             elev.doorState === 'CLOSING' ? 'Türen schließen' :
             elev.doorState === 'OPEN' ? phases[elev.doorPhase] || 'Türen offen' :
@@ -1282,7 +1339,9 @@ class Simulation {
         document.getElementById('powerBtn').setAttribute('aria-pressed', String(!this.enabled));
         document.getElementById('powerStatus').textContent = this.enabled
             ? 'Anlage aktiv · Schachtetage anklicken für manuellen Ruf.'
-            : 'Anlage aus · Nur manuelle Fahrten, Türen bleiben geschlossen.';
+            : this.elevators.some(e => e.shutdownPhase)
+                ? 'Anlage wird abgeschaltet · Besetzte Kabinen lassen am nächsten Stockwerk alle aussteigen.'
+                : 'Anlage aus · Nur manuelle Fahrten, Türen bleiben geschlossen.';
     }
 }
 
