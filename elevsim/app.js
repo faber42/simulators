@@ -404,6 +404,12 @@ class Renderer {
 
         for (const elev of sim.elevators) {
             this.drawElevator(elev);
+            if (elev.id === sim.selectedElevatorId) {
+                ctx.strokeStyle = '#a7cfff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(elev.x - 2, elev.y - CONFIG.CAR_H - 2,
+                    CONFIG.SHAFT_W + 4, CONFIG.CAR_H + 4);
+            }
         }
 
         for (const p of sim.passengers) {
@@ -647,6 +653,7 @@ class Simulation {
 
         this.simTime = 0;
         this.speedMultiplier = 1;
+        this.selectedElevatorId = null;
         this.spawnRate = 3;
         this.spawnTimer = 0;
         this.paused = false;
@@ -932,6 +939,48 @@ class Simulation {
         }
     }
 
+    getElevatorProgram(elev) {
+        // getNextStop can change direction; inspect a copy, never the live cabin.
+        const preview = Object.assign(Object.create(Elevator.prototype), elev);
+        const next = preview.getNextStop();
+        return [...elev.getAllStops()].sort((a, b) => a - b).map(floor => ({
+            floor,
+            next: floor === next && elev.doorState === 'CLOSED',
+            current: floor === elev.currentFloor && elev.doorState !== 'CLOSED',
+            pickup: elev.pickupStops.has(floor),
+            dropoff: elev.dropoffStops.has(floor),
+            riders: elev.passengers.filter(p => p.destFloor === floor).length,
+            waiting: this.passengers.filter(p => p.state === 'WAITING' && p.startFloor === floor).length,
+        }));
+    }
+
+    updateProgramUI() {
+        const elev = this.elevators.find(e => e.id === this.selectedElevatorId);
+        if (!elev) return;
+        const phases = {
+            exiting: 'Ausstieg prüfen', waitExit: 'Passagiere aussteigen lassen',
+            boarding: 'Einstieg prüfen', waitBoard: 'Auf einsteigende Passagiere warten',
+            pausing: 'Kurze Pause vor dem Schließen',
+        };
+        const state = elev.doorState === 'OPENING' ? 'Türen öffnen' :
+            elev.doorState === 'CLOSING' ? 'Türen schließen' :
+            elev.doorState === 'OPEN' ? phases[elev.doorPhase] || 'Türen offen' :
+            elev.getAllStops().size ? 'Unterwegs' : 'Wartet auf einen Ruf';
+        const direction = { UP: 'aufwärts', DOWN: 'abwärts', IDLE: 'keine Fahrtrichtung' }[elev.direction];
+        const stops = this.getElevatorProgram(elev);
+        const rows = stops.map(stop => {
+            const reasons = [];
+            if (stop.pickup) reasons.push(`Abholruf zugewiesen (${stop.waiting} Wartende auf dieser Etage)`);
+            if (stop.dropoff) reasons.push(`Fahrtziel von ${stop.riders} Passagier(en) in dieser Kabine`);
+            return `<tr><td>${FLOOR_NAMES[stop.floor]}${stop.current ? ' · aktueller Halt' : stop.next ? ' · nächstes Steuerungsziel' : ''}</td><td>${reasons.join(' · ')}</td></tr>`;
+        }).join('');
+        const html = `<p><strong>A${elev.id + 1}</strong> · ${state} · ${direction} · ${elev.passengers.length}/${elev.capacity} Plätze belegt</p>
+            ${rows ? `<table><thead><tr><th>Stockwerk</th><th>Grund für den Halt</th></tr></thead><tbody>${rows}</tbody></table>` : '<p>Keine weiteren Halte geplant.</p>'}
+            <p class="program-note">Live-Ansicht, nach Stockwerk sortiert. Die Steuerung bedient Halte in Fahrtrichtung und kehrt um, wenn dort keine weiteren Ziele liegen. Neue Rufe und einsteigende Passagiere können den Plan ändern. Abholrufe bleiben bis zum Schließen der Türen eingetragen; der Einstieg hängt von Fahrtrichtung und freien Plätzen ab.</p>`;
+        const content = document.getElementById('programContent');
+        if (content.innerHTML !== html) content.innerHTML = html;
+    }
+
     updateUI() {
         const s = this.getStats();
         document.getElementById('statTotal').textContent = s.total;
@@ -943,18 +992,26 @@ class Simulation {
 
         // Elevator status
         const statusDiv = document.getElementById('elevStatus');
-        statusDiv.innerHTML = this.elevators.map(e => {
+        if (!statusDiv.children.length) {
+            statusDiv.innerHTML = this.elevators.map(e =>
+                `<button type="button" class="elev-info" data-elevator="${e.id}"></button>`).join('');
+        }
+        this.elevators.forEach(e => {
             const dirClass = e.direction === 'UP' ? 'dir-up' :
                 e.direction === 'DOWN' ? 'dir-down' : 'dir-idle';
             const dirSymbol = e.direction === 'UP' ? '\u25B2' :
                 e.direction === 'DOWN' ? '\u25BC' : '\u25CF';
             const doorStr = e.doorState !== 'CLOSED' ? ' \uD83D\uDEAA' : '';
-            return `<div class="elev-info">
+            const button = statusDiv.children[e.id];
+            button.setAttribute('aria-pressed', String(e.id === this.selectedElevatorId));
+            const html = `
                 <span class="elev-label">A${e.id + 1}</span>
                 <span class="elev-dir ${dirClass}">${dirSymbol}</span>
                 ${FLOOR_NAMES[e.currentFloor]} | ${e.passengers.length}/${e.capacity}${doorStr}
-            </div>`;
-        }).join('');
+            `;
+            if (button.innerHTML !== html) button.innerHTML = html;
+        });
+        this.updateProgramUI();
     }
 }
 
@@ -962,6 +1019,24 @@ class Simulation {
 function initApp() {
     const canvas = document.getElementById('canvas');
     const sim = new Simulation(canvas);
+    canvas.addEventListener('click', event => {
+        const rect = canvas.getBoundingClientRect();
+        const x = (event.clientX - rect.left - canvas.clientLeft) * CONFIG.CANVAS_W / canvas.clientWidth;
+        const y = (event.clientY - rect.top - canvas.clientTop) * CONFIG.CANVAS_H / canvas.clientHeight;
+        const elev = sim.elevators.find(e => x >= e.x && x <= e.x + CONFIG.SHAFT_W &&
+            y >= e.y - CONFIG.CAR_H && y <= e.y);
+        if (elev) {
+            sim.selectedElevatorId = elev.id;
+            sim.updateUI();
+        }
+    });
+    document.getElementById('elevStatus').addEventListener('click', event => {
+        const button = event.target.closest('[data-elevator]');
+        if (button) {
+            sim.selectedElevatorId = Number(button.dataset.elevator);
+            sim.updateUI();
+        }
+    });
 
     // Controls
     const speedSlider = document.getElementById('speedSlider');
@@ -971,9 +1046,9 @@ function initApp() {
     const spawnBtn = document.getElementById('spawnBtn');
 
     speedSlider.addEventListener('input', () => {
-        const val = parseInt(speedSlider.value);
+        const val = Number(speedSlider.value);
         sim.speedMultiplier = val;
-        document.getElementById('speedVal').textContent = val + 'x';
+        document.getElementById('speedVal').textContent = val.toLocaleString('de-DE') + '×';
     });
 
     spawnSlider.addEventListener('input', () => {
@@ -999,8 +1074,8 @@ function initApp() {
     });
 
     // Set initial speed
-    sim.speedMultiplier = parseInt(speedSlider.value);
-    document.getElementById('speedVal').textContent = speedSlider.value + 'x';
+    sim.speedMultiplier = Number(speedSlider.value);
+    document.getElementById('speedVal').textContent = sim.speedMultiplier.toLocaleString('de-DE') + '×';
     sim.spawnRate = parseInt(spawnSlider.value);
 
     window.sim = sim;

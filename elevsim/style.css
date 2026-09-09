@@ -164,3 +164,28 @@ button.active {
 .dir-up { color: #4ae65a; }
 .dir-down { color: #ff5a5a; }
 .dir-idle { color: #606080; }
+
+#elevator-program {
+    margin-top: 15px;
+    padding: 18px;
+    background: #12122a;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    line-height: 1.6;
+    color: #b0b0ce;
+}
+#elevator-program h2 { font-size: 1rem; color: #a7cfff; margin-bottom: 8px; }
+#elevator-program p { margin-bottom: 8px; }
+#elevator-program table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+#elevator-program th, #elevator-program td { text-align: left; padding: 8px; border-bottom: 1px solid #2a2a4a; }
+.program-note { font-size: 0.8rem; color: #9090b0; }
+button.elev-info { display: block; width: 100%; text-align: left; }
+button.elev-info[aria-pressed="true"] { border-color: #a7cfff; background: #243b60; }
+button:focus-visible { outline: 2px solid #a7cfff; outline-offset: 2px; }
+
+@media (max-width: 1200px) {
+    #main { flex-direction: column; }
+    canvas { max-width: 100%; height: auto !important; }
+    #sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; }
+    #sidebar > div { flex: 1; min-width: 180px; }
+}

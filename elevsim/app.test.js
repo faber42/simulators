@@ -20,12 +20,13 @@ function loadSimulation(seed = 1) {
 
 test('boarding reaches the cabin from either side at every slider speed', () => {
     const { Passenger } = loadSimulation();
-    for (let speed = 1; speed <= 10; speed++) {
+    for (let tenth = 1; tenth <= 100; tenth++) {
+        const speed = tenth / 10;
         for (const distance of [-95, -2, 0, 2, 95]) {
             const p = new Passenger(0, 9, 0);
             p.startBoard({ shaftIndex: 0 });
             p.x = p.targetX + distance;
-            for (let step = 0; step < 100 && p.state === 'BOARDING'; step++) {
+            for (let step = 0; step < 1000 && p.state === 'BOARDING'; step++) {
                 p.update(speed);
             }
             assert.equal(p.state, 'RIDING', `speed=${speed}, distance=${distance}`);
@@ -35,7 +36,7 @@ test('boarding reaches the cabin from either side at every slider speed', () => 
 });
 
 test('long simulation runs never leave a passenger stuck boarding', () => {
-    for (let speed = 1; speed <= 10; speed++) {
+    for (const speed of [0.1, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
         const { Simulation } = loadSimulation(12345);
         const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
         sim.speedMultiplier = speed;
@@ -55,4 +56,30 @@ test('long simulation runs never leave a passenger stuck boarding', () => {
         }
         assert.ok(sim.stats.done > 0, `no completed trips at speed=${speed}`);
     }
+});
+
+test('program explains combined stops without changing the live direction', () => {
+    const { Simulation } = loadSimulation();
+    const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+    const elev = sim.elevators[0];
+    elev.currentFloor = 5;
+    elev.direction = 'UP';
+    elev.pickupStops.add(2);
+    elev.dropoffStops.add(2);
+    elev.passengers.push({ destFloor: 2 });
+    sim.passengers.push({ state: 'WAITING', startFloor: 2 });
+    const [stop] = sim.getElevatorProgram(elev);
+    assert.equal(stop.floor, 2);
+    assert.equal(stop.next, true);
+    assert.equal(stop.pickup, true);
+    assert.equal(stop.dropoff, true);
+    assert.equal(stop.riders, 1);
+    assert.equal(stop.waiting, 1);
+    assert.equal(elev.direction, 'UP');
+    assert.equal(elev.pickupStops.size, 1);
+    assert.equal(elev.dropoffStops.size, 1);
+    elev.currentFloor = 2;
+    elev.doorState = 'OPEN';
+    assert.equal(sim.getElevatorProgram(elev)[0].current, true);
+    assert.equal(sim.getElevatorProgram(elev)[0].next, false);
 });
