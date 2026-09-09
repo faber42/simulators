@@ -993,6 +993,22 @@ class Simulation {
         }
     }
 
+    continueToWaitingPassengers(elev) {
+        if (!this.enabled || elev.retiring || elev.passengers.length ||
+            elev.manualTarget !== null || elev.direction === 'IDLE') return;
+        const ahead = this.passengers.filter(p => p.state === 'WAITING' &&
+            (elev.direction === 'DOWN' ? p.startFloor < elev.currentFloor : p.startFloor > elev.currentFloor));
+        if (!ahead.length) return;
+        const floor = elev.direction === 'DOWN'
+            ? Math.max(...ahead.map(p => p.startFloor))
+            : Math.min(...ahead.map(p => p.startFloor));
+        // A hall call assigned elsewhere must not hide demand ahead of an empty car.
+        // Keep the other assignment: a busy floor may need more than one cabin.
+        for (const direction of new Set(ahead.filter(p => p.startFloor === floor).map(p => p.direction))) {
+            elev.addPickup(floor, direction);
+        }
+    }
+
     handleDoorPhases(elev, speed) {
         if (elev.doorState !== 'OPEN') return;
 
@@ -1032,6 +1048,7 @@ class Simulation {
                 break;
 
             case 'boarding': {
+                this.continueToWaitingPassengers(elev);
                 // Determine elevator's effective direction for boarding
                 let elevDir = elev.direction;
 

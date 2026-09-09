@@ -3,6 +3,48 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+test('empty cabin continues toward waiting passengers before reversing to an assigned call', () => {
+    for (const reverse of [false, true]) {
+        const { Simulation, Passenger, floorY } = loadSimulation();
+        const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+        sim.spawnRate = 0;
+        sim.autoReturn = false;
+        const elev = sim.elevators[0];
+        const floor = reverse ? 7 : 2;
+        const ahead = reverse ? 9 : 0;
+        const behind = reverse ? 3 : 6;
+        elev.y = floorY(floor);
+        elev.currentFloor = floor;
+        elev.direction = reverse ? 'UP' : 'DOWN';
+        elev.doorState = 'OPEN';
+        elev.doorOpenness = 1;
+        elev.doorPhase = 'exiting';
+        const rider = new Passenger(reverse ? 0 : 8, floor, 0);
+        rider.state = 'RIDING';
+        rider.elevator = elev;
+        elev.passengers.push(rider);
+        elev.addDropoff(floor);
+        const waiting = new Passenger(ahead, behind, 0);
+        waiting.state = 'WAITING';
+        waiting.hasCalledElevator = true;
+        sim.passengers.push(rider, waiting);
+        elev.addPickup(behind, reverse ? 'UP' : 'DOWN');
+        sim.elevators[1].addPickup(ahead, waiting.direction);
+        // Observe only this cabin to keep the pending call on the other cabin intact.
+        for (let i = 0; i < 1000; i++) {
+            for (const p of sim.passengers) p.update(1);
+            const before = elev.doorState;
+            elev.update(1);
+            sim.handleDoorPhases(elev, 1);
+            if (before === 'CLOSED' && elev.doorState === 'OPENING') {
+                assert.equal(elev.currentFloor, ahead);
+                break;
+            }
+            assert.ok(i < 999, 'cabin did not reach waiting passengers');
+        }
+    }
+});
+
 test('added cabin takes over a waiting call while preserving the opposite call and dropoff', () => {
     const { Simulation, Passenger, floorY } = loadSimulation();
     const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
