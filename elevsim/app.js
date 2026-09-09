@@ -17,6 +17,7 @@ const CONFIG = {
     EXIT_X: 620,
 
     PASSENGER_SPEED: 1.8,
+    EXIT_SPACING: 18,
     ELEVATOR_SPEED: 2.0,
     DOOR_SPEED: 0.04,
     DOOR_PAUSE: 50,
@@ -115,9 +116,10 @@ class Passenger {
                 break;
 
             case 'EXITING':
-                if (this.x < this.targetX) {
-                    this.x = Math.min(this.x + spd, this.targetX);
-                } else {
+                // Keep walking through the transition so the following passenger
+                // cannot catch up while this one changes state.
+                this.x += spd;
+                if (this.x >= this.targetX) {
                     this.state = 'LEAVING';
                     this.targetX = CONFIG.BUILDING_RIGHT + 30;
                 }
@@ -833,17 +835,17 @@ class Simulation {
                 );
 
                 if (exiters.length > 0) {
-                    for (const p of exiters) {
-                        p.startExit();
-                        p.x = shaftCenterX(elev.shaftIndex);
-                        p.y = elev.y - CONFIG.PASSENGER_RADIUS;
-                        p.boardTime = this.simTime;
-                    }
+                    // Release one passenger at a time; the others remain visible inside.
+                    const p = exiters[0];
+                    p.startExit();
+                    p.x = shaftCenterX(elev.shaftIndex);
+                    p.y = elev.y - CONFIG.PASSENGER_RADIUS;
+                    p.boardTime = this.simTime;
                     elev.passengers = elev.passengers.filter(
-                        p => p.destFloor !== elev.currentFloor
+                        rider => rider !== p
                     );
-                    elev.dropoffStops.delete(elev.currentFloor);
-                    elev.doorTimer = 15;
+                    if (exiters.length === 1) elev.dropoffStops.delete(elev.currentFloor);
+                    elev.doorTimer = CONFIG.EXIT_SPACING / CONFIG.PASSENGER_SPEED;
                     elev.doorPhase = 'waitExit';
                 } else {
                     elev.doorPhase = 'boarding';
@@ -854,7 +856,9 @@ class Simulation {
             case 'waitExit':
                 elev.doorTimer -= speed;
                 if (elev.doorTimer <= 0) {
-                    elev.doorPhase = 'boarding';
+                    elev.doorPhase = elev.passengers.some(p =>
+                        p.state === 'RIDING' && p.destFloor === elev.currentFloor)
+                        ? 'exiting' : 'boarding';
                 }
                 break;
 

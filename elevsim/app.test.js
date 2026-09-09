@@ -3,6 +3,41 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+test('eight exiting passengers walk in sequence at every slider speed', () => {
+    const { Simulation, Passenger, CONFIG } = loadSimulation();
+    for (let tenth = 1; tenth <= 100; tenth++) {
+        const speed = tenth / 10;
+        const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+        const elev = sim.elevators[0];
+        elev.doorState = 'OPEN';
+        elev.doorPhase = 'exiting';
+        elev.dropoffStops.add(0);
+        for (let i = 0; i < 8; i++) {
+            const p = new Passenger(8, 0, 0);
+            p.state = 'RIDING';
+            p.elevator = elev;
+            elev.passengers.push(p);
+            sim.passengers.push(p);
+        }
+        for (let step = 0; step < 5000; step++) {
+            for (const p of sim.passengers) p.update(speed);
+            if (elev.doorPhase !== 'boarding') sim.handleDoorPhases(elev, speed);
+            const walkers = sim.passengers.filter(p =>
+                (p.state === 'EXITING' || p.state === 'LEAVING') &&
+                p.x < CONFIG.BUILDING_RIGHT);
+            for (let i = 1; i < walkers.length; i++) {
+                assert.ok(walkers[i - 1].x - walkers[i].x >= CONFIG.EXIT_SPACING - 1e-8,
+                    `overlap at speed ${speed}`);
+            }
+            if (elev.passengers.length) assert.notEqual(elev.doorPhase, 'boarding');
+            if (sim.passengers.every(p => p.state === 'DONE')) break;
+        }
+        assert.ok(sim.passengers.every(p => p.state === 'DONE'), `unfinished at speed ${speed}`);
+        assert.equal(elev.dropoffStops.size, 0);
+        assert.equal(elev.doorPhase, 'boarding');
+    }
+});
+
 test('waiting passengers do not reopen a departing cabin, full or partly occupied', () => {
     for (const load of [3, 8]) {
         const { Simulation, Passenger, floorY } = loadSimulation();
