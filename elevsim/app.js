@@ -98,7 +98,9 @@ class Passenger {
 
             case 'BOARDING':
                 if (Math.abs(this.x - this.targetX) > 1.5) {
-                    this.x += Math.sign(this.targetX - this.x) * spd;
+                    // Clamp the last step so faster speeds cannot oscillate around the target.
+                    this.x += Math.sign(this.targetX - this.x) *
+                        Math.min(spd, Math.abs(this.targetX - this.x));
                 } else {
                     this.x = this.targetX;
                     this.state = 'RIDING';
