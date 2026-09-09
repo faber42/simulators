@@ -15,7 +15,7 @@ function loadSimulation(seed = 1) {
         window: { devicePixelRatio: 1 },
     });
     vm.runInContext(fs.readFileSync(require.resolve('./app.js'), 'utf8'), context);
-    return vm.runInContext('({ Passenger, Simulation, CONFIG })', context);
+    return vm.runInContext('({ Passenger, Elevator, Simulation, CONFIG, floorY })', context);
 }
 
 test('boarding reaches the cabin from either side at every slider speed', () => {
@@ -59,10 +59,11 @@ test('long simulation runs never leave a passenger stuck boarding', () => {
 });
 
 test('program explains combined stops without changing the live direction', () => {
-    const { Simulation } = loadSimulation();
+    const { Simulation, floorY } = loadSimulation();
     const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
     const elev = sim.elevators[0];
     elev.currentFloor = 5;
+    elev.y = floorY(5);
     elev.direction = 'UP';
     elev.pickupStops.add(2);
     elev.dropoffStops.add(2);
@@ -79,7 +80,35 @@ test('program explains combined stops without changing the live direction', () =
     assert.equal(elev.pickupStops.size, 1);
     assert.equal(elev.dropoffStops.size, 1);
     elev.currentFloor = 2;
+    elev.y = floorY(2);
     elev.doorState = 'OPEN';
     assert.equal(sim.getElevatorProgram(elev)[0].current, true);
     assert.equal(sim.getElevatorProgram(elev)[0].next, false);
+});
+
+test('cabins reach both endpoints instead of reversing at rounded floor boundaries', () => {
+    const { Elevator, floorY } = loadSimulation();
+    for (let tenth = 1; tenth <= 100; tenth++) {
+        const speed = tenth / 10;
+        for (const direction of ['UP', 'DOWN']) {
+            const elev = new Elevator(0, 0);
+            elev.y = floorY(4);
+            elev.currentFloor = 4;
+            elev.direction = direction;
+            elev.pickupStops.add(0);
+            elev.dropoffStops.add(8);
+            const expected = direction === 'UP' ? [8, 0] : [0, 8];
+            for (const floor of expected) {
+                for (let step = 0; step < 5000 && elev.doorState === 'CLOSED'; step++) {
+                    elev.update(speed);
+                }
+                assert.equal(elev.doorState, 'OPENING', `speed=${speed}, direction=${direction}`);
+                assert.equal(elev.y, floorY(floor));
+                assert.equal(elev.currentFloor, floor);
+                elev.pickupStops.delete(floor);
+                elev.dropoffStops.delete(floor);
+                elev.doorState = 'CLOSED';
+            }
+        }
+    }
 });

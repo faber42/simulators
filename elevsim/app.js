@@ -190,32 +190,37 @@ class Elevator {
         const stops = [...this.getAllStops()];
         if (stops.length === 0) return null;
 
+        // Rounded floor labels must not cause a reversal before reaching a landing.
+        const position = (floorY(0) - this.y) / CONFIG.FLOOR_HEIGHT;
+        const here = stops.find(f => floorY(f) === this.y);
+        if (here !== undefined) return here;
+
         if (this.direction === 'UP') {
-            const above = stops.filter(f => f > this.currentFloor).sort((a, b) => a - b);
+            const above = stops.filter(f => f > position).sort((a, b) => a - b);
             if (above.length > 0) return above[0];
-            const below = stops.filter(f => f < this.currentFloor).sort((a, b) => b - a);
+            const below = stops.filter(f => f < position).sort((a, b) => b - a);
             if (below.length > 0) {
                 this.direction = 'DOWN';
                 return below[0];
             }
             // same floor
-            const same = stops.filter(f => f === this.currentFloor);
+            const same = stops.filter(f => f === position);
             if (same.length > 0) return same[0];
         } else if (this.direction === 'DOWN') {
-            const below = stops.filter(f => f < this.currentFloor).sort((a, b) => b - a);
+            const below = stops.filter(f => f < position).sort((a, b) => b - a);
             if (below.length > 0) return below[0];
-            const above = stops.filter(f => f > this.currentFloor).sort((a, b) => a - b);
+            const above = stops.filter(f => f > position).sort((a, b) => a - b);
             if (above.length > 0) {
                 this.direction = 'UP';
                 return above[0];
             }
-            const same = stops.filter(f => f === this.currentFloor);
+            const same = stops.filter(f => f === position);
             if (same.length > 0) return same[0];
         } else {
-            stops.sort((a, b) => Math.abs(a - this.currentFloor) - Math.abs(b - this.currentFloor));
+            stops.sort((a, b) => Math.abs(a - position) - Math.abs(b - position));
             const target = stops[0];
-            if (target > this.currentFloor) this.direction = 'UP';
-            else if (target < this.currentFloor) this.direction = 'DOWN';
+            if (target > position) this.direction = 'UP';
+            else if (target < position) this.direction = 'DOWN';
             return target;
         }
         return null;
