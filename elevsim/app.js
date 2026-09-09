@@ -983,6 +983,22 @@ class Simulation {
             }
         }
 
+        // Calls can outlive their waiting passengers when another cabin collects them.
+        // Remove only obsolete hall directions, never onboard or operator destinations.
+        const waitingCalls = new Set(this.passengers.filter(p => p.state === 'WAITING')
+            .map(p => `${p.startFloor}:${p.direction}`));
+        for (const elev of this.elevators) {
+            for (const [floor, directions] of elev.pickupDirections) {
+                for (const direction of directions) {
+                    if (!waitingCalls.has(`${floor}:${direction}`)) directions.delete(direction);
+                }
+                if (!directions.size) {
+                    elev.pickupDirections.delete(floor);
+                    elev.pickupStops.delete(floor);
+                }
+            }
+        }
+
         // Update elevators
         for (const elev of this.elevators) {
             if (elev.shutdownPhase) {

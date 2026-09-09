@@ -3,6 +3,27 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+test('empty cabin clears an abandoned directional call instead of cycling its doors', () => {
+    const { Simulation, floorY } = loadSimulation();
+    const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+    sim.spawnRate = 0;
+    sim.autoReturn = false;
+    for (let i = 0; i < 6; i++) sim.addCabin();
+    const elev = sim.elevators[9];
+    elev.y = floorY(7);
+    elev.currentFloor = 7;
+    elev.direction = 'UP';
+    elev.addPickup(7, 'UP');
+    elev.doorState = 'OPEN';
+    elev.doorOpenness = 1;
+    elev.doorPhase = 'boarding';
+    for (let i = 0; i < 500; i++) sim.update();
+    assert.equal(elev.pickupStops.size, 0);
+    assert.equal(elev.pickupDirections.size, 0);
+    assert.equal(elev.doorState, 'CLOSED');
+    assert.equal(elev.direction, 'IDLE');
+});
+
 test('shutdown unloads everyone at the next landing and closes the doors', () => {
     for (const direction of ['UP', 'DOWN']) {
         for (const speed of [0.1, 2, 10]) {
