@@ -418,10 +418,16 @@ class Renderer {
         ctx.clearRect(0, 0, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
 
         this.drawBuilding(sim.elevators.length);
-        this.drawElevatorShafts(sim.elevators.length);
+        this.drawElevatorShafts(sim.elevators);
 
         for (const elev of sim.elevators) {
+            ctx.save();
+            if (elev.retiring) {
+                ctx.filter = 'grayscale(1)';
+                ctx.globalAlpha = 0.65;
+            }
             this.drawElevator(elev);
+            ctx.restore();
             if (elev.id === sim.selectedElevatorId) {
                 ctx.strokeStyle = '#a7cfff';
                 ctx.lineWidth = 2;
@@ -504,22 +510,22 @@ class Renderer {
         ctx.fillText('EINGANG', left - 1, floorY(0) + 12);
     }
 
-    drawElevatorShafts(cabinCount) {
+    drawElevatorShafts(elevators) {
         const ctx = this.ctx;
-        for (let i = 0; i < cabinCount; i++) {
-            const x = shaftX(i);
-            ctx.fillStyle = '#0e0e20';
+        for (const elev of elevators) {
+            const x = elev.x;
+            ctx.fillStyle = elev.retiring ? '#222228' : '#0e0e20';
             ctx.fillRect(x, CONFIG.BUILDING_TOP, CONFIG.SHAFT_W, floorY(0) - CONFIG.BUILDING_TOP);
 
             // Shaft borders
-            ctx.strokeStyle = '#22223a';
+            ctx.strokeStyle = elev.retiring ? '#55555e' : '#22223a';
             ctx.lineWidth = 1;
             ctx.strokeRect(x, CONFIG.BUILDING_TOP, CONFIG.SHAFT_W, floorY(0) - CONFIG.BUILDING_TOP);
 
             // Door frames on each floor
             for (let f = 0; f < CONFIG.FLOORS; f++) {
                 const fy = floorY(f) - CONFIG.FLOOR_HEIGHT;
-                ctx.strokeStyle = '#28284a';
+                ctx.strokeStyle = elev.retiring ? '#393940' : '#28284a';
                 ctx.strokeRect(x + 2, fy + 4, CONFIG.SHAFT_W - 4, CONFIG.FLOOR_HEIGHT - 8);
             }
         }
@@ -1104,6 +1110,7 @@ class Simulation {
                 e.direction === 'DOWN' ? '\u25BC' : '\u25CF';
             const doorStr = e.doorState !== 'CLOSED' ? ' \uD83D\uDEAA' : '';
             const button = statusDiv.children[index];
+            button.classList.toggle('retiring', e.retiring);
             button.setAttribute('aria-pressed', String(e.id === this.selectedElevatorId));
             const html = `
                 <span class="elev-label">A${e.id + 1}</span>
