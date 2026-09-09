@@ -3,6 +3,48 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+test('added cabin takes over a waiting call while preserving the opposite call and dropoff', () => {
+    const { Simulation, Passenger, floorY } = loadSimulation();
+    const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+    while (sim.elevators.length > 1) sim.removeCabin();
+    const old = sim.elevators[0];
+    old.y = floorY(8);
+    old.currentFloor = 8;
+    old.direction = 'UP';
+    old.addDropoff(9);
+    old.addPickup(2, 'UP');
+    old.addPickup(2, 'DOWN');
+    const p = new Passenger(2, 7, 0);
+    p.state = 'WAITING';
+    p.hasCalledElevator = true;
+    sim.passengers.push(p);
+    sim.addCabin();
+    assert.equal(sim.elevators[1].hasPickup(2, 'UP'), true);
+    assert.equal(old.hasPickup(2, 'UP'), false);
+    assert.equal(old.hasPickup(2, 'DOWN'), true);
+    assert.equal(old.dropoffStops.has(9), true);
+});
+
+test('adding a cabin preserves an ongoing stop and respects disabled operation', () => {
+    const { Simulation, Passenger } = loadSimulation();
+    for (const enabled of [true, false]) {
+        const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+        while (sim.elevators.length > 1) sim.removeCabin();
+        sim.setEnabled(enabled);
+        const old = sim.elevators[0];
+        if (enabled) {
+            old.addPickup(0, 'UP');
+            old.doorState = 'OPEN';
+        }
+        const p = new Passenger(0, 7, 0);
+        p.state = 'WAITING';
+        sim.passengers.push(p);
+        sim.addCabin();
+        assert.equal(sim.elevators[1].pickupStops.size, 0);
+        assert.equal(old.hasPickup(0, 'UP'), enabled);
+    }
+});
+
 test('opposite-direction pickup is skipped until after the onboard destination', () => {
     for (const reverse of [false, true]) {
         const { Simulation, Passenger, floorY } = loadSimulation();

@@ -819,6 +819,37 @@ class Simulation {
         else if (this.elevators.length < 10) {
             this.elevators.push(new Elevator(this.nextElevatorId++, this.elevators.length));
         }
+        this.reassignWaitingCalls();
+    }
+
+    reassignWaitingCalls() {
+        if (!this.enabled) return;
+        const calls = new Map();
+        for (const p of this.passengers) {
+            if (p.state === 'WAITING') calls.set(`${p.startFloor}:${p.direction}`, p);
+        }
+        for (const p of calls.values()) {
+            const floor = p.startFloor;
+            const direction = p.direction;
+            const owners = this.elevators.filter(e => e.hasPickup(floor, direction));
+            // Do not redirect a call whose cabin is already opening or boarding.
+            if (owners.some(e => e.currentFloor === floor && e.doorState !== 'CLOSED')) continue;
+            const best = this.controller.findBestElevator(floor, direction);
+            if (!best || owners.includes(best)) continue;
+            const bestCost = this.controller.calculateCost(best, floor, direction);
+            if (owners.some(e => this.controller.calculateCost(e, floor, direction) <= bestCost)) continue;
+            for (const owner of owners) {
+                const directions = owner.pickupDirections.get(floor);
+                if (directions) {
+                    directions.delete(direction);
+                    if (!directions.size) {
+                        owner.pickupDirections.delete(floor);
+                        owner.pickupStops.delete(floor);
+                    }
+                } else owner.pickupStops.delete(floor);
+            }
+            best.addPickup(floor, direction);
+        }
     }
 
     removeCabin() {
