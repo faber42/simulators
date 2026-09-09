@@ -3,6 +3,39 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+test('waiting passengers do not reopen a departing cabin, full or partly occupied', () => {
+    for (const load of [3, 8]) {
+        const { Simulation, Passenger, floorY } = loadSimulation();
+        const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+        sim.spawnRate = 0;
+        const elev = sim.elevators[0];
+        elev.direction = 'UP';
+        elev.pickupStops.add(0);
+        elev.dropoffStops.add(8);
+        for (let i = 0; i < load; i++) {
+            const p = new Passenger(0, 8, 0);
+            p.state = 'RIDING';
+            p.elevator = elev;
+            elev.passengers.push(p);
+            sim.passengers.push(p);
+        }
+        const waiting = new Passenger(0, 5, 0);
+        waiting.state = 'WAITING';
+        waiting.hasCalledElevator = true;
+        sim.passengers.push(waiting);
+        elev.startClosing();
+        for (let i = 0; i < 100; i++) {
+            sim.update();
+            assert.notEqual(elev.doorState, 'OPENING');
+        }
+        assert.ok(elev.y < floorY(0));
+        assert.equal(elev.pickupStops.has(0), false);
+        assert.ok(waiting.elevator !== elev);
+        // Full cabins cannot win calls on other floors either.
+        if (load === 8) assert.equal(sim.controller.calculateCost(elev, 2, 'UP'), Infinity);
+    }
+});
+
 test('waiting queues keep visible passengers apart and refill vacated places', () => {
     const { Simulation, Passenger, CONFIG } = loadSimulation();
     const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });

@@ -166,6 +166,7 @@ class Elevator {
         this.doorPhase = 'none';
 
         this.capacity = CONFIG.CAPACITY;
+        this.departureFloor = null;
     }
 
     getAllStops() {
@@ -240,6 +241,7 @@ class Elevator {
         const stops = this.getAllStops();
         if (stops.size === 0) {
             this.direction = 'IDLE';
+            this.departureFloor = null;
             return;
         }
 
@@ -298,6 +300,7 @@ class Elevator {
 
         switch (this.doorState) {
             case 'OPENING':
+                this.departureFloor = null;
                 this.doorOpenness = Math.min(1, this.doorOpenness + doorSpeed);
                 if (this.doorOpenness >= 1) {
                     this.doorOpenness = 1;
@@ -324,6 +327,7 @@ class Elevator {
     }
 
     startClosing() {
+        this.departureFloor = this.currentFloor;
         this.doorState = 'CLOSING';
     }
 }
@@ -360,6 +364,10 @@ class ElevatorController {
     }
 
     calculateCost(elev, floor, direction) {
+        // A full cabin cannot collect anyone. Let another cabin take the call.
+        if (elev.passengers.length >= elev.capacity) return Infinity;
+        // Finish departing before accepting another call from the serviced floor.
+        if (elev.departureFloor === floor) return Infinity;
         const dist = Math.abs(elev.currentFloor - floor);
 
         if (elev.direction === 'IDLE') {
