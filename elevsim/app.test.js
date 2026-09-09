@@ -3,6 +3,33 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+test('waiting queues keep visible passengers apart and refill vacated places', () => {
+    const { Simulation, Passenger, CONFIG } = loadSimulation();
+    const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+    for (const floor of [0, 4]) {
+        for (let i = 0; i < 30; i++) {
+            const p = new Passenger(floor, 8, 0);
+            p.state = 'WAITING';
+            sim.passengers.push(p);
+        }
+    }
+    sim.layoutWaitingQueues();
+    for (const floor of [0, 4]) {
+        const visible = sim.getWaitingQueue(floor).slice(0, sim.waitingSlots());
+        for (let i = 1; i < visible.length; i++) {
+            assert.equal(visible[i - 1].x - visible[i].x, CONFIG.WAITING_SPACING);
+            assert.equal(visible[i - 1].y, visible[i].y);
+            assert.ok(visible[i].x > CONFIG.BUILDING_LEFT + CONFIG.PASSENGER_RADIUS);
+        }
+    }
+    const first = sim.getWaitingQueue(0)[0];
+    first.startBoard(sim.elevators[0]);
+    sim.layoutWaitingQueues();
+    assert.equal(sim.getWaitingQueue(0)[0].x, CONFIG.WAITING_X);
+    assert.equal(first.state, 'BOARDING');
+    assert.equal(sim.getWaitingQueue(0).length, 29);
+});
+
 function loadSimulation(seed = 1) {
     const math = Object.create(Math);
     math.random = () => {

@@ -10,6 +10,7 @@ const CONFIG = {
     BUILDING_RIGHT: 780,
     BUILDING_TOP: 38,
     WAITING_X: 258,
+    WAITING_SPACING: 16,
     SHAFT_X0: 330,
     SHAFT_W: 46,
     SHAFT_GAP: 16,
@@ -418,8 +419,21 @@ class Renderer {
         }
 
         for (const p of sim.passengers) {
-            if (p.state !== 'DONE' && p.state !== 'RIDING') {
+            if (p.state !== 'DONE' && p.state !== 'RIDING' && p.state !== 'WAITING') {
                 this.drawPassenger(p);
+            }
+        }
+
+        for (let floor = 0; floor < CONFIG.FLOORS; floor++) {
+            const queue = sim.getWaitingQueue(floor);
+            const visible = sim.waitingSlots();
+            for (const p of queue.slice(0, visible)) this.drawPassenger(p);
+            if (queue.length > visible) {
+                ctx.fillStyle = '#a7cfff';
+                ctx.font = '11px monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText(`+${queue.length - visible}`, CONFIG.WAITING_X + 14,
+                    floorY(floor) - CONFIG.PASSENGER_RADIUS);
             }
         }
 
@@ -772,6 +786,27 @@ class Simulation {
 
         // Clean up done passengers
         this.passengers = this.passengers.filter(p => p.state !== 'DONE');
+        this.layoutWaitingQueues();
+    }
+
+    waitingSlots() {
+        return Math.floor((CONFIG.WAITING_X - CONFIG.BUILDING_LEFT - 16) /
+            CONFIG.WAITING_SPACING) + 1;
+    }
+
+    getWaitingQueue(floor) {
+        return this.passengers.filter(p => p.state === 'WAITING' && p.startFloor === floor);
+    }
+
+    layoutWaitingQueues() {
+        for (let floor = 0; floor < CONFIG.FLOORS; floor++) {
+            this.getWaitingQueue(floor).forEach((p, index) => {
+                // Keep a fixed gap for bodies, arrows and destination labels.
+                // Overflow is represented by a count until a visible place opens up.
+                p.x = CONFIG.WAITING_X - Math.min(index, this.waitingSlots() - 1) * CONFIG.WAITING_SPACING;
+                p.y = floorY(floor) - CONFIG.PASSENGER_RADIUS;
+            });
+        }
     }
 
     handleDoorPhases(elev, speed) {
