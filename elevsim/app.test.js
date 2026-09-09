@@ -3,6 +3,54 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+test('opposite-direction pickup is skipped until after the onboard destination', () => {
+    for (const reverse of [false, true]) {
+        const { Simulation, Passenger, floorY } = loadSimulation();
+        const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+        while (sim.elevators.length > 1) sim.removeCabin();
+        sim.spawnRate = 0;
+        sim.autoReturn = false;
+        const elev = sim.elevators[0];
+        const start = reverse ? 9 : 0;
+        const destination = reverse ? 1 : 8;
+        const pickup = reverse ? 6 : 3;
+        elev.y = floorY(start);
+        elev.currentFloor = start;
+        elev.direction = reverse ? 'DOWN' : 'UP';
+        const rider = new Passenger(start, destination, 0);
+        rider.state = 'RIDING';
+        rider.elevator = elev;
+        elev.passengers.push(rider);
+        elev.addDropoff(destination);
+        const waiting = new Passenger(pickup, start, 0);
+        waiting.state = 'WAITING';
+        sim.passengers.push(rider, waiting);
+        const opened = [];
+        for (let i = 0; i < 3000 && waiting.state !== 'DONE'; i++) {
+            const before = elev.doorState;
+            sim.update();
+            if (before === 'CLOSED' && elev.doorState === 'OPENING') opened.push(elev.currentFloor);
+        }
+        assert.deepEqual(opened, [destination, pickup, start]);
+        assert.equal(waiting.state, 'DONE');
+    }
+});
+
+test('up and down calls on one floor remain independent after serving one direction', () => {
+    const { Elevator } = loadSimulation();
+    const elev = new Elevator(0, 0);
+    elev.addPickup(3, 'UP');
+    elev.addPickup(3, 'DOWN');
+    assert.equal(elev.hasPickup(3, 'UP'), true);
+    assert.equal(elev.hasPickup(3, 'DOWN'), true);
+    elev.currentFloor = 3;
+    elev.servedDirection = 'UP';
+    elev.startClosing();
+    elev.updateDoor(1);
+    assert.equal(elev.hasPickup(3, 'UP'), false);
+    assert.equal(elev.hasPickup(3, 'DOWN'), true);
+});
+
 test('disabled plant ignores calls and only moves manually with closed doors', () => {
     const { Simulation, Passenger, floorY } = loadSimulation();
     const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });

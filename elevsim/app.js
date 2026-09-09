@@ -160,6 +160,7 @@ class Elevator {
 
         this.passengers = [];
         this.pickupStops = new Set();
+        this.pickupDirections = new Map();
         this.dropoffStops = new Set();
 
         this.doorState = 'CLOSED';
@@ -180,8 +181,17 @@ class Elevator {
             ...(this.manualTarget === null ? [] : [this.manualTarget])]);
     }
 
-    addPickup(floor) {
+    hasPickup(floor, direction) {
+        return this.pickupStops.has(floor) &&
+            (!this.pickupDirections.has(floor) || this.pickupDirections.get(floor).has(direction));
+    }
+
+    addPickup(floor, direction) {
         this.pickupStops.add(floor);
+        if (direction) {
+            if (!this.pickupDirections.has(floor)) this.pickupDirections.set(floor, new Set());
+            this.pickupDirections.get(floor).add(direction);
+        }
         if (this.direction === 'IDLE' && this.doorState === 'CLOSED') {
             if (floor === this.currentFloor) {
                 this.doorState = 'OPENING';
@@ -197,7 +207,7 @@ class Elevator {
 
     getNextStop() {
         if (this.manualTarget !== null) return this.manualTarget;
-        const stops = [...this.getAllStops()];
+        const stops = [...this.getAllStops()].filter(f => this.shouldStopAtFloor(f));
         if (stops.length === 0) return null;
 
         // Rounded floor labels must not cause a reversal before reaching a landing.
@@ -237,7 +247,12 @@ class Elevator {
     }
 
     shouldStopAtFloor(floor) {
-        return this.pickupStops.has(floor) || this.dropoffStops.has(floor);
+        if (this.dropoffStops.has(floor) || this.manualTarget === floor) return true;
+        if (!this.pickupStops.has(floor)) return false;
+        if (this.direction === 'IDLE' || this.hasPickup(floor, this.direction)) return true;
+        // An opposite-direction call is served only at the turnaround point.
+        return ![...this.getAllStops()].some(f =>
+            this.direction === 'UP' ? f > floor : f < floor);
     }
 
     updateManual(speed, enabled) {
@@ -353,7 +368,15 @@ class Elevator {
                     this.doorOpenness = 0;
                     this.doorState = 'CLOSED';
                     this.doorPhase = 'none';
-                    this.pickupStops.delete(this.currentFloor);
+                    const directions = this.pickupDirections.get(this.currentFloor);
+                    if (directions) {
+                        directions.delete(this.servedDirection || this.direction);
+                        if (!directions.size) {
+                            this.pickupDirections.delete(this.currentFloor);
+                            this.pickupStops.delete(this.currentFloor);
+                        }
+                    } else this.pickupStops.delete(this.currentFloor);
+                    this.servedDirection = null;
                 }
                 break;
         }
@@ -375,12 +398,12 @@ class ElevatorController {
     requestElevator(floor, direction) {
         if (!this.enabled) return;
         // Check if any elevator already has this as a pickup
-        const alreadyAssigned = this.elevators.some(e => e.pickupStops.has(floor));
+        const alreadyAssigned = this.elevators.some(e => e.hasPickup(floor, direction));
         if (alreadyAssigned) return;
 
         const best = this.findBestElevator(floor, direction);
         if (best) {
-            best.addPickup(floor);
+            best.addPickup(floor, direction);
         }
     }
 
@@ -774,6 +797,7 @@ class Simulation {
         if (!enabled) {
             for (const elev of this.elevators) {
                 elev.pickupStops.clear();
+                elev.pickupDirections.clear();
                 if (elev.manualReason === 'Leerlauf-Rückruf') elev.manualTarget = null;
                 // Return unfinished boarders to the waiting area before closing.
                 for (const p of elev.passengers.filter(p => p.state === 'BOARDING')) {
@@ -803,6 +827,7 @@ class Simulation {
         const elev = active[active.length - 1];
         elev.retiring = true;
         elev.pickupStops.clear();
+        elev.pickupDirections.clear();
         this.removeEmptyCabins();
     }
 
@@ -892,8 +917,7 @@ class Simulation {
         for (const p of this.passengers) {
             if (p.state === 'WAITING' && p.hasCalledElevator) {
                 const anyServing = this.elevators.some(e =>
-                    e.pickupStops.has(p.startFloor) ||
-                    (e.currentFloor === p.startFloor && e.doorState !== 'CLOSED')
+                    e.hasPickup(p.startFloor, p.direction)
                 );
                 if (!anyServing) {
                     this.controller.requestElevator(p.startFloor, p.direction);
@@ -995,6 +1019,12 @@ class Simulation {
                 }
 
                 // Update actual elevator direction
+                if (elevDir === 'IDLE') {
+                    const waiting = this.passengers.find(p => p.state === 'WAITING' &&
+                        p.startFloor === elev.currentFloor);
+                    if (waiting) elevDir = waiting.direction;
+                }
+                elev.servedDirection = elevDir;
                 if (elevDir !== 'IDLE' && elev.direction !== elevDir) {
                     elev.direction = elevDir;
                 }
@@ -1120,6 +1150,7 @@ class Simulation {
             next: floor === next && elev.doorState === 'CLOSED',
             current: floor === elev.currentFloor && elev.doorState !== 'CLOSED',
             pickup: elev.pickupStops.has(floor),
+            pickupDirections: [...(elev.pickupDirections.get(floor) || [])],
             manualReason: floor === elev.manualTarget ? elev.manualReason : null,
             dropoff: elev.dropoffStops.has(floor),
             riders: elev.passengers.filter(p => p.destFloor === floor).length,
@@ -1148,7 +1179,7 @@ class Simulation {
         const rows = stops.map(stop => {
             const reasons = [];
             if (stop.manualReason) reasons.push(stop.manualReason);
-            if (stop.pickup) reasons.push(`Abholruf zugewiesen (${stop.waiting} Wartende auf dieser Etage)`);
+            if (stop.pickup) reasons.push(`Abholruf ${stop.pickupDirections.map(d => d === 'UP' ? '↑ aufwärts' : '↓ abwärts').join(' / ')} zugewiesen (${stop.waiting} Wartende auf dieser Etage)`);
             if (stop.dropoff) reasons.push(`Fahrtziel von ${stop.riders} Passagier(en) in dieser Kabine`);
             return `<tr><td>${FLOOR_NAMES[stop.floor]}${stop.current ? ' · aktueller Halt' : stop.next ? ' · nächstes Steuerungsziel' : ''}</td><td>${reasons.join(' · ')}</td></tr>`;
         }).join('');
