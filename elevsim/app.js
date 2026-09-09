@@ -170,10 +170,14 @@ class Elevator {
         this.capacity = CONFIG.CAPACITY;
         this.retiring = false;
         this.departureFloor = null;
+        this.manualTarget = null;
+        this.manualReason = null;
+        this.idleTime = 0;
     }
 
     getAllStops() {
-        return new Set([...this.pickupStops, ...this.dropoffStops]);
+        return new Set([...this.pickupStops, ...this.dropoffStops,
+            ...(this.manualTarget === null ? [] : [this.manualTarget])]);
     }
 
     addPickup(floor) {
@@ -192,6 +196,7 @@ class Elevator {
     }
 
     getNextStop() {
+        if (this.manualTarget !== null) return this.manualTarget;
         const stops = [...this.getAllStops()];
         if (stops.length === 0) return null;
 
@@ -233,6 +238,31 @@ class Elevator {
 
     shouldStopAtFloor(floor) {
         return this.pickupStops.has(floor) || this.dropoffStops.has(floor);
+    }
+
+    updateManual(speed, enabled) {
+        if (this.doorState !== 'CLOSED') {
+            this.updateDoor(speed);
+            return;
+        }
+        if (this.manualTarget === null) {
+            this.direction = 'IDLE';
+            return;
+        }
+        const targetY = floorY(this.manualTarget);
+        const distance = targetY - this.y;
+        this.direction = distance < 0 ? 'UP' : distance > 0 ? 'DOWN' : 'IDLE';
+        this.y += Math.sign(distance) * Math.min(Math.abs(distance), CONFIG.ELEVATOR_SPEED * speed);
+        this.updateFloorFromY();
+        if (this.y === targetY) {
+            this.manualTarget = null;
+            this.manualReason = null;
+            this.idleTime = 0;
+            if (enabled) {
+                this.doorState = 'OPENING';
+                this.doorPhase = 'opening';
+            } else this.direction = 'IDLE';
+        }
     }
 
     update(speed) {
@@ -339,9 +369,11 @@ class Elevator {
 class ElevatorController {
     constructor(elevators) {
         this.elevators = elevators;
+        this.enabled = true;
     }
 
     requestElevator(floor, direction) {
+        if (!this.enabled) return;
         // Check if any elevator already has this as a pickup
         const alreadyAssigned = this.elevators.some(e => e.pickupStops.has(floor));
         if (alreadyAssigned) return;
@@ -707,6 +739,8 @@ class Simulation {
     }
 
     init() {
+        this.enabled = true;
+        this.autoReturn = true;
         this.selectedElevatorId = null;
         this.nextElevatorId = CONFIG.NUM_ELEVATORS;
         this.elevators = [];
@@ -725,6 +759,34 @@ class Simulation {
         this.stop();
         this.init();
         this.start();
+    }
+
+    callCabin(elev, floor, reason = 'Manueller Ruf') {
+        if (!Number.isInteger(floor) || floor < 0 || floor >= CONFIG.FLOORS) return;
+        elev.manualTarget = floor;
+        elev.manualReason = reason;
+        elev.idleTime = 0;
+    }
+
+    setEnabled(enabled) {
+        this.enabled = enabled;
+        this.controller.enabled = enabled;
+        if (!enabled) {
+            for (const elev of this.elevators) {
+                elev.pickupStops.clear();
+                if (elev.manualReason === 'Leerlauf-Rückruf') elev.manualTarget = null;
+                // Return unfinished boarders to the waiting area before closing.
+                for (const p of elev.passengers.filter(p => p.state === 'BOARDING')) {
+                    p.state = 'WAITING';
+                    p.elevator = null;
+                    p.hasCalledElevator = false;
+                }
+                elev.passengers = elev.passengers.filter(p => p.state === 'RIDING');
+                elev.dropoffStops = new Set(elev.passengers.map(p => p.destFloor));
+                if (elev.doorState !== 'CLOSED') elev.startClosing();
+            }
+            this.layoutWaitingQueues();
+        }
     }
 
     addCabin() {
@@ -805,7 +867,7 @@ class Simulation {
             p.update(speed);
 
             // Register elevator call when they start waiting
-            if (p.state === 'WAITING' && !p.hasCalledElevator) {
+            if (this.enabled && p.state === 'WAITING' && !p.hasCalledElevator) {
                 p.hasCalledElevator = true;
                 p.waitStartTime = this.simTime;
                 this.controller.requestElevator(p.startFloor, p.direction);
@@ -814,8 +876,16 @@ class Simulation {
 
         // Update elevators
         for (const elev of this.elevators) {
-            elev.update(speed);
-            this.handleDoorPhases(elev, speed);
+            if (!this.enabled || elev.manualTarget !== null) elev.updateManual(speed, this.enabled);
+            else elev.update(speed);
+            if (this.enabled) this.handleDoorPhases(elev, speed);
+            if (this.enabled && this.autoReturn && !elev.retiring && !elev.passengers.length &&
+                elev.getAllStops().size === 0 && elev.doorState === 'CLOSED') {
+                elev.idleTime += speed;
+                if (elev.idleTime >= 30 * 60 && elev.y !== floorY(0)) {
+                    this.callCabin(elev, 0, 'Leerlauf-Rückruf');
+                }
+            } else elev.idleTime = 0;
         }
 
         // Re-request for passengers still waiting with no elevator coming
@@ -1050,6 +1120,7 @@ class Simulation {
             next: floor === next && elev.doorState === 'CLOSED',
             current: floor === elev.currentFloor && elev.doorState !== 'CLOSED',
             pickup: elev.pickupStops.has(floor),
+            manualReason: floor === elev.manualTarget ? elev.manualReason : null,
             dropoff: elev.dropoffStops.has(floor),
             riders: elev.passengers.filter(p => p.destFloor === floor).length,
             waiting: this.passengers.filter(p => p.state === 'WAITING' && p.startFloor === floor).length,
@@ -1067,7 +1138,8 @@ class Simulation {
             boarding: 'Einstieg prüfen', waitBoard: 'Auf einsteigende Passagiere warten',
             pausing: 'Kurze Pause vor dem Schließen',
         };
-        const state = elev.doorState === 'OPENING' ? 'Türen öffnen' :
+        const state = !this.enabled && elev.doorState === 'CLOSED' && elev.manualTarget === null
+            ? 'Anlage aus · wartet auf manuellen Ruf' : elev.doorState === 'OPENING' ? 'Türen öffnen' :
             elev.doorState === 'CLOSING' ? 'Türen schließen' :
             elev.doorState === 'OPEN' ? phases[elev.doorPhase] || 'Türen offen' :
             elev.getAllStops().size ? 'Unterwegs' : 'Wartet auf einen Ruf';
@@ -1075,6 +1147,7 @@ class Simulation {
         const stops = this.getElevatorProgram(elev);
         const rows = stops.map(stop => {
             const reasons = [];
+            if (stop.manualReason) reasons.push(stop.manualReason);
             if (stop.pickup) reasons.push(`Abholruf zugewiesen (${stop.waiting} Wartende auf dieser Etage)`);
             if (stop.dropoff) reasons.push(`Fahrtziel von ${stop.riders} Passagier(en) in dieser Kabine`);
             return `<tr><td>${FLOOR_NAMES[stop.floor]}${stop.current ? ' · aktueller Halt' : stop.next ? ' · nächstes Steuerungsziel' : ''}</td><td>${reasons.join(' · ')}</td></tr>`;
@@ -1125,6 +1198,12 @@ class Simulation {
         document.getElementById('addCabinBtn').disabled = active >= 10;
         document.getElementById('removeCabinBtn').disabled = active <= 1;
         document.getElementById('cabinCount').textContent = `${active} Kabinen aktiv${retiring ? ` · ${retiring} laufen aus` : ''}`;
+        document.getElementById('autoReturn').checked = this.autoReturn;
+        document.getElementById('powerBtn').textContent = this.enabled ? 'Anlage abschalten' : 'Anlage einschalten';
+        document.getElementById('powerBtn').setAttribute('aria-pressed', String(!this.enabled));
+        document.getElementById('powerStatus').textContent = this.enabled
+            ? 'Anlage aktiv · Schachtetage anklicken für manuellen Ruf.'
+            : 'Anlage aus · Nur manuelle Fahrten, Türen bleiben geschlossen.';
     }
 }
 
@@ -1190,6 +1269,14 @@ function initApp() {
         if (elev) {
             sim.selectedElevatorId = elev.id;
             sim.updateUI();
+        } else if (y >= CONFIG.BUILDING_TOP && y <= floorY(0)) {
+            const shaft = sim.elevators.find(e => x >= e.x && x <= e.x + CONFIG.SHAFT_W);
+            if (shaft) {
+                const floor = Math.min(CONFIG.FLOORS - 1, Math.floor((floorY(0) - y) / CONFIG.FLOOR_HEIGHT));
+                sim.callCabin(shaft, floor);
+                sim.selectedElevatorId = shaft.id;
+                sim.updateUI();
+            }
         }
     });
     document.getElementById('elevStatus').addEventListener('click', event => {
@@ -1207,6 +1294,24 @@ function initApp() {
     const resetBtn = document.getElementById('resetBtn');
     const addCabinBtn = document.getElementById('addCabinBtn');
     const removeCabinBtn = document.getElementById('removeCabinBtn');
+    document.getElementById('recallBtn').addEventListener('click', () => {
+        for (const elev of sim.elevators) sim.callCabin(elev, 0, 'Rückruf aller Kabinen');
+        sim.updateUI();
+    });
+    document.getElementById('autoReturn').addEventListener('change', event => {
+        sim.autoReturn = event.target.checked;
+        for (const elev of sim.elevators) {
+            elev.idleTime = 0;
+            if (!sim.autoReturn && elev.manualReason === 'Leerlauf-Rückruf') {
+                elev.manualTarget = null;
+                elev.manualReason = null;
+            }
+        }
+    });
+    document.getElementById('powerBtn').addEventListener('click', () => {
+        sim.setEnabled(!sim.enabled);
+        sim.updateUI();
+    });
 
     speedSlider.addEventListener('input', () => {
         const val = Number(speedSlider.value);

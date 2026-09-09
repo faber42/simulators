@@ -3,6 +3,61 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+test('disabled plant ignores calls and only moves manually with closed doors', () => {
+    const { Simulation, Passenger, floorY } = loadSimulation();
+    const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+    sim.spawnRate = 0;
+    const p = new Passenger(3, 8, 0);
+    p.state = 'WAITING';
+    sim.passengers.push(p);
+    sim.setEnabled(false);
+    for (let i = 0; i < 100; i++) sim.update();
+    assert.ok(sim.elevators.every(e => e.y === floorY(0) && !e.pickupStops.size));
+    const elev = sim.elevators[0];
+    sim.callCabin(elev, 3);
+    for (let i = 0; i < 200; i++) {
+        sim.update();
+        assert.equal(elev.doorState, 'CLOSED');
+    }
+    assert.equal(elev.y, floorY(3));
+    assert.equal(p.state, 'WAITING');
+    sim.setEnabled(true);
+    for (let i = 0; i < 2000 && p.state !== 'DONE'; i++) sim.update();
+    assert.equal(p.state, 'DONE');
+});
+
+test('idle return waits thirty simulation seconds and can be disabled', () => {
+    const { Simulation, floorY } = loadSimulation();
+    for (const enabled of [false, true]) {
+        const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+        sim.spawnRate = 0;
+        sim.autoReturn = enabled;
+        const elev = sim.elevators[0];
+        elev.y = floorY(6);
+        elev.currentFloor = 6;
+        for (let i = 0; i < 1799; i++) sim.update();
+        assert.equal(elev.y, floorY(6));
+        sim.update();
+        assert.equal(elev.manualTarget, enabled ? 0 : null);
+        for (let i = 0; i < 400; i++) sim.update();
+        assert.equal(elev.y, floorY(enabled ? 0 : 6));
+    }
+});
+
+test('recall moves all disabled cabins to ground floor without opening doors', () => {
+    const { Simulation, floorY } = loadSimulation();
+    const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
+    sim.spawnRate = 0;
+    sim.setEnabled(false);
+    sim.elevators.forEach((e, i) => {
+        e.y = floorY(i + 2);
+        e.currentFloor = i + 2;
+        sim.callCabin(e, 0, 'Rückruf aller Kabinen');
+    });
+    for (let i = 0; i < 300; i++) sim.update();
+    assert.ok(sim.elevators.every(e => e.y === floorY(0) && e.doorState === 'CLOSED'));
+});
+
 test('cabin count stays within 1–10 and resets to four', () => {
     const { Simulation, CONFIG } = loadSimulation();
     const sim = new Simulation({ style: {}, getContext: () => ({ scale() {} }) });
