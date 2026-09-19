@@ -127,8 +127,10 @@ async function start() {
     } catch (error) { fail(error); }
   }
   document.addEventListener('visibilitychange', () => { last = lastDraw = performance.now(); accumulator = 0; diagnostics.resetClock(); cadence.reset(); });
+  $('diag-close').addEventListener('click', () => { $('diagnostics').hidden = true; });
   document.addEventListener('keydown', event => {
     if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) return;
+    if (event.code === 'Space' && event.target.tagName === 'BUTTON') return;
     if (event.code === 'Space' || event.code === 'KeyP') { event.preventDefault(); train.paused = !train.paused; syncUI(); }
     if (event.key.toLowerCase() === 'h') document.body.classList.toggle('clean');
     if (event.key.toLowerCase() === 'd') { $('diagnostics').hidden = !$('diagnostics').hidden; syncDiagnostics(performance.now()); }
