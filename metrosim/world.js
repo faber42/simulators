@@ -124,8 +124,6 @@ function stairs(b, m, s, side) {
   for (const dx of [-1.05, 1.05]) b.box(m.steel, s + 3.48, x + dx, 3.73, .055, .07, 8.1, [slope, 0, 0]);
   b.box(m.concrete, s + 7.75, x, 2.81, 2.4, 3.74, 1.25);
   b.box(m.floor, s + 7.75, x, 4.7, 2.4, .1, 1.25);
-  b.box(m.ceiling, s + 4.1, x, 7.8, 2.85, .2, 10.2);
-  b.box(m.concrete, s + 8.6, x, 6.12, 2.85, 3.4, .2);
   panel(b, m.sign('↑  Ausgang', 'exit'), s - 1.2, x, 3.95, 2.15, .48);
 }
 function escalator(b, m, s, side) {
@@ -144,7 +142,40 @@ function escalator(b, m, s, side) {
   }
   panel(b, m.sign('↑  Ausgang', 'exit'), s - .9, x, 4.18, 2, .48);
   b.box(m.concrete, s + 7.85, x, 2.7, 1.9, 3.7, 1.2);
-  b.box(m.ceiling, s + 4.1, x, 7.8, 2.8, .2, 10.2);
+}
+
+// Construct the enclosure in the same three-metre slices as the opening in
+// the platform ceiling. This follows curved stations, overlaps every joint,
+// and keeps its walls alive when the stair mesh's earlier chunk is streamed out.
+function accessEnclosure(b, m, s, side, rel, escalator = false) {
+  const floor = escalator ? 4.62 : 4.75;
+  const centre = side * 5.815;
+  for (const x of [4.38, 7.25]) b.box(m.accessWall, s + 1.5, side * x, 6.06, .24, 3.58, 3.08);
+  b.box(m.accessCeiling, s + 1.5, centre, 7.82, 3.2, .24, 3.08);
+  // Visible slab edges tie the higher room into the platform's lower ceiling.
+  b.box(m.concrete, s + 1.5, side * 4.38, 5.08, .31, .31, 3.08);
+  if (rel === 0) b.box(m.accessWall, s - .06, centre, 6.45, 3.2, 2.82, .24);
+  if (rel >= 6) {
+    const start = Math.max(0, 7.05 - rel), length = 3 - start;
+    b.box(m.concrete, s + start + length / 2, centre, floor - .18, 2.88, .29, length + .08);
+    b.box(m.floor, s + start + length / 2, centre, floor - .035, 2.88, .07, length + .08);
+  }
+  if (rel === 12) {
+    const end = s + 3;
+    b.box(m.accessWall, end, centre, (floor + 7.82) / 2, 3.2, 7.82 - floor, .26);
+    // A closed double door gives the landing a plausible continuation without
+    // exposing unbuilt space beyond the station. It faces back down the steps.
+    b.box(m.steel, end - .15, centre, floor + 1.17, 1.92, 2.34, .08);
+    for (const dx of [-.44, .44]) {
+      b.box(m.glass, end - .2, centre + dx, floor + 1.14, .83, 2.2, .035);
+      b.box(m.steel, end - .24, centre + Math.sign(dx) * .12, floor + 1.02, .032, .36, .055);
+    }
+    panel(b, m.sign('↑  Ausgang', 'exit'), end - .21, centre, floor + 2.66, 1.86, .36);
+  }
+  if (rel % 6 === 0) {
+    b.box(m.dark, s + 1.5, side * 5.75, 7.65, 1.08, .1, 1.3);
+    b.box(m.coolLamp, s + 1.5, side * 5.75, 7.58, .88, .035, 1.1);
+  }
 }
 function emergencyExit(b, m, s) {
   const shift = -(junctionAt(s)?.leftWidth || 0);
@@ -298,6 +329,7 @@ export class World {
         const side = st.side, accent = m.palette(st.color), wall = m.stationWall(st);
         const rel = s - st.start;
         const stairwell = rel >= 36 && rel <= 48 || st.feature === 'escalator' && rel >= 78 && rel <= 90;
+        if (stairwell) accessEnclosure(b, m, s, side, rel - (rel >= 78 ? 78 : 36), rel >= 78);
         b.box(m.concrete, s + 1.5, side * 4.42, .34, 5.56, 1.05, 3.01);
         b.box(m.floor, s + 1.5, side * 4.42, .905, 5.56, .08, 3.01);
         b.box(m.white, s + 1.5, side * 1.72, .94, .14, .06, 3.01);

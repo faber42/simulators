@@ -38,7 +38,10 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   Werbeplakate, Stationsnamen und Anzeigen mit „Zug fährt ein“. Jede Station
   besitzt eine feste, massive Treppe sowie eine Rolltreppe oder einen Aufzug.
   Die Treppen haben tragende Unterbauten, Seitenwände und Handläufe; darüber
-  öffnen sich die Decken zu Treppenschächten. Manche Bahnsteige besitzen einen
+  öffnen sich die Decken zu vollständig eingefassten Treppenschächten. Die
+  oberen Räume haben geflieste Seiten- und Stirnwände, Deckenleuchten sowie
+  Podeste mit Ausgangstüren. Ihre Decken und Wände decken die gesamte Öffnung
+  ab und folgen auch gekrümmten Bahnsteigen. Manche Bahnsteige besitzen einen
   seitlichen, beleuchteten Verbindungsgang mit einer Ecke und Beschilderung
   zur Gegenrichtung.
 - Im Tunnel gibt es Notausgangstüren mit Podest, Rahmen, Panikstange und
@@ -143,6 +146,8 @@ Signaltests prüfen frühe, gleichzeitige und verspätete Blockfreigaben, den
 zweiten Halt ohne Türöffnung und das Verbot, rote Signale zu überfahren.
 Geometrische Strahltests durch die tatsächlich erzeugten Tunnel kontrollieren
 freie Portale, beide Gleiswege und die Enden der entfernten Nebenröhren.
+Strahltests in den oberen Treppen- und Rolltreppenräumen prüfen außerdem
+geschlossene Wände, Decken und Podeste sowie freie Kopfhöhe auf dem Aufgang.
 Die Gehwegtests prüfen Abstand zu Kante und Säulen, Gehgeschwindigkeit,
 Pause, Ankunft am Wartepunkt und sichtbare Bewegung während einer Zug-Einfahrt.
 

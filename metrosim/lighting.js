@@ -1,9 +1,10 @@
 // A fixed diffuse light field attached to the infrastructure, evaluated per
 // fragment. Unlike the nearby specular/character lights it never follows the
 // camera or changes when a lamp enters the dynamic light pool.
-export function infrastructureLighting(material) {
+export function infrastructureLighting(material, { lampX = 3.4, lampY = 4.3 } = {}) {
   material.userData.infrastructure = true;
   material.onBeforeCompile = shader => {
+    shader.uniforms.stationLampPosition = { value: [lampX, lampY] };
     shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>
       attribute vec4 lightCoord;
       attribute vec2 lightSpan;
@@ -15,6 +16,7 @@ export function infrastructureLighting(material) {
       vLightSpan = lightSpan;
       vInfrastructureNormal = normal;`);
     shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>
+      uniform vec2 stationLampPosition;
       varying vec4 vLightCoord;
       varying vec2 vLightSpan;
       varying vec3 vInfrastructureNormal;`)
@@ -27,8 +29,8 @@ export function infrastructureLighting(material) {
         float lampS = nearestLamp + float(i) * spacing;
         float side = mod(floor(lampS / 12.0), 2.0) * 2.0 - 1.0;
         float lampX = side * 2.35 + (side > 0.0 ? vLightSpan.y : -vLightSpan.x);
-        lampX = mix(lampX, vLightCoord.w * 3.4, isStation);
-        vec3 delta = vec3(lampX, mix(2.9, 4.3, isStation), lampS) - vLightCoord.xyz;
+        lampX = mix(lampX, vLightCoord.w * stationLampPosition.x, isStation);
+        vec3 delta = vec3(lampX, mix(2.9, stationLampPosition.y, isStation), lampS) - vLightCoord.xyz;
         float distanceSquared = dot(delta, delta);
         vec3 toLight = normalize(vec3(delta.xy, -delta.z));
         float facing = 0.14 + 0.86 * max(0.0, dot(normalize(vInfrastructureNormal), toLight));
@@ -37,6 +39,6 @@ export function infrastructureLighting(material) {
       }
       totalEmissiveRadiance += diffuseColor.rgb * fixedLight;`);
   };
-  material.customProgramCacheKey = () => 'infrastructure-light-v1';
+  material.customProgramCacheKey = () => 'infrastructure-light-v2';
   return material;
 }

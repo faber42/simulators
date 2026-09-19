@@ -100,6 +100,10 @@ export function createMaterials() {
   textured('ballast', 'ballast', { roughness: 1, bumpScale: .08 });
   textured('sleeper', 'concrete', { color: '#88867e' });
   textured('ceiling', 'concrete', { color: '#737871' });
+  // The upper access rooms have their own fixed ceiling fixtures, rather than
+  // borrowing the much lower platform lights or adding moving light slots.
+  m.accessWall = infrastructureLighting(new T.MeshStandardMaterial({ map: m.tiles.map, color: '#e5e4da', roughness: .63 }), { lampX: 5.75, lampY: 7.4 });
+  m.accessCeiling = infrastructureLighting(new T.MeshStandardMaterial({ map: m.concrete.map, color: '#b6b8ad', roughness: .86 }), { lampX: 5.75, lampY: 7.4 });
   for (const finish of ['soot', 'limestone', 'brick', 'chalk']) textured(finish, finish, { roughness: finish === 'chalk' ? .72 : .95 });
   m.tunnel = s => m[tunnelFinish(s)];
   const walls = new Map();
