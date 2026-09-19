@@ -16,8 +16,9 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   der Strecke mit sehr dezenter, geschwindigkeitsabhängiger Vibration.
 - Der Zug bremst bis zum Halt neun Meter vor dem Bahnsteigende. Im letzten
   langsamen Abschnitt wird die Bremskraft sanft zurückgenommen. Der Wagenkasten
-  federt beim Halt geringfügig auf und ab und etwa 2–3 mm zurück; die Kamera
+  federt bei jedem Halt geringfügig auf und ab und etwa 4–5 mm zurück; die Kamera
   übernimmt diese gedämpfte Bewegung. Die Radposition bleibt am Haltepunkt.
+  Dasselbe Nachfedern erfolgt auch beim zweiten Halt vor einem roten Signal.
   Erst nach 1,15 Sekunden Beruhigungszeit beginnt die Türöffnung samt Anzeige.
   Das Ausfahrsignal
   steht am Tunnelmund. Seine Freigabe hängt von einem eigenen Belegungszeitplan ab.

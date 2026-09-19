@@ -86,9 +86,28 @@ test('brakes ease off before the stop, then the body settles before any door ind
   }
   assert.equal(train.phase, 'opening'); assert.equal(train.doors, true);
   assert.ok(Math.abs(train.time - stoppedAt - STATION_SETTLE) < 1 / 60);
-  assert.ok(minSurge < -.002 && minSurge > -.003, 'the body rebounds by only two to three millimetres');
+  assert.ok(minSurge < -.004 && minSurge > -.005, 'the body rebounds by only four to five millimetres');
   assert.ok(maxHeave > .0004 && maxHeave < .003, 'a restrained vertical settling movement remains visible');
   assert.ok(Math.abs(train.ride.heave) < .0001 && Math.abs(train.ride.surge) < .00015, 'settled by door release');
+});
+
+test('the second stop at a red exit repeats the stronger rebound without reopening doors', () => {
+  const train = new Train();
+  for (let i = 0; i < 12000 && train.phase !== 'waiting'; i++) train.step(1 / 60);
+  assert.equal(train.phase, 'waiting'); assert.equal(train.pendingSignal.id, 'exit-1');
+  assert.equal(train.visits, 2); assert.equal(train.signalWaits, 1);
+  const stopS = train.s;
+  assert.equal(stopS, exitSignal(1).s - SIGNAL_CLEARANCE);
+  let minSurge = 0, maxHeave = 0;
+  for (let i = 0; i < 60; i++) {
+    train.step(1 / 60);
+    assert.equal(train.phase, 'waiting'); assert.equal(train.green, false);
+    assert.equal(train.speed, 0); assert.equal(train.s, stopS); assert.equal(train.doors, false);
+    minSurge = Math.min(minSurge, train.ride.surge); maxHeave = Math.max(maxHeave, train.ride.heave);
+  }
+  assert.ok(minSurge < -.004 && minSurge > -.005, 'signal stops repeat the same four-to-five-millimetre rebound');
+  assert.ok(maxHeave > .0004 && maxHeave < .003, 'the second stop also settles vertically');
+  assert.equal(train.visits, 2);
 });
 
 test('closed-door departure releases the brake before smoothly building traction', () => {
