@@ -52,9 +52,10 @@ async function start() {
   if (inspect && query.has('time')) train.time = T.MathUtils.clamp(Number(query.get('time')) || 0, 0, 1800);
   const look = new T.Vector3();
   const diagnostics = new FrameDiagnostics(60000, 30, 2), cadence = new FrameCadence(30);
-  let previousPose = { s: train.s, time: train.time, speed: train.speed };
+  const capturePose = () => ({ s: train.s, time: train.time, speed: train.speed, heave: train.ride.heave, pitch: train.ride.pitch, surge: train.ride.surge });
+  let previousPose = capturePose();
   const displayedTrain = {};
-  const phaseNames = { signal: 'SIGNALHALT', waiting: 'WARTEN AUF BLOCKFREIGABE', depart: 'AUSFAHRT', running: 'AUTOMATIKBETRIEB', opening: 'STATIONSHALT', open: 'FAHRGASTWECHSEL', closing: 'TÜREN SCHLIESSEN', dispatch: 'ABFAHRT VORBEREITET' };
+  const phaseNames = { signal: 'SIGNALHALT', waiting: 'WARTEN AUF BLOCKFREIGABE', depart: 'AUSFAHRT', running: 'AUTOMATIKBETRIEB', settling: 'STATIONSHALT', opening: 'STATIONSHALT', open: 'FAHRGASTWECHSEL', closing: 'TÜREN SCHLIESSEN', dispatch: 'ABFAHRT VORBEREITET' };
   let exposure = 1.03, accumulator = 0, last = performance.now(), lastUI = -1, timeScale = T.MathUtils.clamp(Number(query.get('rate')) || 1, .25, 8), fps = 0, failure = false;
   function resize() { output.resize(innerWidth, innerHeight); materials.distantLamp.uniforms.viewportHeight.value = output.height; camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
   window.addEventListener('resize', resize); resize();
@@ -78,7 +79,7 @@ async function start() {
   function syncUI() {
     const st = train.stop;
     $('destination').textContent = st.name;
-    $('destination-label').textContent = train.doors || train.phase === 'dispatch' ? 'AKTUELLER HALT' : 'NÄCHSTER HALT';
+    $('destination-label').textContent = train.doors || ['settling', 'dispatch'].includes(train.phase) ? 'AKTUELLER HALT' : 'NÄCHSTER HALT';
     $('phase').textContent = phaseNames[train.phase];
     $('speed').textContent = String(Math.round(train.speed * 3.6)).padStart(2, '0');
     $('doors').hidden = !train.doors;
@@ -89,15 +90,19 @@ async function start() {
     $('view').dataset.diagnostics = JSON.stringify({ ...train.snapshot(), ...world.stats(), fps: Math.round(fps), below30Percent: perf.below30Percent, observedSeconds: perf.observedSeconds, p95FrameMs: perf.p95FrameMs, maxFrameMs: perf.maxFrameMs, drawCalls: output.sceneDrawCalls, geometries: output.renderer.info.memory.geometries, textures: output.renderer.info.memory.textures, slowFrames: perf.slowFrames });
   }
   function draw(dt = 0, interpolate = false) {
-    if (!interpolate) previousPose = { s: train.s, time: train.time, speed: train.speed };
+    if (!interpolate) previousPose = capturePose();
     const alpha = interpolate && !train.paused ? accumulator * 60 : 1;
     Object.assign(displayedTrain, train, { s: T.MathUtils.lerp(previousPose.s, train.s, alpha), time: T.MathUtils.lerp(previousPose.time, train.time, alpha), speed: T.MathUtils.lerp(previousPose.speed, train.speed, alpha) });
     const pose = displayedTrain;
     world.update(pose);
+    const heave = T.MathUtils.lerp(previousPose.heave, train.ride.heave, alpha);
+    const pitch = T.MathUtils.lerp(previousPose.pitch, train.ride.pitch, alpha);
+    const surge = T.MathUtils.lerp(previousPose.surge, train.ride.surge, alpha);
     const speedFactor = pose.speed / 16.7;
-    camera.position.set(Math.sin(pose.time * 14.2) * .001 * speedFactor, 2.22 + Math.sin(pose.time * 10.1) * .0015 * speedFactor, 0);
-    const p = point(pose.s + 13, 0, 2.18);
-    look.set(p[0] - trackX(pose.s), p[1], p[2] + pose.s); camera.lookAt(look);
+    camera.position.set(trackX(pose.s + surge) - trackX(pose.s) + Math.sin(pose.time * 14.2) * .001 * speedFactor,
+      2.22 + heave + Math.sin(pose.time * 10.1) * .0015 * speedFactor, -surge);
+    const p = point(pose.s + surge + 13, 0, 2.18 + heave);
+    look.set(p[0] - trackX(pose.s), p[1], p[2] + pose.s); camera.lookAt(look); camera.rotateX(pitch);
     if (accessView) {
       const eye = point(pose.s, accessView.x, accessView.eyeHeight ?? 2.6), target = accessView.target ?? point(accessView.start + 13, accessView.x, 6.05);
       camera.position.set(eye[0] - trackX(pose.s), eye[1], eye[2] + pose.s);
@@ -123,7 +128,7 @@ async function start() {
       const now = timestamp, dt = Math.max(0, Math.min((now - last) / 1000, .1)); last = now;
       if (!document.hidden && !train.paused) {
         accumulator += dt * timeScale;
-        while (accumulator >= 1 / 60) { previousPose.s = train.s; previousPose.time = train.time; previousPose.speed = train.speed; train.step(1 / 60); accumulator -= 1 / 60; }
+        while (accumulator >= 1 / 60) { previousPose = capturePose(); train.step(1 / 60); accumulator -= 1 / 60; }
       }
       if (document.hidden || !cadence.take(now)) { requestAnimationFrame(frame); return; }
       diagnostics.frame(performance.now(), lastWork);

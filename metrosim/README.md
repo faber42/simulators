@@ -14,10 +14,18 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   Freigabe; 1,25 Sekunden später beschleunigt der Zug bis auf 60 km/h.
 - Zwei weitere Signale liegen auf dem Weg zur ersten Station. Die Kamera folgt
   der Strecke mit sehr dezenter, geschwindigkeitsabhängiger Vibration.
-- Der Zug bremst bis zum Halt neun Meter vor dem Bahnsteigende. Das Ausfahrsignal
+- Der Zug bremst bis zum Halt neun Meter vor dem Bahnsteigende. Im letzten
+  langsamen Abschnitt wird die Bremskraft sanft zurückgenommen. Der Wagenkasten
+  federt beim Halt geringfügig auf und ab und etwa 2–3 mm zurück; die Kamera
+  übernimmt diese gedämpfte Bewegung. Die Radposition bleibt am Haltepunkt.
+  Erst nach 1,15 Sekunden Beruhigungszeit beginnt die Türöffnung samt Anzeige.
+  Das Ausfahrsignal
   steht am Tunnelmund. Seine Freigabe hängt von einem eigenen Belegungszeitplan ab.
 - Türanzeige: 2 Sekunden Öffnen, 8 Sekunden offen, 2,8 Sekunden Schließen.
   Danach folgen 1,4 Sekunden Abfertigung und die Abfahrt mit geschlossenen Türen.
+  In den letzten 0,55 Sekunden der Vorbereitung löst die Bremse; erst danach
+  baut sich die Zugkraft über 0,8 Sekunden weich auf. Auch beim Anfahren reagiert
+  die Wagenfederung dezent auf die Beschleunigung.
   Das Signal kann schon während des Fahrgastwechsels grün werden, genau zur
   Abfahrt oder erst später. Bei Rot rollt der Zug vor und hält 4,5 Meter vor
   dem Signal erneut an. Nach etwa ein bis zwei Sekunden zusätzlicher Wartezeit
@@ -172,6 +180,10 @@ Zusätzlich werden der 30-FPS-Takt bei 60–240 Hz, die Behandlung von Hängern,
 die Messtoleranz und die Blickreaktion auf beiden Bahnsteigseiten geprüft.
 Signaltests prüfen frühe, gleichzeitige und verspätete Blockfreigaben, den
 zweiten Halt ohne Türöffnung und das Verbot, rote Signale zu überfahren.
+Weitere Fahrtests prüfen auslaufende Bremskraft, verzögerte Türöffnung,
+Beruhigung des Wagenkastens, Pause während des Nachfederns und das Lösen der
+Bremse vor dem sanften Kraftaufbau. Der einstündige Dauerlauf begrenzt außerdem
+die Auslenkung der Federung auf wenige Millimeter und sehr kleine Nickwinkel.
 Geometrische Strahltests durch die tatsächlich erzeugten Tunnel kontrollieren
 freie Portale, beide Gleiswege und die Enden der entfernten Nebenröhren.
 Strahltests in den oberen Treppen- und Rolltreppenräumen prüfen außerdem
@@ -207,9 +219,12 @@ Reproduzierbare Ansichten für visuelle QA:
 - `?view=junction&junction=0&offset=130`: freie Abzweigung rechts.
 - `?view=junction&junction=1&offset=130`: freie Abzweigung links.
 - `?view=junction&junction=5&offset=30&play=1`: Fahrt durch den gewählten Abzweig.
-- `?time=66&paused=1`: grüne Ausfahrt während des ersten Fahrgastwechsels.
-- `?time=155&paused=1`: zweiter Halt vor dem noch roten Museum-Ausfahrsignal.
-- `?time=155.8&paused=1`: grünes Ausfahrsignal, Zug wartet noch seine Reaktionszeit ab.
+- `?time=58.55&paused=1`: Nachfedern am ersten Halt, noch keine Türanzeige.
+- `?time=59.6&paused=1`: Türöffnung nach der Beruhigungsphase.
+- `?time=73.3&paused=1`: Bremse wird vor der ersten Stationsabfahrt gelöst.
+- `?time=68&paused=1`: grüne Ausfahrt während des ersten Fahrgastwechsels.
+- `?time=160.6&paused=1`: zweiter Halt vor dem noch roten Museum-Ausfahrsignal.
+- `?time=161.8&paused=1`: grünes Ausfahrsignal, Zug wartet noch seine Reaktionszeit ab.
 - `?rate=8`: beschleunigter Dauerlauf für die Prüfung mehrerer Stationen.
 - `?diagnostics=1`: Diagnoseoverlay bereits beim Öffnen einblenden.
 

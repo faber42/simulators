@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Train, station, stationAt, trackX, trackAngle, junctionAt, branchAt, takesBranch, exitSignal, exitReleaseOffset, signalSpecs, SIGNAL_CLEARANCE, SIGNAL_REACTION, STATIONS } from './route.mjs';
+import { Train, station, stationAt, trackX, trackAngle, junctionAt, branchAt, takesBranch, exitSignal, exitReleaseOffset, signalSpecs, SIGNAL_CLEARANCE, SIGNAL_REACTION, STATION_SETTLE, BRAKE_RELEASE, STATIONS } from './route.mjs';
 
 function advance(train, seconds, dt = 1 / 60) { for (let i = 0; i < Math.round(seconds / dt); i++) train.step(dt); }
 
@@ -50,15 +50,65 @@ test('complete endless service: stops at every station, interlocks doors, repeat
     train.step(1 / 60); phases.add(train.phase);
     assert.ok(train.s >= previousS, 'train must never reverse');
     assert.ok(train.speed >= 0 && train.speed <= 16.7, 'service speed limit');
-    if (train.doors || train.phase === 'dispatch') {
+    if (train.doors || ['settling', 'dispatch'].includes(train.phase)) {
       assert.equal(train.speed, 0); assert.equal(train.s, train.stop.stop);
     }
     if (train.visits !== previousVisit) { assert.equal(train.visits, previousVisit + 1); visited.add(train.next % STATIONS.length); }
     if (train.phase === 'running') assert.ok(Math.abs(train.speed - previousV) <= .92 / 60 + 1e-8, 'bounded acceleration/braking');
+    assert.ok(Math.abs(train.ride.heave) < .006 && Math.abs(train.ride.surge) < .005 && Math.abs(train.ride.pitch) < .003, 'body motion stays subtle throughout service');
     previousS = train.s; previousV = train.speed; previousVisit = train.visits;
   }
   assert.equal(visited.size, 6); assert.ok(train.visits > 40);
-  assert.deepEqual(phases, new Set(['signal', 'depart', 'running', 'opening', 'open', 'closing', 'dispatch', 'waiting']));
+  assert.deepEqual(phases, new Set(['signal', 'depart', 'running', 'settling', 'opening', 'open', 'closing', 'dispatch', 'waiting']));
+});
+
+test('brakes ease off before the stop, then the body settles before any door indication', () => {
+  const train = new Train();
+  Object.assign(train, { s: station(0).stop - 8, speed: 3.1, phase: 'running' });
+  let ordinaryBrake = 0, finalBrake = 0;
+  for (let i = 0; i < 1200 && train.phase !== 'settling'; i++) {
+    const speed = train.speed; train.step(1 / 60);
+    const braking = (speed - train.speed) * 60;
+    if (speed > .65 && speed < 1) ordinaryBrake = Math.max(ordinaryBrake, braking);
+    if (speed > .05 && speed < .15) finalBrake = Math.max(finalBrake, braking);
+  }
+  assert.equal(train.phase, 'settling'); assert.equal(train.speed, 0);
+  assert.ok(ordinaryBrake > .7 && finalBrake > 0 && finalBrake < ordinaryBrake * .7);
+  const stoppedAt = train.time, stopS = train.s;
+  advance(train, .2); assert.equal(train.doors, false);
+  train.paused = true; const frozen = train.snapshot();
+  advance(train, 5); assert.deepEqual(train.snapshot(), frozen); train.paused = false;
+  let minSurge = 0, maxHeave = 0;
+  while (train.phase === 'settling') {
+    assert.equal(train.doors, false); assert.equal(train.s, stopS);
+    minSurge = Math.min(minSurge, train.ride.surge); maxHeave = Math.max(maxHeave, train.ride.heave);
+    train.step(1 / 60);
+  }
+  assert.equal(train.phase, 'opening'); assert.equal(train.doors, true);
+  assert.ok(Math.abs(train.time - stoppedAt - STATION_SETTLE) < 1 / 60);
+  assert.ok(minSurge < -.002 && minSurge > -.003, 'the body rebounds by only two to three millimetres');
+  assert.ok(maxHeave > .0004 && maxHeave < .003, 'a restrained vertical settling movement remains visible');
+  assert.ok(Math.abs(train.ride.heave) < .0001 && Math.abs(train.ride.surge) < .00015, 'settled by door release');
+});
+
+test('closed-door departure releases the brake before smoothly building traction', () => {
+  const train = new Train();
+  Object.assign(train, { s: station(0).stop, next: 0, visits: 1, phase: 'closing', timer: 2.8 - 1 / 60 });
+  train.step(1 / 60); assert.equal(train.phase, 'dispatch');
+  const readyAt = train.tractionAt, releaseAt = train.brakeReleaseAt;
+  assert.ok(Math.abs(readyAt - releaseAt - BRAKE_RELEASE) < 1e-8);
+  while (train.time < releaseAt - 1 / 60) { train.step(1 / 60); assert.equal(train.speed, 0); assert.equal(train.brakeReleased, false); }
+  train.step(1 / 60); assert.equal(train.brakeReleased, true);
+  while (train.time < readyAt - 1 / 60) { train.step(1 / 60); assert.equal(train.speed, 0); assert.equal(train.doors, false); }
+  let earlyAcceleration = 0, laterAcceleration = 0;
+  for (let i = 0; i < 70; i++) {
+    const before = train.speed; train.step(1 / 60);
+    const acceleration = (train.speed - before) * 60;
+    if (train.time - readyAt < .2) earlyAcceleration = Math.max(earlyAcceleration, acceleration);
+    if (train.time - readyAt > .9) laterAcceleration = Math.max(laterAcceleration, acceleration);
+  }
+  assert.ok(earlyAcceleration > 0 && earlyAcceleration < .2);
+  assert.ok(laterAcceleration > .8 && laterAcceleration <= .92 + 1e-8);
 });
 
 test('pause freezes both the movement and door cycle', () => {

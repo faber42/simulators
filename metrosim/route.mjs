@@ -1,3 +1,5 @@
+import { Suspension } from './suspension.mjs';
+
 // Metres and seconds. The train uses a fixed integration step in app.js.
 export const BLOCK = 528;
 export const FIRST_STATION = 264;
@@ -5,6 +7,9 @@ export const PLATFORM_LENGTH = 120;
 export const DOOR_CYCLE = 2 + 8 + 2.8 + 1.4;
 export const SIGNAL_CLEARANCE = 4.5; // Keep the mast in the front camera's field of view.
 export const SIGNAL_REACTION = 1.25; // Release brakes after a standing signal wait.
+export const STATION_SETTLE = 1.15;
+export const BRAKE_RELEASE = .55;
+export const TRACTION_RAMP = .8;
 const smooth = (x, a, b) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const BRANCH_SHIFT = 24;
 // A small route choice table is kept separate from the scenery. Later a network
@@ -93,17 +98,23 @@ export function signalSpecs(from, to) {
   }
   return result.filter(signal => signal.s >= from && signal.s <= to).sort((a, b) => a.s - b.s);
 }
-export function exitReleaseOffset(index) { return [-6, 6.5, 0, 2.2, 6.9, -3][index % 6]; }
-function motion(speed, distance, dt) {
-  const target = Math.min(16.7, Math.sqrt(2 * .83 * Math.max(0, distance)));
-  const next = Math.max(0, Math.min(speed + Math.max(-.86 * dt, Math.min(.92 * dt, target - speed)), 16.7));
+export function exitReleaseOffset(index) { return [-6, 7, 0, 2.2, 7.4, -3][index % 6]; }
+function motion(speed, distance, dt, traction = 1) {
+  // Unload the brakes over the final low-speed approach. The two curves join
+  // with the same speed and deceleration, then braking tapers towards zero.
+  const gentleSpeed = .55, gentleDistance = 2 * gentleSpeed ** 2 / (3 * .83);
+  const d = Math.max(0, distance);
+  const target = Math.min(16.7, d < gentleDistance
+    ? gentleSpeed * (d / gentleDistance) ** (2 / 3)
+    : Math.sqrt(gentleSpeed ** 2 + 2 * .83 * (d - gentleDistance)));
+  const next = Math.max(0, Math.min(speed + Math.max(-.86 * dt, Math.min(.92 * traction * dt, target - speed)), 16.7));
   return { speed: next, advance: (speed + next) * .5 * dt };
 }
 function brakingArrival(speed, distance) {
   // Predict once when the preceding block enters the approach horizon. The
   // resulting release is a clock deadline, independent of later door phases.
   let elapsed = 0;
-  while (distance > .018 && elapsed < 90) {
+  while (distance > .0005 && elapsed < 90) {
     const next = motion(speed, distance, 1 / 30); speed = next.speed; distance -= next.advance; elapsed += 1 / 30;
   }
   return elapsed;
@@ -135,6 +146,7 @@ export class Train {
     this.s = 0; this.speed = 0; this.time = 0; this.phase = 'signal'; this.timer = 0;
     this.next = 0; this.paused = false; this.visits = 0; this.signals = new BlockSignals();
     this.pendingSignal = null; this.signalWaits = 0; this.signalReadyAt = null;
+    this.ride = new Suspension(); this.tractionAt = null; this.brakeReleaseAt = null; this.brakeReleased = false;
   }
   get stop() { return station(this.next); }
   get doors() { return ['opening', 'open', 'closing'].includes(this.phase); }
@@ -142,25 +154,42 @@ export class Train {
   get green() { return this.signals.isGreen(this.nextSignal, this.time); }
   step(dt) {
     if (this.paused) return;
+    const previousSpeed = this.speed;
     this.time += dt; this.timer += dt; this.signals.update(this);
+    this.advanceMotion(dt);
+    if (this.brakeReleaseAt !== null && !this.brakeReleased && this.time + 1e-8 >= this.brakeReleaseAt) {
+      this.brakeReleased = true; this.ride.release();
+    }
+    this.ride.step(dt, dt > 0 ? (this.speed - previousSpeed) / dt : 0);
+  }
+  prepareDeparture(readyAt) {
+    this.tractionAt = readyAt; this.brakeReleaseAt = readyAt - BRAKE_RELEASE; this.brakeReleased = false;
+  }
+  advanceMotion(dt) {
     if (this.phase === 'signal') {
-      if (this.green) { this.phase = 'depart'; this.timer = 0; }
+      if (this.green) { this.phase = 'depart'; this.timer = 0; this.prepareDeparture(this.time + SIGNAL_REACTION); }
       return;
     }
-    const transitions = { opening: [2, 'open'], open: [8, 'closing'], closing: [2.8, 'dispatch'], dispatch: [1.4, 'depart'] };
+    const transitions = { settling: [STATION_SETTLE, 'opening'], opening: [2, 'open'], open: [8, 'closing'], closing: [2.8, 'dispatch'], dispatch: [1.4, 'depart'] };
     if (transitions[this.phase]) {
       const [duration, phase] = transitions[this.phase];
       if (this.timer + 1e-8 >= duration) {
+        if (this.phase === 'settling') this.signals.arrive(this.next, this.time);
+        if (phase === 'dispatch') this.prepareDeparture(this.time + 1.4);
         if (this.phase === 'dispatch') this.next++;
         this.phase = phase; this.timer = 0;
       }
       return;
     }
     if (this.phase === 'waiting') {
-      if (!this.signals.isGreen(this.pendingSignal, this.time)) { this.signalReadyAt = null; return; }
+      if (!this.signals.isGreen(this.pendingSignal, this.time)) {
+        this.signalReadyAt = null; this.brakeReleaseAt = null; this.tractionAt = null; return;
+      }
       // Only a train that stopped at red needs this reaction/brake-release time.
       // Use simulation time so pausing cannot consume the delay.
-      this.signalReadyAt ??= this.time + SIGNAL_REACTION;
+      if (this.signalReadyAt === null) {
+        this.signalReadyAt = this.time + SIGNAL_REACTION; this.prepareDeparture(this.signalReadyAt);
+      }
       if (this.time + 1e-8 < this.signalReadyAt) return;
       this.pendingSignal = null; this.signalReadyAt = null; this.phase = 'depart'; this.timer = SIGNAL_REACTION;
     }
@@ -173,16 +202,19 @@ export class Train {
     const red = signalSpecs(this.s, this.stop.stop + SIGNAL_CLEARANCE).find(signal => !this.signals.isGreen(signal, this.time));
     const signalStop = red && red.s - SIGNAL_CLEARANCE < this.stop.stop;
     const stopS = signalStop ? red.s - SIGNAL_CLEARANCE : this.stop.stop, distance = Math.max(0, stopS - this.s);
-    const next = motion(this.speed, distance, dt); this.speed = next.speed;
-    if (next.advance >= distance || (distance < .018 && this.speed < .2)) {
+    const traction = this.tractionAt === null ? 1 : smooth(this.time - this.tractionAt, 0, TRACTION_RAMP);
+    const next = motion(this.speed, distance, dt, traction); this.speed = next.speed;
+    if (next.advance >= distance || (distance < .0005 && this.speed < .025)) {
       this.s = stopS; this.speed = 0; this.timer = 0;
+      this.ride.stop(); this.tractionAt = null; this.brakeReleaseAt = null; this.brakeReleased = false;
       if (signalStop) { this.phase = 'waiting'; this.pendingSignal = red; this.signalWaits++; }
-      else { this.phase = 'opening'; this.visits++; this.signals.arrive(this.next, this.time); }
+      else { this.phase = 'settling'; this.visits++; }
     } else this.s += next.advance;
   }
   snapshot() {
     const signal = this.nextSignal, j = junctionAt(this.s), release = this.signals.releases.get(signal.id);
-    return { distance: this.s, speedKmh: this.speed * 3.6, phase: this.phase, doors: this.doors,
+    return { distance: this.s, speedKmh: this.speed * 3.6, phase: this.phase, doors: this.doors, simulationTime: this.time,
+      bodyMotion: { heaveMm: this.ride.heave * 1000, surgeMm: this.ride.surge * 1000, pitchDegrees: this.ride.pitch * 180 / Math.PI },
       signal: this.green ? 'green' : 'red', nextSignal: { id: signal.id, distance: signal.s - this.s, releaseIn: release ? Math.max(0, release.at - this.time) : null },
       station: this.stop.name, stationIndex: this.next, platformSide: this.stop.side < 0 ? 'left' : 'right', visits: this.visits,
       paused: this.paused, signalWaits: this.signalWaits, routeChoice: j?.selectedEdge || 'through', junctionIndex: j?.index ?? null };
