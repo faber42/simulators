@@ -40,3 +40,11 @@ test('passengers on both sides turn to the incoming camera and release after it 
     }
   }
 });
+
+test('late-noticing passengers keep their original pose while others already look at the train', () => {
+  const base = { s: 305, x: -3.2, baseY: Math.PI / 2, phase: 1, height: 1, phone: true };
+  const early = { ...base, noticeDistance: 70 }, late = { ...base, noticeDistance: 18 };
+  assert.equal(passengerAttention(early, 275, 0).attention, 1);
+  assert.equal(passengerAttention(late, 275, 0).attention, 0);
+  assert.ok(passengerAttention(late, 297, 0).attention > .8);
+});

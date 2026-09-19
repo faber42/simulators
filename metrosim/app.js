@@ -20,8 +20,12 @@ async function start() {
   const materials = createMaterials();
   const world = new World(scene, materials), train = new Train();
   const query = new URLSearchParams(location.search);
-  const inspect = query.get('view') === 'station';
-  if (inspect) {
+  const inspect = ['station', 'junction'].includes(query.get('view'));
+  if (query.get('view') === 'junction') {
+    const index = Math.max(0, Math.min(10000, Math.floor(Number(query.get('junction')) || 0)));
+    train.next = index; train.s = station(index).start - 246 + T.MathUtils.clamp(Number(query.get('offset')) || 120, 0, 230);
+    train.phase = 'running'; train.paused = query.get('play') !== '1';
+  } else if (inspect) {
     const index = Math.max(0, Math.min(10000, Number(query.get('station')) || 0));
     const st = station(Math.floor(index)); train.next = st.index;
     const offset = Number(query.get('offset') ?? 20);
@@ -35,7 +39,7 @@ async function start() {
   const diagnostics = new FrameDiagnostics(60000, 30, 2), cadence = new FrameCadence(30);
   let previousPose = { s: train.s, time: train.time, speed: train.speed };
   const displayedTrain = {};
-  const phaseNames = { signal: 'SIGNALHALT', depart: 'FAHRT FREIGEGEBEN', running: 'AUTOMATIKBETRIEB', opening: 'STATIONSHALT', open: 'FAHRGASTWECHSEL', closing: 'TÜREN SCHLIESSEN', dispatch: 'ABFAHRT VORBEREITET' };
+  const phaseNames = { signal: 'SIGNALHALT', waiting: 'WARTEN AUF BLOCKFREIGABE', depart: 'AUSFAHRT', running: 'AUTOMATIKBETRIEB', opening: 'STATIONSHALT', open: 'FAHRGASTWECHSEL', closing: 'TÜREN SCHLIESSEN', dispatch: 'ABFAHRT VORBEREITET' };
   let exposure = 1.03, accumulator = 0, last = performance.now(), lastUI = -1, timeScale = T.MathUtils.clamp(Number(query.get('rate')) || 1, .25, 8), fps = 0, failure = false;
   function resize() { output.resize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
   window.addEventListener('resize', resize); resize();

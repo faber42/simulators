@@ -15,9 +15,18 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
 - Zwei weitere Signale liegen auf dem Weg zur ersten Station. Die Kamera folgt
   der Strecke mit sehr dezenter, geschwindigkeitsabhängiger Vibration.
 - Der Zug bremst bis zum Halt neun Meter vor dem Bahnsteigende. Das Ausfahrsignal
-  steht dahinter im Tunnel und bleibt während des Türzyklus rot.
+  steht am Tunnelmund. Seine Freigabe hängt von einem eigenen Belegungszeitplan ab.
 - Türanzeige: 2 Sekunden Öffnen, 8 Sekunden offen, 2,8 Sekunden Schließen.
-  Danach folgen Abfertigung, grünes Signal und die Weiterfahrt.
+  Danach folgen 1,4 Sekunden Abfertigung und die Abfahrt mit geschlossenen Türen.
+  Das Signal kann schon während des Fahrgastwechsels grün werden, genau zur
+  Abfahrt oder erst später. Bei Rot rollt der Zug vor und hält 4,5 Meter vor
+  dem Signal erneut an. Nach etwa ein bis zwei Sekunden zusätzlicher Wartezeit
+  wird der Block frei. Dieser Signalhalt öffnet keine Türen und zählt nicht
+  als weiterer Stationshalt. Manchmal erfolgt die Freigabe bereits beim Vorrollen.
+- Auch ausgewählte Tunnelsignale sind zunächst rot. Sie wechseln kurz vor dem
+  herannahenden Zug auf Grün. Der Zug berücksichtigt sie vorher in seiner
+  Bremskurve. Die Freigaben simulieren wechselnden Abstand zu einem vorausfahrenden
+  Zug; ein vollständiger Verkehr mehrerer Züge wird noch nicht berechnet.
 - Sechs Stationsvarianten wiederholen sich entlang einer endlos erzeugten
   Strecke: Rathaus, Museum, Westhafen, Opernplatz, Botanischer Garten und
   Zentralbahnhof. Farben, Krümmung, Bahnsteigseite und Zugänge variieren.
@@ -32,13 +41,20 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   beleuchteter Beschilderung. Die Röhre weitet sich für ein zweites Gleis links
   oder rechts. Es gibt sowohl Ausweichgleise mit Rückführung als auch
   Abzweigungen: Hinter einem doppelten Tunnelportal biegt das Nebengleis in
-  einer eigenen Röhre weiter ab. Der automatische Zug bleibt auf dem Hauptgleis.
+  einer eigenen Röhre weiter ab. Die ungewählte Röhre enthält Schienen, Kabel,
+  Laufstege und Leuchten und reicht 300 m hinter das Portal. Nach jeweils fünf,
+  sechs oder sieben Stationen nimmt der Zug selbst den Abzweig. Seine Strecke
+  führt kontinuierlich durch die gewählte Röhre bis zur nächsten Station.
+  Die Auswahl des Streckenastes ist von der Geometrie getrennt und kann später
+  von einer Netzroute bestimmt werden.
 - Fahrgäste bestehen aus jeweils einem zusammengefassten Skelettmodell mit
   geformten Körperkonturen, Gesichtern und Kleidung. Einige warten, sehen aufs
   Telefon oder verlagern ihr Gewicht; andere gehen kurze Wege am Bahnsteig.
   Köpfe besitzen Kiefer, Kinn, Wangen, Augenhöhlen und eine geformte Haaroberfläche.
   Wartende reagieren auf die einfahrende Bahn, drehen Oberkörper und Kopf zu
-  ihr und senken ihr Telefon. Nach der Vorbeifahrt kehren sie zur Wartehaltung zurück.
+  ihr und senken ihr Telefon. Manche bemerken die Bahn früh, andere erst in
+  14–31 m Entfernung; am Telefon ist eine spätere Reaktion häufiger. Nach der
+  Vorbeifahrt kehren sie zur Wartehaltung zurück.
 
 ## Tastatur
 
@@ -99,7 +115,7 @@ ein pausierter, weiterhin sichtbarer Simulator misst seine Renderleistung weiter
 
 ## Prüfung und Diagnose
 
-`node --test metrosim/route.test.mjs metrosim/diagnostics.test.mjs metrosim/crowd.test.mjs metrosim/presentation.test.mjs` prüft Freigabe,
+`node --test metrosim/route.test.mjs metrosim/diagnostics.test.mjs metrosim/crowd.test.mjs metrosim/presentation.test.mjs metrosim/tunnel.test.mjs` prüft Freigabe,
 Bremsen, Türverriegelung, Pause, Stationsübergänge, Weichenabschnitte und eine
 Stunde durchgehenden Betrieb. Die Diagnoseprüfungen decken konstante FPS,
 lange Hänger, die gleitende Fenstergrenze und ausgeblendete Tabs ab. Die
@@ -107,6 +123,10 @@ Fahrgastprüfung kontrolliert gültige Geometrie, Knochengewichte, Kopfbewegung
 und genau einen Zeichenaufruf für den Körper jedes Fahrgasts.
 Zusätzlich werden der 30-FPS-Takt bei 60–240 Hz, die Behandlung von Hängern,
 die Messtoleranz und die Blickreaktion auf beiden Bahnsteigseiten geprüft.
+Signaltests prüfen frühe, gleichzeitige und verspätete Blockfreigaben, den
+zweiten Halt ohne Türöffnung und das Verbot, rote Signale zu überfahren.
+Geometrische Strahltests durch die tatsächlich erzeugten Tunnel kontrollieren
+freie Portale, beide Gleiswege und die Enden der entfernten Nebenröhren.
 
 In der Browser-Konsole: `METROSIM.snapshot()`, `METROSIM.pause()`,
 `METROSIM.setSpeed(4)`, `METROSIM.advance(60)`, `METROSIM.inspectStation(1, 20)`
@@ -118,10 +138,11 @@ Reproduzierbare Ansichten für visuelle QA:
 - `?view=station&station=1&offset=60`: rechter, gekrümmter Bahnsteig mit Aufzug.
 - `?view=station&station=0&offset=43`: seitlicher Verbindungsgang links.
 - `?view=station&station=1&offset=46`: Verbindungsgang rechts und wartende Fahrgäste.
-- `?time=19&paused=1`: verbreiterter Tunnel mit zweitem Gleis.
-- `?time=24&paused=1`: getrennte Tunnelportale mit Abzweigung rechts.
-- `?time=90&paused=1`: getrennte Tunnelportale mit Abzweigung links.
-- `?time=52&paused=1`: erster Halt mit offenen Türen.
+- `?view=junction&junction=0&offset=130`: freie Abzweigung rechts.
+- `?view=junction&junction=1&offset=130`: freie Abzweigung links.
+- `?view=junction&junction=5&offset=30&play=1`: Fahrt durch den gewählten Abzweig.
+- `?time=66&paused=1`: grüne Ausfahrt während des ersten Fahrgastwechsels.
+- `?time=155&paused=1`: zweiter Halt vor dem noch roten Museum-Ausfahrsignal.
 - `?rate=8`: beschleunigter Dauerlauf für die Prüfung mehrerer Stationen.
 - `?diagnostics=1`: Diagnoseoverlay bereits beim Öffnen einblenden.
 
