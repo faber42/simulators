@@ -141,6 +141,10 @@ ein pausierter, weiterhin sichtbarer Simulator misst seine Renderleistung weiter
   Die Wände und Decken an den Aufgängen teilen sich exakte Querschnitte an den
   Abschnittsgrenzen. Obere Wände beginnen an der Oberkante der Stationswand;
   überlappende Sichtflächen an Wänden, Decken und Podesten werden vermieden.
+  Auch die Stirnflächen über der ersten Stufe schließen ohne Überdeckung an:
+  Der Türsturz liegt zwischen den Seitenwänden, alle enden unter dem Dach.
+  Helle Türen mit Milchglasfeldern und eigener Beleuchtung machen den oberen
+  Abschluss des Aufgangs auch vom Zug aus erkennbar.
   Die Geometriekoordinaten sind lokal zum Abschnitt, damit auch lange Fahrten
   nicht durch große GPU-Koordinaten instabil werden.
 - Die Szene ist eine prozedurale Echtzeitdarstellung. Die Fahrgäste sind
@@ -162,7 +166,8 @@ Geometrische Strahltests durch die tatsächlich erzeugten Tunnel kontrollieren
 freie Portale, beide Gleiswege und die Enden der entfernten Nebenröhren.
 Strahltests in den oberen Treppen- und Rolltreppenräumen prüfen außerdem
 geschlossene Wände, Decken und Podeste sowie freie Kopfhöhe auf dem Aufgang.
-Dabei müssen die sichtbaren Wand-, Decken- und Podestflächen jeweils eindeutig
+Dabei müssen die sichtbaren Wand-, Decken- und Podestflächen sowie die
+Stirnflächen am vorderen Deckenanschluss jeweils eindeutig
 sein, um Z-Fighting durch doppelte Geometrie zu verhindern. Kollisionstests
 prüfen Wartende, Gegenverkehr, kreuzende Wege, große Zeitschritte sowie die
 tatsächlich erzeugten Fahrgastgruppen mehrerer Stationen.
@@ -181,6 +186,8 @@ Reproduzierbare Ansichten für visuelle QA:
 - `?view=station&station=1&offset=46`: Verbindungsgang rechts und wartende Fahrgäste.
 - `?view=station&station=2&offset=18`: blaue Kreismotive in Westhafen.
 - `?view=station&station=5&offset=18`: weiße Kacheln in Zentralbahnhof.
+- `?view=access&station=0`: Prüfblick vom Treppenfuß bis zum oberen Abschluss.
+- `?view=access&station=2&kind=escalator`: entsprechender Blick die Rolltreppe hinauf.
 - `?time=38`: Einfahrt mit beginnenden Gehwegen der Fahrgäste.
 - `?view=junction&junction=0&offset=130`: freie Abzweigung rechts.
 - `?view=junction&junction=1&offset=130`: freie Abzweigung links.

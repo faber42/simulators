@@ -20,11 +20,19 @@ async function start() {
   const materials = createMaterials();
   const world = new World(scene, materials), train = new Train();
   const query = new URLSearchParams(location.search);
-  const inspect = ['station', 'junction'].includes(query.get('view'));
+  const inspect = ['station', 'junction', 'access'].includes(query.get('view'));
+  let accessView = null;
   if (query.get('view') === 'junction') {
     const index = Math.max(0, Math.min(10000, Math.floor(Number(query.get('junction')) || 0)));
     train.next = index; train.s = station(index).start - 246 + T.MathUtils.clamp(Number(query.get('offset')) || 120, 0, 230);
     train.phase = 'running'; train.paused = query.get('play') !== '1';
+  } else if (query.get('view') === 'access') {
+    const index = Math.max(0, Math.min(10000, Math.floor(Number(query.get('station')) || 0)));
+    const st = station(index), escalator = query.get('kind') === 'escalator';
+    accessView = { start: st.start + (escalator ? 78 : 36), x: st.side * (escalator ? 5.55 : 5.75) };
+    const offset = Number(query.get('offset') ?? -2);
+    train.next = index; train.s = accessView.start + T.MathUtils.clamp(Number.isFinite(offset) ? offset : -2, -8, 0);
+    train.phase = 'running'; train.paused = true;
   } else if (inspect) {
     const index = Math.max(0, Math.min(10000, Number(query.get('station')) || 0));
     const st = station(Math.floor(index)); train.next = st.index;
@@ -83,6 +91,11 @@ async function start() {
     camera.position.set(Math.sin(pose.time * 14.2) * .001 * speedFactor, 2.22 + Math.sin(pose.time * 10.1) * .0015 * speedFactor, 0);
     const p = point(pose.s + 13, 0, 2.18);
     look.set(p[0] - trackX(pose.s), p[1], p[2] + pose.s); camera.lookAt(look);
+    if (accessView) {
+      const eye = point(pose.s, accessView.x, 2.6), target = point(accessView.start + 13, accessView.x, 6.05);
+      camera.position.set(eye[0] - trackX(pose.s), eye[1], eye[2] + pose.s);
+      look.set(target[0] - trackX(pose.s), target[1], target[2] + pose.s); camera.lookAt(look);
+    }
     const headPoint = point(pose.s + 33, 0, .65); headlights.target.position.set(headPoint[0] - trackX(pose.s), .65, -33);
     const st = stationAt(pose.s + 8);
     const targetExposure = st ? .89 : 1.14;

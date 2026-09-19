@@ -86,6 +86,13 @@ test('stair and escalator rooms enclose the entire ceiling opening without block
       const header = between(point(start - .1, x, 4.5), point(start - .1, x, 6));
       assert.equal(header.filter(h => Math.abs(h.distance - .54) < .01).length, 1,
         'the access header must not duplicate the platform ceiling underside');
+      for (const [lateral, y] of [[4.43, 4.98], [4.35, 6.1], [4.35, 7.78], [7.2, 6.1]]) {
+        const from = point(start - 1.1, st.side * lateral, y), corner = point(start, st.side * lateral, y);
+        const distance = new T.Vector3(...from).distanceTo(new T.Vector3(...corner));
+        const cornerHits = between(from, point(start + .5, st.side * lateral, y));
+        assert.equal(cornerHits.filter(h => Math.abs(h.distance - distance) < .01).length, 1,
+          `access front corner ${lateral}/${y}: wall, header and roof must share a single exposed cap`);
+      }
       const walkX = st.side * (offset === 78 ? 5.55 : 5.75);
       const headHeight = rel => (offset === 78 ? Math.min(4.62, .95 + rel * .5) : Math.min(4.75, 1.1 + rel * .155 / .3)) + 1.75;
       for (let rel = .2; rel < 13; rel += .4) {

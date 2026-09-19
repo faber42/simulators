@@ -105,6 +105,10 @@ export function createMaterials() {
   // borrowing the much lower platform lights or adding moving light slots.
   m.accessWall = infrastructureLighting(new T.MeshStandardMaterial({ map: m.tiles.map, color: '#e5e4da', roughness: .63 }), { lampX: 5.75, lampY: 7.4 });
   m.accessCeiling = infrastructureLighting(new T.MeshStandardMaterial({ map: m.concrete.map, color: '#b6b8ad', roughness: .86 }), { lampX: 5.75, lampY: 7.4 });
+  // Light painted doors and opaque frosted panes remain legible from below.
+  // The lift's dark reflective glass looked like an unbuilt hole up here.
+  m.accessDoor = infrastructureLighting(new T.MeshStandardMaterial({ color: '#b8c4bb', roughness: .55, metalness: .1 }), { lampX: 5.75, lampY: 7.4 });
+  m.accessGlazing = infrastructureLighting(new T.MeshStandardMaterial({ color: '#d2e1db', roughness: .48, emissive: '#a2bab1', emissiveIntensity: .12 }), { lampX: 5.75, lampY: 7.4 });
   for (const finish of ['soot', 'limestone', 'brick', 'chalk']) textured(finish, finish, { roughness: finish === 'chalk' ? .72 : .95 });
   m.tunnel = s => m[tunnelFinish(s)];
   const walls = new Map();

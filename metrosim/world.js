@@ -165,14 +165,15 @@ function escalator(b, m, s, side) {
 function accessEnclosure(b, m, s, side, rel, escalator = false) {
   const floor = escalator ? 4.62 : 4.75;
   const centre = side * 5.815;
-  b.sweptBox(m.accessWall, s, s + 3, side * 4.38, 6.06, .24, 3.58);
+  // The front caps form disjoint rectangles: side walls stop under the roof,
+  // and the header fits between their inner faces. An overlapping fascia here
+  // used to flicker at the exposed corner directly above the first step.
+  b.sweptBox(m.accessWall, s, s + 3, side * 4.38, 5.985, .24, 3.43);
   // The platform wall ends at 5.15 m. Continue exactly above it, never cover
   // the same face with a second material in the 4.27–5.15 m band.
-  b.sweptBox(m.accessWall, s, s + 3, side * 7.23, 6.495, .2, 2.69);
+  b.sweptBox(m.accessWall, s, s + 3, side * 7.23, 6.425, .2, 2.55);
   b.sweptBox(m.accessCeiling, s, s + 3, centre, 7.82, 3.2, .24);
-  // Visible slab edges tie the higher room into the platform's lower ceiling.
-  b.sweptBox(m.concrete, s, s + 3, side * 4.38, 5.08, .31, .31);
-  if (rel === 0) b.sweptBox(m.accessWall, s, s + .2, centre, 6.58, 3.2, 2.52);
+  if (rel === 0) b.sweptBox(m.accessWall, s, s + .2, centre, 6.51, 2.63, 2.38);
   if (rel >= 6) {
     const start = Math.max(0, 7.05 - rel);
     b.sweptBox(m.concrete, s + start, s + 3, centre, floor - .18, 2.88, .29);
@@ -185,7 +186,8 @@ function accessEnclosure(b, m, s, side, rel, escalator = false) {
     // exposing unbuilt space beyond the station. It faces back down the steps.
     b.box(m.steel, end - .15, centre, floor + 1.17, 1.92, 2.34, .08);
     for (const dx of [-.44, .44]) {
-      b.box(m.glass, end - .2, centre + dx, floor + 1.14, .83, 2.2, .035);
+      b.box(m.accessDoor, end - .2, centre + dx, floor + 1.14, .83, 2.2, .035);
+      b.box(m.accessGlazing, end - .224, centre + dx, floor + 1.62, .59, .72, .014);
       b.box(m.steel, end - .24, centre + Math.sign(dx) * .12, floor + 1.02, .032, .36, .055);
     }
     panel(b, m.sign('↑  Ausgang', 'exit'), end - .21, centre, floor + 2.66, 1.86, .36);
