@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Train, station, stationAt, trackX, trackAngle, junctionAt, branchAt, takesBranch, exitSignal, exitReleaseOffset, signalSpecs, SIGNAL_CLEARANCE, STATIONS } from './route.mjs';
+import { Train, station, stationAt, trackX, trackAngle, junctionAt, branchAt, takesBranch, exitSignal, exitReleaseOffset, signalSpecs, SIGNAL_CLEARANCE, SIGNAL_REACTION, STATIONS } from './route.mjs';
 
 function advance(train, seconds, dt = 1 / 60) { for (let i = 0; i < Math.round(seconds / dt); i++) train.step(dt); }
 
@@ -9,6 +9,38 @@ test('starts at red, clears before any movement, then accelerates', () => {
   advance(train, 5); assert.equal(train.s, 0); assert.equal(train.green, false);
   advance(train, .6); assert.equal(train.phase, 'depart'); assert.equal(train.green, true); assert.equal(train.s, 0);
   advance(train, 2); assert.ok(train.speed > 0); assert.ok(train.s > 0); assert.equal(train.doors, false);
+});
+
+test('standing trains react to green after a short delay that freezes on pause', () => {
+  for (const kind of ['initial', 'exit', 'block']) {
+    const train = new Train();
+    const signal = kind === 'initial' ? train.nextSignal : kind === 'exit' ? exitSignal(0)
+      : signalSpecs(station(1).start - 172, station(1).start).find(s => s.kind === 'block');
+    if (kind !== 'initial') {
+      Object.assign(train, { s: signal.s - SIGNAL_CLEARANCE, next: 1, visits: 1, phase: 'waiting', pendingSignal: signal });
+      train.signals.releases.set(signal.id, { s: signal.s, at: .5 });
+    }
+    const stoppedAt = train.s;
+    while (!train.signals.isGreen(signal, train.time)) train.step(1 / 60);
+    const greenAt = train.time;
+    advance(train, .5);
+    assert.equal(train.s, stoppedAt, `${kind}: no immediate start on green`);
+    assert.equal(train.speed, 0);
+    train.paused = true;
+    const pausedAt = train.time;
+    advance(train, 10);
+    assert.equal(train.time, pausedAt);
+    assert.equal(train.s, stoppedAt);
+    train.paused = false;
+    while (train.s === stoppedAt && train.time - greenAt < 3) {
+      train.step(1 / 60);
+      if (train.time - greenAt < SIGNAL_REACTION - 1e-8) assert.equal(train.speed, 0);
+    }
+    assert.ok(train.s > stoppedAt, `${kind}: service resumes`);
+    assert.ok(train.time - greenAt >= SIGNAL_REACTION - 1e-8);
+    assert.ok(train.time - greenAt <= SIGNAL_REACTION + 2 / 60 + 1e-8);
+    assert.equal(train.doors, false);
+  }
 });
 
 test('complete endless service: stops at every station, interlocks doors, repeats all variants', () => {
@@ -90,7 +122,7 @@ test('exit blocks release before, during and after departure without bypassing d
       if (train.phase === 'depart' && !departed) { departed = true; departureAspect = green; }
       if (!green) assert.ok(train.s <= signal.s - SIGNAL_CLEARANCE + 1e-8, 'cannot cross a red block boundary');
       if (train.phase === 'waiting') {
-        waited = true; waitSeconds += 1 / 60;
+        waited = true; if (!green) waitSeconds += 1 / 60;
         assert.equal(train.speed, 0); assert.equal(train.doors, false);
         assert.equal(train.s, signal.s - SIGNAL_CLEARANCE); assert.ok(train.s < station(index).end);
       }

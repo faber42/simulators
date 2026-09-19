@@ -4,6 +4,7 @@ export const FIRST_STATION = 264;
 export const PLATFORM_LENGTH = 120;
 export const DOOR_CYCLE = 2 + 8 + 2.8 + 1.4;
 export const SIGNAL_CLEARANCE = 4.5; // Keep the mast in the front camera's field of view.
+export const SIGNAL_REACTION = 1.25; // Release brakes after a standing signal wait.
 const smooth = (x, a, b) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const BRANCH_SHIFT = 24;
 // A small route choice table is kept separate from the scenery. Later a network
@@ -133,7 +134,7 @@ export class Train {
   constructor() {
     this.s = 0; this.speed = 0; this.time = 0; this.phase = 'signal'; this.timer = 0;
     this.next = 0; this.paused = false; this.visits = 0; this.signals = new BlockSignals();
-    this.pendingSignal = null; this.signalWaits = 0;
+    this.pendingSignal = null; this.signalWaits = 0; this.signalReadyAt = null;
   }
   get stop() { return station(this.next); }
   get doors() { return ['opening', 'open', 'closing'].includes(this.phase); }
@@ -156,11 +157,15 @@ export class Train {
       return;
     }
     if (this.phase === 'waiting') {
-      if (!this.signals.isGreen(this.pendingSignal, this.time)) return;
-      this.pendingSignal = null; this.phase = 'depart'; this.timer = 1.25;
+      if (!this.signals.isGreen(this.pendingSignal, this.time)) { this.signalReadyAt = null; return; }
+      // Only a train that stopped at red needs this reaction/brake-release time.
+      // Use simulation time so pausing cannot consume the delay.
+      this.signalReadyAt ??= this.time + SIGNAL_REACTION;
+      if (this.time + 1e-8 < this.signalReadyAt) return;
+      this.pendingSignal = null; this.signalReadyAt = null; this.phase = 'depart'; this.timer = SIGNAL_REACTION;
     }
     if (this.phase === 'depart') {
-      if (this.visits === 0 && this.timer < 1.25) return;
+      if (this.visits === 0 && this.timer < SIGNAL_REACTION) return;
       if (this.s > (this.next ? exitSignal(this.next - 1).s : 11)) this.phase = 'running';
     }
     // A closed-door departure may roll towards a red exit, but never cross it.

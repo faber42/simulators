@@ -22,7 +22,10 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   Abfahrt oder erst später. Bei Rot rollt der Zug vor und hält 4,5 Meter vor
   dem Signal erneut an. Nach etwa ein bis zwei Sekunden zusätzlicher Wartezeit
   wird der Block frei. Dieser Signalhalt öffnet keine Türen und zählt nicht
-  als weiterer Stationshalt. Manchmal erfolgt die Freigabe bereits beim Vorrollen.
+  als weiterer Stationshalt. Nach dem Wechsel auf Grün bleibt ein vor dem Signal
+  stehender Zug noch 1,25 Sekunden stehen, bevor die Bremsen gelöst werden und er
+  anfährt. Diese Reaktionszeit wird mit der Simulation pausiert. Manchmal erfolgt
+  die Freigabe bereits beim Vorrollen; dann fährt der Zug ohne zusätzlichen Halt.
 - Auch ausgewählte Tunnelsignale sind zunächst rot. Sie wechseln kurz vor dem
   herannahenden Zug auf Grün. Der Zug berücksichtigt sie vorher in seiner
   Bremskurve. Die Freigaben simulieren wechselnden Abstand zu einem vorausfahrenden
@@ -194,6 +197,7 @@ Reproduzierbare Ansichten für visuelle QA:
 - `?view=junction&junction=5&offset=30&play=1`: Fahrt durch den gewählten Abzweig.
 - `?time=66&paused=1`: grüne Ausfahrt während des ersten Fahrgastwechsels.
 - `?time=155&paused=1`: zweiter Halt vor dem noch roten Museum-Ausfahrsignal.
+- `?time=155.8&paused=1`: grünes Ausfahrsignal, Zug wartet noch seine Reaktionszeit ab.
 - `?rate=8`: beschleunigter Dauerlauf für die Prüfung mehrerer Stationen.
 - `?diagnostics=1`: Diagnoseoverlay bereits beim Öffnen einblenden.
 
