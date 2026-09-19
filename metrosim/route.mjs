@@ -31,12 +31,12 @@ function itineraryOffset(s) {
   return offset;
 }
 export const STATIONS = [
-  { name: 'Rathaus', color: '#477c78', side: -1, curve: 0, feature: 'escalator' },
-  { name: 'Museum', color: '#b89862', side: 1, curve: 1, feature: 'lift' },
-  { name: 'Westhafen', color: '#688ba1', side: 1, curve: -1, feature: 'escalator' },
-  { name: 'Opernplatz', color: '#9b6154', side: -1, curve: .65, feature: 'lift' },
-  { name: 'Botanischer Garten', color: '#7c8c63', side: 1, curve: 0, feature: 'escalator' },
-  { name: 'Zentralbahnhof', color: '#a19a8d', side: -1, curve: -.8, feature: 'lift' },
+  { name: 'Rathaus', color: '#428780', wallStyle: 'solid', side: -1, curve: 0, feature: 'escalator' },
+  { name: 'Museum', color: '#c09552', wallStyle: 'diagonal', side: 1, curve: 1, feature: 'lift' },
+  { name: 'Westhafen', color: '#427b9e', wallStyle: 'circles', side: 1, curve: -1, feature: 'escalator' },
+  { name: 'Opernplatz', color: '#ad5947', wallStyle: 'solid', side: -1, curve: .65, feature: 'lift' },
+  { name: 'Botanischer Garten', color: '#7c8c63', wallStyle: 'band', side: 1, curve: 0, feature: 'escalator' },
+  { name: 'Zentralbahnhof', color: '#eeeee7', wallStyle: 'white', side: -1, curve: -.8, feature: 'lift' },
 ];
 export function station(index) {
   const style = STATIONS[((index % STATIONS.length) + STATIONS.length) % STATIONS.length];

@@ -30,6 +30,10 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
 - Sechs Stationsvarianten wiederholen sich entlang einer endlos erzeugten
   Strecke: Rathaus, Museum, Westhafen, Opernplatz, Botanischer Garten und
   Zentralbahnhof. Farben, Krümmung, Bahnsteigseite und Zugänge variieren.
+  Rathaus und Opernplatz haben durchgehend farbige Keramikwände in Türkis bzw.
+  Terrakotta. Museum verwendet ockerfarbene Diagonalen, Westhafen blaue Kreise.
+  Botanischer Garten behält das horizontale Band; Zentralbahnhof ist weiß.
+  Kachelformate und Kopfwandgestaltung passen zur jeweiligen Variante.
 - Die Bahnsteige haben Säulen, Bänke, taktile Sicherheitsstreifen, abstrakte
   Werbeplakate, Stationsnamen und Anzeigen mit „Zug fährt ein“. Jede Station
   besitzt eine feste, massive Treppe sowie eine Rolltreppe oder einen Aufzug.
@@ -38,7 +42,11 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   seitlichen, beleuchteten Verbindungsgang mit einer Ecke und Beschilderung
   zur Gegenrichtung.
 - Im Tunnel gibt es Notausgangstüren mit Podest, Rahmen, Panikstange und
-  beleuchteter Beschilderung. Die Röhre weitet sich für ein zweites Gleis links
+  beleuchteter Beschilderung. Feste Bauabschnitte von 96 bzw. 144 m wechseln
+  zwischen dunklem verrußtem Beton, hellen Betonsegmenten, braunem Mauerwerk,
+  altem Sichtbeton und hellem Anstrich. Die Unterschiede gehören zum Material
+  und bleiben unabhängig von Kameraposition und Beleuchtung erhalten.
+  Die Röhre weitet sich für ein zweites Gleis links
   oder rechts. Es gibt sowohl Ausweichgleise mit Rückführung als auch
   Abzweigungen: Hinter einem doppelten Tunnelportal biegt das Nebengleis in
   einer eigenen Röhre weiter ab. Die ungewählte Röhre enthält Schienen, Kabel,
@@ -55,6 +63,14 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   ihr und senken ihr Telefon. Manche bemerken die Bahn früh, andere erst in
   14–31 m Entfernung; am Telefon ist eine spätere Reaktion häufiger. Nach der
   Vorbeifahrt kehren sie zur Wartehaltung zurück.
+  Etwa 58 % haben die Absicht einzusteigen: Sie reagieren zeitversetzt auf die
+  Einfahrt, gehen mit 0,86–1,23 m/s in Richtung der Halteposition und anschließend
+  näher an die Bahnsteigkante. Am vorderen Ende gehen sie dafür ein Stück zurück.
+  Die Wege bleiben hinter dem taktilen Streifen und führen innen an den Säulen
+  vorbei. Schrittlänge, Armbewegung, Anlaufen und Abbremsen folgen dem tatsächlich
+  zurückgelegten Weg. Am Ziel wenden sich die Fahrgäste wieder zur Bahn.
+  Andere warten weiter oder gehen unabhängig davon kurze Wege. Die Simulation
+  zeigt das Annähern; ein Einsteigen in unsichtbare Waggons wird nicht dargestellt.
 
 ## Tastatur
 
@@ -115,7 +131,7 @@ ein pausierter, weiterhin sichtbarer Simulator misst seine Renderleistung weiter
 
 ## Prüfung und Diagnose
 
-`node --test metrosim/route.test.mjs metrosim/diagnostics.test.mjs metrosim/crowd.test.mjs metrosim/presentation.test.mjs metrosim/tunnel.test.mjs` prüft Freigabe,
+`node --test metrosim/route.test.mjs metrosim/diagnostics.test.mjs metrosim/crowd.test.mjs metrosim/presentation.test.mjs metrosim/tunnel.test.mjs metrosim/boarding.test.mjs` prüft Freigabe,
 Bremsen, Türverriegelung, Pause, Stationsübergänge, Weichenabschnitte und eine
 Stunde durchgehenden Betrieb. Die Diagnoseprüfungen decken konstante FPS,
 lange Hänger, die gleitende Fenstergrenze und ausgeblendete Tabs ab. Die
@@ -127,6 +143,8 @@ Signaltests prüfen frühe, gleichzeitige und verspätete Blockfreigaben, den
 zweiten Halt ohne Türöffnung und das Verbot, rote Signale zu überfahren.
 Geometrische Strahltests durch die tatsächlich erzeugten Tunnel kontrollieren
 freie Portale, beide Gleiswege und die Enden der entfernten Nebenröhren.
+Die Gehwegtests prüfen Abstand zu Kante und Säulen, Gehgeschwindigkeit,
+Pause, Ankunft am Wartepunkt und sichtbare Bewegung während einer Zug-Einfahrt.
 
 In der Browser-Konsole: `METROSIM.snapshot()`, `METROSIM.pause()`,
 `METROSIM.setSpeed(4)`, `METROSIM.advance(60)`, `METROSIM.inspectStation(1, 20)`
@@ -138,6 +156,9 @@ Reproduzierbare Ansichten für visuelle QA:
 - `?view=station&station=1&offset=60`: rechter, gekrümmter Bahnsteig mit Aufzug.
 - `?view=station&station=0&offset=43`: seitlicher Verbindungsgang links.
 - `?view=station&station=1&offset=46`: Verbindungsgang rechts und wartende Fahrgäste.
+- `?view=station&station=2&offset=18`: blaue Kreismotive in Westhafen.
+- `?view=station&station=5&offset=18`: weiße Kacheln in Zentralbahnhof.
+- `?time=38`: Einfahrt mit beginnenden Gehwegen der Fahrgäste.
 - `?view=junction&junction=0&offset=130`: freie Abzweigung rechts.
 - `?view=junction&junction=1&offset=130`: freie Abzweigung links.
 - `?view=junction&junction=5&offset=30&play=1`: Fahrt durch den gewählten Abzweig.

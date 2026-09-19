@@ -3,6 +3,7 @@ import { point, trackX, trackAngle, stationAt, station, junctionAt, branchAt, si
 import { random } from './materials.js';
 import { Crowd } from './crowd.js';
 import { passengerAttention } from './attention.mjs';
+import { boardingPlan, boardingPose } from './boarding.mjs';
 
 const box = new T.BoxGeometry(1, 1, 1).toNonIndexed();
 const plane = new T.PlaneGeometry(1, 1).toNonIndexed();
@@ -80,7 +81,7 @@ function tunnelRing(b, m, s, width, rib = false, branch = false) {
     }
     for (let j = 0; j < arch.length - 1; j++) { const far = j + arch.length; indices.push(j, far, j + 1, j + 1, far, far + 1); }
     const indexed = new T.BufferGeometry(); indexed.setAttribute('position', new T.Float32BufferAttribute(positions, 3)); indexed.setAttribute('normal', new T.Float32BufferAttribute(normals, 3)); indexed.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); indexed.setIndex(indices);
-    const geometry = indexed.toNonIndexed(); b.add(geometry, m.concrete, s, 0, 0, [1, 1, 1]); geometry.dispose(); indexed.dispose(); return;
+    const geometry = indexed.toNonIndexed(); b.add(geometry, m.tunnel(s), s, 0, 0, [1, 1, 1]); geometry.dispose(); indexed.dispose(); return;
   }
   for (let j = 0; j < arch.length - 1; j++) {
     const a = [profile(arch[j][0], s), arch[j][1]];
@@ -100,7 +101,7 @@ function forkPortal(b, m, s, junction) {
     hole.closePath(); shape.holes.push(hole);
   }
   const indexed = new T.ExtrudeGeometry(shape, { depth: .55, bevelEnabled: false, curveSegments: 24 });
-  b.add(indexed, m.concrete, s, 0, 0, [1, 1, 1]); indexed.dispose();
+  b.add(indexed, m.tunnel(s), s, 0, 0, [1, 1, 1]); indexed.dispose();
   tunnelRing(b, m, s + .6, .2, true); tunnelRing(b, m, s + .6, .2, true, true);
 }
 function panel(b, material, s, x, y, w, h, facing = 0) { b.add(plane, material, s, x, y, [w, h, 1], [0, facing, 0]); }
@@ -294,7 +295,7 @@ export class World {
         if (s % 144 === 0) emergencyExit(b, m, s + 4.5);
         if (s % 96 === 0) panel(b, m.sign(String(((Math.floor(s / 12) % 32) + 32) % 32).padStart(3, '0')), s + .5, -2.84 - left, 1.74, .38, .2, Math.PI / 2);
       } else {
-        const side = st.side, accent = m.palette(st.color);
+        const side = st.side, accent = m.palette(st.color), wall = m.stationWall(st);
         const rel = s - st.start;
         const stairwell = rel >= 36 && rel <= 48 || st.feature === 'escalator' && rel >= 78 && rel <= 90;
         b.box(m.concrete, s + 1.5, side * 4.42, .34, 5.56, 1.05, 3.01);
@@ -304,15 +305,15 @@ export class World {
         for (let z = s; z < s + 3; z += .18) for (const dx of [1.86, 1.99, 2.12]) b.box(m.yellow, z, side * dx, .969, .037, .01, .045);
         b.box(m.dark, s + 1.5, side * 1.66, .55, .025, .16, 3.01);
         const passageOpening = st.passage && rel >= 54 && rel < 60;
-        if (passageOpening) b.box(m.tiles, s + 1.5, side * 7.23, 4.5, .2, 1.3, 3.02);
+        if (passageOpening) b.box(wall, s + 1.5, side * 7.23, 4.5, .2, 1.3, 3.02);
         else {
-          b.box(m.tiles, s + 1.5, side * 7.23, 3.03, .2, 4.24, 3.02);
-          b.box(accent, s + 1.5, side * 7.105, 2.6, .03, .64, 3.02);
+          b.box(wall, s + 1.5, side * 7.23, 3.03, .2, 4.24, 3.02);
+          if (st.wallStyle === 'band') b.box(accent, s + 1.5, side * 7.105, 2.6, .03, .64, 3.02);
           b.box(m.dark, s + 1.5, side * 7.11, 1.08, .035, .24, 3.02);
         }
         // The wall opposite the platform remains close to the track.
-        b.box(m.tiles, s + 1.5, -side * 2.93, 2.3, .25, 5, 3.02);
-        b.box(accent, s + 1.5, -side * 2.79, 2.18, .028, .58, 3.02);
+        b.box(wall, s + 1.5, -side * 2.93, 2.3, .25, 5, 3.02);
+        if (st.wallStyle === 'band') b.box(accent, s + 1.5, -side * 2.79, 2.18, .028, .58, 3.02);
         b.box(m.concrete, s + 1.5, -side * 2.48, .22, .66, .5, 3.02);
         b.box(m.dark, s + 1.5, -side * 2.79, .74, .06, .1, 3.02);
         b.box(m.ceiling, s + 1.5, side * (stairwell ? .65 : 2.1), 5.18, stairwell ? 7.5 : 10.4, .28, 3.03);
@@ -359,7 +360,7 @@ export class World {
     for (let i = Math.max(0, Math.floor((base - FIRST_STATION) / BLOCK) - 1); i <= Math.floor((base + 24 - FIRST_STATION) / BLOCK) + 1; i++) {
       const st = station(i);
       for (const end of [st.start, st.end]) if (end >= base && end < base + 24) {
-        b.box(m.palette(st.color), end, st.side * 5.19, 2.6, 4.33, 5.2, .4);
+        b.box(st.wallStyle === 'solid' || st.wallStyle === 'white' ? m.stationWall(st) : m.tiles, end, st.side * 5.19, 2.6, 4.33, 5.2, .4);
         b.box(m.concrete, end, 0, 5.02, 6.12, .42, .4);
         tunnelRing(b, m, end, .55);
         // Spandrels fill the wall above the curved opening, avoiding black gaps.
@@ -412,6 +413,13 @@ export class World {
     Object.assign(p, { s, x, shadow, phase: rng() * Math.PI * 2, pace: .65 + rng() * .5, walker: rng() > .8 });
     const attentionRng = random(Math.floor(s * 997) ^ Math.floor(x * 101));
     p.noticeDistance = attentionRng() < (p.phone ? .7 : .35) ? 14 + attentionRng() * 17 : 43 + attentionRng() * 32;
+    const boardingRng = random(Math.floor(s * 1337) ^ Math.floor(x * 391));
+    if (boardingRng() < .58) {
+      const reserved = [...this.chunks.values(), chunk].flatMap(c => c.people)
+        .filter(other => other.journey).map(other => other.journey.path.at(-1));
+      p.journey = boardingPlan(s, x, stationAt(s), boardingRng, reserved);
+      p.walker = false;
+    }
     chunk.people.push(p);
   }
   update(train) {
@@ -442,37 +450,45 @@ export class World {
         signal.glow.position.copy(signal.lights[green ? 1 : 0].position); signal.glow.material.color.set(green ? '#72ffa0' : '#ff361b');
       }
       for (const p of chunk.people) {
-        p.person.visible = p.s - train.s < 140 && p.s - train.s > -18;
+        const t = train.time * p.pace + p.phase;
+        const journey = p.journey ? boardingPose(p.journey, train) : null;
+        p.boardingMoving = journey?.moving || false;
+        p.boardingDistance = journey?.distance || 0;
+        const walkS = journey?.s ?? (p.walker ? p.s + Math.sin(t * .24) * 2.3 : p.s);
+        const walkX = journey?.x ?? p.x;
+        p.person.visible = walkS - train.s < 140 && walkS - train.s > -18;
         p.shadow.visible = p.person.visible;
         if (!p.person.visible) continue;
-        const t = train.time * p.pace + p.phase, walking = p.walker;
-        const reaction = passengerAttention(p, train.s, train.time);
+        const walking = journey ? journey.amount : p.walker ? 1 : 0;
+        const stridePhase = journey ? journey.distance * 5.2 : t * 3;
+        const edgeYaw = (walkX < 0 ? Math.PI / 2 : -Math.PI / 2) - trackAngle(walkS);
+        const baseY = p.baseY + Math.atan2(Math.sin(edgeYaw - p.baseY), Math.cos(edgeYaw - p.baseY)) * (journey?.settle || 0);
+        const reaction = passengerAttention({ ...p, s: walkS, x: walkX, baseY }, train.s, train.time);
+        const idleYaw = reaction.bodyYaw + Math.sin(t * .31) * .04 * (1 - reaction.attention);
+        let bodyYaw = idleYaw;
+        if (journey) {
+          const blend = journey.turn * (1 - journey.settle);
+          bodyYaw += Math.atan2(Math.sin(journey.yaw - bodyYaw), Math.cos(journey.yaw - bodyYaw)) * blend;
+        } else if (p.walker) bodyYaw = Math.PI * T.MathUtils.smoothstep(Math.cos(t * .24), -.13, .13) - trackAngle(walkS);
+        p.person.rotation.y = bodyYaw;
+        const wp = point(walkS, walkX, p.rootY), op = point(chunk.base);
+        p.person.position.set(wp[0] - op[0], p.rootY, wp[2] - op[2]);
+        p.shadow.position.x = p.person.position.x; p.shadow.position.z = p.person.position.z;
         p.body.rotation.z = Math.sin(t * 1.3) * .018;
-        p.head.rotation.y = reaction.headYaw;
+        const headTurn = reaction.headYaw + reaction.bodyYaw - bodyYaw;
+        p.head.rotation.y = T.MathUtils.clamp(Math.atan2(Math.sin(headTurn), Math.cos(headTurn)), -.95, .95);
         p.head.rotation.x = reaction.pitch;
-        p.body.position.y = p.hipHeight + (walking ? Math.abs(Math.sin(t * 3)) * .012 : Math.sin(t * 1.7) * .003);
+        p.body.position.y = p.hipHeight + Math.abs(Math.sin(stridePhase)) * .014 * walking + Math.sin(t * 1.7) * .003 * (1 - walking);
         for (let i = 0; i < 2; i++) {
-          const stride = Math.sin(t * 3 + i * Math.PI);
-          p.legs[i].pivot.rotation.x = walking ? stride * .32 : Math.sin(t * .6 + i) * .025;
-          p.legs[i].shin.rotation.x = walking ? Math.max(0, -stride) * .38 : .015;
-          if (!(i === 1 && p.phone)) { p.arms[i].pivot.rotation.x = walking ? -stride * .23 : Math.sin(t + i) * .05; p.arms[i].forearm.rotation.x = -.1 + Math.sin(t * .7) * .065; }
+          const stride = Math.sin(stridePhase + i * Math.PI);
+          p.legs[i].pivot.rotation.x = stride * .38 * walking + Math.sin(t * .6 + i) * .025 * (1 - walking);
+          p.legs[i].shin.rotation.x = Math.max(0, -stride) * .43 * walking + .015 * (1 - walking);
+          if (!(i === 1 && p.phone)) { p.arms[i].pivot.rotation.x = -stride * .24 * walking + Math.sin(t + i) * .05 * (1 - walking); p.arms[i].forearm.rotation.x = -.1 + Math.sin(t * .7) * .065; }
         }
         if (p.phone) {
           p.arms[1].pivot.rotation.x = -.35 * (1 - reaction.attention);
           p.arms[1].forearm.rotation.x = -1.26 + reaction.attention * .92;
         }
-        if (walking) {
-          // Short pacing paths stay behind the tactile strip and inside each station.
-          const walkS = p.s + Math.sin(t * .24) * 2.3;
-          const wp = point(walkS, p.x, p.rootY), op = point(chunk.base);
-          p.person.position.set(wp[0] - op[0], p.rootY, wp[2] - op[2]);
-          const turn = Math.cos(t * .24);
-          const walkingYaw = Math.PI * T.MathUtils.smoothstep(turn, -.13, .13) - trackAngle(walkS);
-          const walkingReaction = passengerAttention({ ...p, s: walkS, baseY: walkingYaw }, train.s, train.time);
-          p.person.rotation.y = walkingYaw;
-          p.head.rotation.y = T.MathUtils.clamp(walkingReaction.headYaw + walkingReaction.bodyYaw - walkingYaw, -.95, .95);
-          p.shadow.position.x = p.person.position.x; p.shadow.position.z = p.person.position.z;
-        } else p.person.rotation.y = reaction.bodyYaw + Math.sin(t * .31) * .04 * (1 - reaction.attention);
       }
     }
     const lamps = [...this.chunks.values()].flatMap(c => c.lamps).filter(l => l.s - train.s > -12 && l.s - train.s < 72 && Math.abs(l.x) < 14);
@@ -488,5 +504,11 @@ export class World {
     });
     this.updateMs = performance.now() - start;
   }
-  stats() { return { chunks: this.chunks.size, passengers: [...this.chunks.values()].reduce((n, c) => n + c.people.length, 0), signals: [...this.chunks.values()].reduce((n, c) => n + c.signals.length, 0) }; }
+  stats() {
+    const people = [...this.chunks.values()].flatMap(c => c.people);
+    return { chunks: this.chunks.size, passengers: people.length,
+      boardingWalking: people.filter(p => p.boardingMoving).length,
+      boardingMetres: Math.round(people.reduce((n, p) => n + (p.boardingDistance || 0), 0) * 10) / 10,
+      signals: [...this.chunks.values()].reduce((n, c) => n + c.signals.length, 0) };
+  }
 }

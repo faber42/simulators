@@ -1,5 +1,6 @@
 import * as T from '../pinsim/three.module.min.js';
 import { infrastructureLighting } from './lighting.js';
+import { tunnelFinish } from './scenery.mjs';
 
 export function random(seed) { let n = seed | 0; return () => { n = Math.imul(n ^ n >>> 15, 1 | n); n ^= n + Math.imul(n ^ n >>> 7, 61 | n); return ((n ^ n >>> 14) >>> 0) / 4294967296; }; }
 function canvasTexture(draw, w = 512, h = 512) {
@@ -11,7 +12,8 @@ function canvasTexture(draw, w = 512, h = 512) {
 function surface(kind) {
   return canvasTexture((c, w, h) => {
     const rng = random(372 + kind.length);
-    const base = { concrete: [112, 113, 106], floor: [142, 145, 136], tiles: [180, 184, 169], ballast: [65, 61, 54], metal: [107, 111, 107] }[kind];
+    const base = { concrete: [112, 113, 106], floor: [142, 145, 136], tiles: [180, 184, 169], ballast: [65, 61, 54], metal: [107, 111, 107],
+      soot: [78, 82, 81], limestone: [173, 171, 153], brick: [112, 83, 66], chalk: [192, 198, 187] }[kind];
     const img = c.createImageData(w, h);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const p = (y * w + x) * 4;
@@ -28,7 +30,7 @@ function surface(kind) {
       for (let x = 0; x <= w; x += step) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke(); }
       c.strokeStyle = '#ffffff26'; c.lineWidth = 1;
       for (let x = 2; x < w; x += step) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke(); }
-    } else if (kind === 'concrete') {
+    } else if (['concrete', 'soot', 'limestone', 'chalk'].includes(kind)) {
       for (let i = 0; i < 70; i++) {
         const x = rng() * w, y = rng() * h, width = 1 + rng() * 22;
         const g = c.createLinearGradient(0, y, 0, y + 100 + rng() * 180);
@@ -37,8 +39,50 @@ function surface(kind) {
       }
       c.fillStyle = '#34372e70'; c.fillRect(0, 0, w, 3);
       for (const x of [16, 496]) for (const y of [18, 494]) { c.beginPath(); c.ellipse(x, y, 3, 3, 0, 0, 7); c.fill(); }
+      if (kind === 'limestone' || kind === 'chalk') {
+        c.fillStyle = '#323a343d'; c.fillRect(w / 2, 0, 2, h);
+        c.fillRect(0, h / 2, w, 2);
+      }
+    } else if (kind === 'brick') {
+      // Staggered masonry joints and individual fired-brick colour variation.
+      for (let row = 0; row < 8; row++) for (let col = -1; col < 4; col++) {
+        const x = col * 128 + (row % 2) * 64, y = row * 64;
+        c.fillStyle = rng() > .5 ? '#efc79a15' : '#201a191c'; c.fillRect(x + 3, y + 3, 122, 58);
+        c.strokeStyle = '#292724a0'; c.lineWidth = 3; c.strokeRect(x, y, 128, 64);
+        c.fillStyle = '#c8b3913a'; c.fillRect(x + 3, y + 3, 122, 2);
+      }
     }
   });
+}
+
+function stationSurface(st) {
+  return canvasTexture((c, w, h) => {
+    const rng = random(618 + st.wallStyle.length);
+    c.fillStyle = st.wallStyle === 'solid' ? st.color : '#dedfd6';
+    if (st.wallStyle === 'white') c.fillStyle = st.color;
+    c.fillRect(0, 0, w, h);
+    c.fillStyle = st.color; c.strokeStyle = st.color;
+    if (st.wallStyle === 'diagonal') {
+      // Periodic broad diagonals meet at the edges of each three-metre panel.
+      for (let x = -w * 2; x <= w * 3; x += w) {
+        c.beginPath(); c.moveTo(x, 0); c.lineTo(x + w * .42, 0);
+        c.lineTo(x + w * .42 - h * .55, h); c.lineTo(x - h * .55, h); c.closePath(); c.fill();
+      }
+    } else if (st.wallStyle === 'circles') {
+      c.lineWidth = 21; c.beginPath(); c.arc(w / 2, h * .52, 117, 0, Math.PI * 2); c.stroke();
+      c.globalAlpha = .5; c.beginPath(); c.arc(w / 2, h * .52, 76, 0, Math.PI * 2); c.stroke(); c.globalAlpha = 1;
+    }
+    // Fine ceramic joints continue through the coloured glaze/mural.
+    const tileW = st.wallStyle === 'solid' ? 32 : 48, tileH = st.wallStyle === 'solid' ? 80 : 64;
+    for (let y = 0; y < h; y += tileH) for (let x = 0; x < w; x += tileW) {
+      c.fillStyle = rng() > .5 ? '#ffffff08' : '#101b1b07'; c.fillRect(x, y, tileW, tileH);
+      c.strokeStyle = '#24342b38'; c.lineWidth = 1.2; c.strokeRect(x, y, tileW, tileH);
+      c.fillStyle = '#ffffff19'; c.fillRect(x + 2, y + 2, tileW - 3, 1);
+    }
+    const dirt = c.createLinearGradient(0, h * .75, 0, h);
+    dirt.addColorStop(0, '#25291f00'); dirt.addColorStop(1, '#25291f28');
+    c.fillStyle = dirt; c.fillRect(0, 0, w, h);
+  }, 384, 640);
 }
 export function createMaterials() {
   const m = {};
@@ -56,6 +100,17 @@ export function createMaterials() {
   textured('ballast', 'ballast', { roughness: 1, bumpScale: .08 });
   textured('sleeper', 'concrete', { color: '#88867e' });
   textured('ceiling', 'concrete', { color: '#737871' });
+  for (const finish of ['soot', 'limestone', 'brick', 'chalk']) textured(finish, finish, { roughness: finish === 'chalk' ? .72 : .95 });
+  m.tunnel = s => m[tunnelFinish(s)];
+  const walls = new Map();
+  m.stationWall = st => {
+    const key = st.wallStyle + st.color;
+    if (!walls.has(key)) {
+      const map = stationSurface(st); map.wrapS = map.wrapT = T.RepeatWrapping;
+      walls.set(key, infrastructureLighting(new T.MeshStandardMaterial({ map, roughness: st.wallStyle === 'solid' ? .43 : .6 })));
+    }
+    return walls.get(key);
+  };
   const standard = (name, color, opts = {}) => m[name] = new T.MeshStandardMaterial({ color, roughness: .72, ...opts });
   standard('dark', '#171d1e'); standard('rubber', '#232724');
   standard('railSide', '#756955', { metalness: .72, roughness: .63 });

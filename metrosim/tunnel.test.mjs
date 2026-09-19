@@ -12,7 +12,8 @@ globalThis.document = { createElement: () => ({ getContext: () => ({
 function fixture() {
   const scene = new T.Scene(), material = new T.MeshStandardMaterial();
   const materials = new Proxy({ shadow: new T.Texture(), glow: new T.Texture(), sign: () => material,
-    palette: () => material, posters: Array(6).fill(material) }, { get: (o, key) => o[key] ?? material });
+    palette: () => material, tunnel: () => material, stationWall: () => material,
+    posters: Array(6).fill(material) }, { get: (o, key) => o[key] ?? material });
   return { scene, world: new World(scene, materials) };
 }
 test('both portal openings and the rail paths are free of stray tunnel faces', () => {
