@@ -43,7 +43,11 @@ export function createMaterials() {
   const m = {};
   const textured = (name, kind, opts = {}) => {
     const map = surface(kind); map.wrapS = map.wrapT = T.RepeatWrapping;
-    m[name] = new T.MeshStandardMaterial({ map, bumpMap: map, bumpScale: .025, roughness: .86, ...opts });
+    // Keep high-frequency colour grain out of the normal perturbation: it
+    // shimmered under moving point lights and changed with texture mip levels.
+    const bumpMap = canvasTexture((c, w, h) => { c.filter = 'blur(10px)'; c.drawImage(map.image, 0, 0, w, h); });
+    bumpMap.colorSpace = T.NoColorSpace; bumpMap.wrapS = bumpMap.wrapT = T.RepeatWrapping;
+    m[name] = new T.MeshStandardMaterial({ map, bumpMap, bumpScale: .012, roughness: .9, ...opts });
   };
   textured('concrete', 'concrete', { color: '#a0a498' });
   textured('floor', 'floor', { color: '#a5a69a', roughness: .66, bumpScale: .012 });

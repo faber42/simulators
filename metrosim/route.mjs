@@ -32,6 +32,14 @@ export function trackX(s) {
   return base + local;
 }
 export function trackAngle(s) { return Math.atan2(trackX(s + .1) - trackX(s - .1), .2); }
+export function junctionAt(s) {
+  const index = Math.max(0, Math.ceil((s - FIRST_STATION) / BLOCK));
+  const start = station(index).start - 246, end = start + 180;
+  if (s < start || s > end) return null;
+  const smooth = (x, a, b) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  return { start, end, extraWidth: 3.8 * smooth(s, start, start + 18) * (1 - smooth(s, end - 18, end)),
+    branchX: 3.6 * smooth(s, start + 18, start + 60) * (1 - smooth(s, end - 60, end - 18)) };
+}
 export function point(s, x = 0, y = 0) {
   const a = trackAngle(s);
   return [trackX(s) + x * Math.cos(a), y, -s + x * Math.sin(a)];

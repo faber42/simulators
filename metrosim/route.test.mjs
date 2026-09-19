@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Train, station, stationAt, trackX, trackAngle, STATIONS } from './route.mjs';
+import { Train, station, stationAt, trackX, trackAngle, junctionAt, STATIONS } from './route.mjs';
 
 function advance(train, seconds, dt = 1 / 60) { for (let i = 0; i < Math.round(seconds / dt); i++) train.step(dt); }
 
@@ -52,4 +52,19 @@ test('station boundaries and continuous curved track', () => {
 test('integration remains consistent at different simulation tick rates', () => {
   const a = new Train(), b = new Train(); advance(a, 35, 1 / 60); advance(b, 35, 1 / 120);
   assert.ok(Math.abs(a.s - b.s) < .5); assert.ok(Math.abs(a.speed - b.speed) < .05);
+});
+
+test('passing loops stay clear of stations and have continuous widening and turnouts', () => {
+  for (let i = 0; i < 12; i++) {
+    const st = station(i), start = st.start - 246, end = start + 180;
+    assert.equal(junctionAt(st.start + 20), null);
+    assert.equal(junctionAt(start).branchX, 0); assert.equal(junctionAt(end).branchX, 0);
+    for (let s = start; s <= end; s += .25) {
+      const j = junctionAt(s);
+      assert.ok(j.branchX >= 0 && j.branchX <= 3.6);
+      assert.ok(j.extraWidth + .001 >= j.branchX, 'full train envelope fits beside the running track');
+      const next = junctionAt(s + .01);
+      if (next) assert.ok(Math.abs(next.branchX - j.branchX) < .002);
+    }
+  }
 });
