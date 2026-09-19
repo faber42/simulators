@@ -13,7 +13,7 @@ export const STATIONS = [
 export function station(index) {
   const style = STATIONS[((index % STATIONS.length) + STATIONS.length) % STATIONS.length];
   const start = FIRST_STATION + index * BLOCK;
-  return { ...style, index, start, end: start + PLATFORM_LENGTH, stop: start + PLATFORM_LENGTH - 9 };
+  return { ...style, index, start, end: start + PLATFORM_LENGTH, stop: start + PLATFORM_LENGTH - 9, passage: index % 3 !== 2 };
 }
 export function stationAt(s) {
   const st = station(Math.floor((s - FIRST_STATION) / BLOCK));
@@ -34,11 +34,18 @@ export function trackX(s) {
 export function trackAngle(s) { return Math.atan2(trackX(s + .1) - trackX(s - .1), .2); }
 export function junctionAt(s) {
   const index = Math.max(0, Math.ceil((s - FIRST_STATION) / BLOCK));
-  const start = station(index).start - 246, end = start + 180;
+  const start = station(index).start - 246, fork = index % 4 < 2;
+  const end = start + (fork ? 222 : 180), split = start + 132, side = index % 2 === 0 ? 1 : -1;
   if (s < start || s > end) return null;
   const smooth = (x, a, b) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-  return { start, end, extraWidth: 3.8 * smooth(s, start, start + 18) * (1 - smooth(s, end - 18, end)),
-    branchX: 3.6 * smooth(s, start + 18, start + 60) * (1 - smooth(s, end - 60, end - 18)) };
+  const separation = fork
+    ? 3.6 * smooth(s, start + 18, start + 60) + 16 * (Math.max(0, s - start - 84) / 96) ** 2
+    : 3.6 * smooth(s, start + 18, start + 60) * (1 - smooth(s, end - 60, end - 18));
+  const extraWidth = fork
+    ? (s < split ? Math.max(3.8, separation + .4) * smooth(s, start, start + 18) : 0)
+    : 3.8 * smooth(s, start, start + 18) * (1 - smooth(s, end - 18, end));
+  return { index, start, end, split, fork, side, extraWidth, leftWidth: side < 0 ? extraWidth : 0,
+    rightWidth: side > 0 ? extraWidth : 0, branchX: side * separation, separate: fork && s >= split };
 }
 export function point(s, x = 0, y = 0) {
   const a = trackAngle(s);

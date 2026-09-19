@@ -2,6 +2,7 @@ import * as T from '../pinsim/three.module.min.js';
 import { point, trackX, trackAngle, stationAt, station, junctionAt, BLOCK, FIRST_STATION } from './route.mjs';
 import { random } from './materials.js';
 import { Crowd } from './crowd.js';
+import { passengerAttention } from './attention.mjs';
 
 const box = new T.BoxGeometry(1, 1, 1).toNonIndexed();
 const plane = new T.PlaneGeometry(1, 1).toNonIndexed();
@@ -15,7 +16,7 @@ class Batch {
   constructor(base) { this.base = base; this.origin = point(base); this.data = new Map(); }
   add(geometry, material, s, x, y, scale, rotation = [0, 0, 0]) {
     let data = this.data.get(material);
-    if (!data) { data = { p: [], n: [], uv: [] }; this.data.set(material, data); }
+    if (!data) { data = { p: [], n: [], uv: [], light: [], span: [] }; this.data.set(material, data); }
     const p = point(s, x, y);
     euler.set(rotation[0], -trackAngle(s) + rotation[1], rotation[2], 'YXZ'); quat.setFromEuler(euler);
     const a = trackAngle(s), bend = (trackAngle(s + .1) - trackAngle(s - .1)) / .2;
@@ -23,9 +24,18 @@ class Batch {
     matrix.compose(new T.Vector3(p[0] - this.origin[0], y, p[2] - this.origin[2]), quat, new T.Vector3(scale[0], scale[1], scale[2] * lengthScale));
     normalMatrix.getNormalMatrix(matrix);
     const pos = geometry.attributes.position, ns = geometry.attributes.normal, uv = geometry.attributes.uv;
+    const lit = material.userData.infrastructure, stationSide = lit ? stationAt(s)?.side || 0 : 0;
     for (let i = 0; i < pos.count; i++) {
       vector.fromBufferAttribute(pos, i).applyMatrix4(matrix); normal.fromBufferAttribute(ns, i).applyMatrix3(normalMatrix).normalize();
       data.p.push(vector.x, vector.y, vector.z); data.n.push(normal.x, normal.y, normal.z); data.uv.push(uv.getX(i), uv.getY(i));
+      if (lit) {
+        const vertexS = this.base - vector.z, junction = junctionAt(vertexS);
+        let lateral = vector.x + this.origin[0] - trackX(vertexS);
+        const inBranch = junction?.separate && Math.abs(lateral - junction.branchX) < Math.abs(lateral);
+        if (inBranch) lateral -= junction.branchX;
+        data.light.push(lateral, vector.y, ((this.base % BLOCK) + BLOCK) % BLOCK + vertexS - this.base, stationSide);
+        data.span.push(inBranch ? 0 : junction?.leftWidth || 0, inBranch ? 0 : junction?.rightWidth || 0);
+      }
     }
   }
   box(material, s, x, y, w, h, d, rotation) { this.add(box, material, s, x, y, [w, h, d], rotation); }
@@ -33,6 +43,7 @@ class Batch {
     for (const [material, d] of this.data) {
       const g = new T.BufferGeometry();
       g.setAttribute('position', new T.Float32BufferAttribute(d.p, 3)); g.setAttribute('normal', new T.Float32BufferAttribute(d.n, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(d.uv, 2)); g.computeBoundingSphere();
+      if (d.light.length) { g.setAttribute('lightCoord', new T.Float32BufferAttribute(d.light, 4)); g.setAttribute('lightSpan', new T.Float32BufferAttribute(d.span, 2)); }
       group.add(new T.Mesh(g, material));
       yield;
     }
@@ -43,16 +54,25 @@ const arch = [[-3.05, -.32], [-3.05, 1.65]];
 for (let i = 1; i <= 24; i++) { const a = Math.PI - Math.PI * i / 24; arch.push([Math.cos(a) * 3.05, 1.65 + Math.sin(a) * 3.05]); }
 arch.push([3.05, -.32]);
 
-function tunnelRing(b, m, s, width, rib = false, extraWidth = 0) {
+function tunnelRing(b, m, s, width, rib = false, branch = false) {
+  const centre = junctionAt(s);
+  const profile = (x, at) => {
+    // Keep the common chamber open all the way to the double portal. It must
+    // not taper back across the diverging rails at the last segment.
+    const sample = centre?.fork && !centre.separate ? Math.min(at, centre.split - .001) : at;
+    const j = junctionAt(sample);
+    if (branch) return x + (j?.branchX || 0);
+    return x + (j?.rightWidth || 0) * (x + 3.05) / 6.1 - (j?.leftWidth || 0) * (3.05 - x) / 6.1;
+  };
   if (!rib) {
     const positions = [], normals = [], uv = [], indices = [];
     for (let end = 0; end < 2; end++) {
       const z = end === 0 ? width / 2 : -width / 2;
-      const extra = junctionAt(s - z)?.extraWidth || 0;
+      const extra = branch ? 0 : centre?.extraWidth || 0;
       for (let j = 0; j < arch.length; j++) {
         const [x, y] = arch[j], nx = -x / 3.05 / (1 + extra / 6.1), ny = y <= 1.65 ? 0 : -(y - 1.65) / 3.05;
         const length = Math.hypot(nx, ny);
-        positions.push(x + extra * (x + 3.05) / 6.1, y, z);
+        positions.push(profile(x, s - z), y, z);
         normals.push(nx / length, ny / length, 0); uv.push(j / 4, end * width / 2);
       }
     }
@@ -61,12 +81,25 @@ function tunnelRing(b, m, s, width, rib = false, extraWidth = 0) {
     const geometry = indexed.toNonIndexed(); b.add(geometry, m.concrete, s, 0, 0, [1, 1, 1]); geometry.dispose(); indexed.dispose(); return;
   }
   for (let j = 0; j < arch.length - 1; j++) {
-    const a = [arch[j][0] + extraWidth * (arch[j][0] + 3.05) / 6.1, arch[j][1]];
-    const c = [arch[j + 1][0] + extraWidth * (arch[j + 1][0] + 3.05) / 6.1, arch[j + 1][1]], dx = c[0] - a[0], dy = c[1] - a[1];
+    const a = [profile(arch[j][0], s), arch[j][1]];
+    const c = [profile(arch[j + 1][0], s), arch[j + 1][1]], dx = c[0] - a[0], dy = c[1] - a[1];
     const len = Math.hypot(dx, dy);
     const midX = (a[0] + c[0]) / 2, midY = (a[1] + c[1]) / 2;
     b.box(rib ? m.dark : m.concrete, s, midX + (rib ? dy / len * .086 : 0), midY - (rib ? dx / len * .086 : 0), len + .025, rib ? .018 : .16, width, [0, 0, Math.atan2(dy, dx)]);
   }
+}
+function forkPortal(b, m, s, junction) {
+  const x = junction.branchX, low = Math.min(0, x) - 3.25, high = Math.max(0, x) + 3.25;
+  const shape = new T.Shape();
+  shape.moveTo(low, -.45); shape.lineTo(high, -.45); shape.lineTo(high, 5.25); shape.lineTo(low, 5.25); shape.closePath();
+  for (const centre of [0, x]) {
+    const hole = new T.Path();
+    arch.forEach(([ax, y], i) => i === 0 ? hole.moveTo(ax + centre, y) : hole.lineTo(ax + centre, y));
+    hole.closePath(); shape.holes.push(hole);
+  }
+  const indexed = new T.ExtrudeGeometry(shape, { depth: .55, bevelEnabled: false, curveSegments: 24 });
+  b.add(indexed, m.concrete, s, 0, 0, [1, 1, 1]); indexed.dispose();
+  tunnelRing(b, m, s + .6, .2, true); tunnelRing(b, m, s + .6, .2, true, true);
 }
 function panel(b, material, s, x, y, w, h, facing = 0) { b.add(plane, material, s, x, y, [w, h, 1], [0, facing, 0]); }
 function bench(b, m, s, side) {
@@ -111,19 +144,20 @@ function escalator(b, m, s, side) {
   b.box(m.ceiling, s + 4.1, x, 7.8, 2.8, .2, 10.2);
 }
 function emergencyExit(b, m, s) {
-  b.box(m.concrete, s, -2.66, .23, 1.15, .35, 2.25);
-  b.box(m.dark, s, -2.86, 1.56, .3, 2.5, 1.65);
-  b.box(m.palette('#5d7770'), s, -2.675, 1.54, .065, 2.14, 1.21);
-  for (const dz of [-.68, .68]) b.box(m.steel, s + dz, -2.6, 1.55, .11, 2.36, .09);
-  b.box(m.steel, s, -2.6, 2.7, .11, .09, 1.45);
-  b.box(m.steel, s, -2.61, .41, .12, .065, 1.45);
-  b.box(m.steel, s, -2.53, 1.38, .08, .055, .72);
-  panel(b, m.sign('NOTAUSGANG →', 'exit'), s, -2.56, 2.97, 1.56, .32, Math.PI / 2);
-  b.box(m.coolLamp, s, -2.43, 3.12, .12, .04, .55);
-  b.box(m.palette('#8b4237'), s + 1.06, -2.69, 1.36, .3, .64, .35);
+  const shift = -(junctionAt(s)?.leftWidth || 0);
+  b.box(m.concrete, s, shift - 2.66, .23, 1.15, .35, 2.25);
+  b.box(m.dark, s, shift - 2.86, 1.56, .3, 2.5, 1.65);
+  b.box(m.palette('#5d7770'), s, shift - 2.675, 1.54, .065, 2.14, 1.21);
+  for (const dz of [-.68, .68]) b.box(m.steel, s + dz, shift - 2.6, 1.55, .11, 2.36, .09);
+  b.box(m.steel, s, shift - 2.6, 2.7, .11, .09, 1.45);
+  b.box(m.steel, s, shift - 2.61, .41, .12, .065, 1.45);
+  b.box(m.steel, s, shift - 2.53, 1.38, .08, .055, .72);
+  panel(b, m.sign('NOTAUSGANG →', 'exit'), s, shift - 2.56, 2.97, 1.56, .32, Math.PI / 2);
+  b.box(m.coolLamp, s, shift - 2.43, 3.12, .12, .04, .55);
+  b.box(m.palette('#8b4237'), s + 1.06, shift - 2.69, 1.36, .3, .64, .35);
 }
 function branchTrack(b, m, s, junction) {
-  const x = junction.branchX; if (x < .04) return;
+  const x = junction.branchX; if (Math.abs(x) < .04) return;
   const before = junctionAt(s - 1.5)?.branchX || 0, after = junctionAt(s + 1.5)?.branchX || 0;
   const angle = -Math.atan2(after - before, 3), length = 3.04 / Math.cos(angle);
   for (const offset of [-.7175, .7175]) {
@@ -132,13 +166,13 @@ function branchTrack(b, m, s, junction) {
   }
   for (let z = s - 1.5; z < s + 1.5; z += .6) {
     const offset = junctionAt(z)?.branchX || 0;
-    if (offset > 2.2) b.box(m.sleeper, z, offset, -.024, 2.02, .13, .22, [0, angle, 0]);
-    if (offset > .16) for (const rail of [-.7175, .7175]) b.box(m.dark, z, offset + rail, .052, .21, .025, .18, [0, angle, 0]);
+    if (Math.abs(offset) > 2.2) b.box(m.sleeper, z, offset, -.024, 2.02, .13, .22, [0, angle, 0]);
+    if (Math.abs(offset) > .16) for (const rail of [-.7175, .7175]) b.box(m.dark, z, offset + rail, .052, .21, .025, .18, [0, angle, 0]);
   }
   if (Math.abs(s - junction.start - 25.5) < 1) {
-    b.box(m.steel, s, 1.65, .23, .44, .35, .85);
-    b.box(m.dark, s, .92, .045, 1.15, .07, .09);
-    for (const dx of [1.46, 1.84]) b.box(m.yellow, s, dx, .418, .03, .012, .76);
+    b.box(m.steel, s, junction.side * 1.65, .23, .44, .35, .85);
+    b.box(m.dark, s, junction.side * .92, .045, 1.15, .07, .09);
+    for (const dx of [1.46, 1.84]) b.box(m.yellow, s, junction.side * dx, .418, .03, .012, .76);
   }
 }
 function lift(b, m, s, side) {
@@ -152,22 +186,49 @@ function lift(b, m, s, side) {
   b.box(m.green, s + 1.12, x - side * 1.39, 2.02, .015, .035, .04);
   panel(b, m.sign('↕  Aufzug', 'exit'), s, x - side * 1.36, 3.7, 2, .36, -side * Math.PI / 2);
 }
+function passage(b, m, s, side, color) {
+  const accent = m.palette(color);
+  // A real, lit L-shaped connecting passage behind the platform wall.
+  b.box(m.concrete, s, side * 10.7, .4, 7.4, 1.02, 5.7);
+  b.box(m.floor, s, side * 10.7, .905, 7.4, .08, 5.7);
+  b.box(m.ceiling, s, side * 10.7, 3.8, 7.4, .18, 5.7);
+  for (const dz of [-2.7, 2.7]) {
+    const opening = dz > 0;
+    b.box(m.tiles, s + dz, side * (opening ? 9.25 : 10.7), 2.32, opening ? 4.5 : 7.4, 2.78, .2);
+    b.box(accent, s + dz - Math.sign(dz) * .115, side * (opening ? 9.25 : 10.7), 2.25, opening ? 4.5 : 7.4, .4, .025);
+    b.box(m.steel, s + dz - Math.sign(dz) * .16, side * 9.3, 1.78, 4.5, .045, .045);
+  }
+  b.box(m.tiles, s + 3.2, side * 14.3, 2.32, .2, 2.78, 12);
+  b.box(accent, s + 3.2, side * 14.18, 2.25, .025, .4, 12);
+  b.box(m.floor, s + 5.4, side * 12.8, .905, 3, .08, 5.6);
+  b.box(m.ceiling, s + 5.4, side * 12.8, 3.8, 3, .18, 5.6);
+  b.box(m.tiles, s + 5.5, side * 11.4, 2.32, .2, 2.78, 5.4);
+  for (const dz of [-2.8, 2.8]) b.box(m.concrete, s + dz, side * 7.22, 2.42, .5, 3, .36);
+  b.box(m.concrete, s, side * 7.22, 3.86, .55, .33, 5.9);
+  for (const x of [8.7, 11.6]) {
+    b.box(m.dark, s, side * x, 3.67, .9, .1, .2);
+    b.box(m.coolLamp, s, side * x, 3.6, .85, .03, .12);
+  }
+  panel(b, m.sign('Gegenrichtung  →', 'exit'), s, side * 7.02, 3.53, 4.7, .36, -side * Math.PI / 2);
+  panel(b, m.sign('←  Gleis 2', 'exit'), s, side * 14.17, 2.8, 2.65, .46, -side * Math.PI / 2);
+}
 
 export class World {
   constructor(scene, materials) {
     this.scene = scene; this.m = materials; this.chunks = new Map();
-    this.lightPool = Array.from({ length: 6 }, () => { const light = new T.PointLight('#e4ece0', 0, 27, 1.65); scene.add(light); return light; });
+    this.lightPool = Array.from({ length: 16 }, () => { const light = new T.PointLight('#e4ece0', 0, 27, 1.65); scene.add(light); return light; });
     this.crowd = new Crowd(); this.pending = null; this.lastBase = null;
     this.shadowMaterial = new T.MeshBasicMaterial({ map: materials.shadow, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
   }
   *build(base) {
     const group = new T.Group(); const b = new Batch(base), m = this.m, rng = random(base + 907);
     const chunk = { group, base, people: [], signals: [], lamps: [] };
-    const addLamp = (s, x, y, stationLight) => chunk.lamps.push({ s, x, y, stationLight });
+    const addLamp = (s, x, y, stationLight) => chunk.lamps.push({ s, x, y, stationLight, key: `${s}:${x}` });
     for (let s = base; s < base + 24; s += 3) {
       const st = stationAt(s + 1.5);
       const junction = st ? null : junctionAt(s + 1.5), extra = junction?.extraWidth || 0;
-      b.box(m.ballast, s + 1.5, extra / 2, -.28, 6.1 + extra, .36, 3.02);
+      const left = junction?.leftWidth || 0, right = junction?.rightWidth || 0;
+      b.box(m.ballast, s + 1.5, (right - left) / 2, -.28, 6.1 + extra, .36, 3.02);
       b.box(m.concrete, s + 1.5, 0, -.075, 2.24, .06, 3.02);
       // Rails: web, foot and polished running head, with actual gauge and sleepers.
       for (const x of [-.7175, .7175]) {
@@ -176,8 +237,8 @@ export class World {
         b.box(m.railTop, s + 1.5, x, .169, .068, .032, 3.04);
       }
       for (let z = s; z < s + 3; z += .6) {
-        const offset = junctionAt(z)?.branchX || 0, shared = offset < 2.2 ? offset : 0;
-        b.box(m.sleeper, z, shared / 2, -.024, 2.02 + shared, .13, .22);
+        const offset = junctionAt(z)?.branchX || 0, shared = Math.abs(offset) < 2.2 ? offset : 0;
+        b.box(m.sleeper, z, shared / 2, -.024, 2.02 + Math.abs(shared), .13, .22);
         for (const x of [-.7175, .7175]) {
           b.box(m.dark, z, x, .052, .23, .025, .18);
           for (const off of [-.095, .095]) b.box(m.steel, z, x + off, .081, .028, .035, .085);
@@ -188,10 +249,26 @@ export class World {
       b.box(m.dark, s + 1.5, 1.28, -.06, .12, .05, 3.02);
       if (junction) branchTrack(b, m, s + 1.5, junction);
       if (!st) {
-        tunnelRing(b, m, s + 1.5, 3.035, false, extra);
-        tunnelRing(b, m, s, .033, true, junctionAt(s)?.extraWidth || 0);
+        tunnelRing(b, m, s + 1.5, 3.035);
+        tunnelRing(b, m, s, .033, true);
+        if (junction?.separate) {
+          tunnelRing(b, m, s + 1.5, 3.035, false, true);
+          tunnelRing(b, m, s, .033, true, true);
+          b.box(m.ballast, s + 1.5, junction.branchX, -.28, 6.12, .36, 3.15);
+          b.box(m.concrete, s + 1.5, junction.branchX, -.075, 2.24, .06, 3.2);
+          for (const side of [-1, 1]) {
+            b.box(m.concrete, s + 1.5, junction.branchX + side * 2.6, .12, .7, .32, 3.2);
+            for (const y of [.81, 1.32]) b.box(m.rubber, s + 1.5, junction.branchX + side * 2.95, y, .055, .055, 3.3);
+          }
+          if (s % 12 === 0) {
+            const side = (s / 12) % 2 === 0 ? -1 : 1;
+            b.box(m.lamp, s + 1.5, junction.branchX + side * 2.53, 3.02, .23, .06, .64, [0, 0, side * .55]);
+            addLamp(s + 1.5, junction.branchX + side * 2.35, 2.9, false);
+          }
+          if (s === junction.split) forkPortal(b, m, s, junctionAt(s));
+        }
         for (const side of [-1, 1]) {
-          const shift = side > 0 ? extra : 0;
+          const shift = side > 0 ? right : -left;
           b.box(m.concrete, s + 1.5, side * 2.57 + shift, .12, .8, .32, 3.04);
           b.box(m.dark, s + 1.5, side * 2.58 + shift, .305, .51, .026, 3.04);
           for (const y of [.7, .81, 1.2, 1.32, 2.12]) b.box(m.rubber, s + 1.5, side * 2.96 + shift, y, .055, .055, 3.08);
@@ -199,18 +276,18 @@ export class World {
         }
         if (s % 12 === 0) {
           const side = (s / 12) % 2 === 0 ? -1 : 1;
-          const shift = side > 0 ? extra : 0;
+          const shift = side > 0 ? right : -left;
           b.box(m.dark, s + 1.5, side * 2.57 + shift, 3.08, .34, .18, .85, [0, 0, side * .55]);
           b.box(m.lamp, s + 1.5, side * 2.53 + shift, 3.02, .23, .06, .64, [0, 0, side * .55]);
           addLamp(s + 1.5, side * 2.35 + shift, 2.9, false);
         }
         if (s % 48 === 0) {
-          panel(b, m.sign('←  Notausgang', 'exit'), s + 2, -2.87, 2.13, .92, .24, Math.PI / 2);
-          b.box(m.steel, s + .7, 2.8 + extra, 1.76, .21, .85, .52);
-          b.box(m.dark, s + .7, 2.685 + extra, 1.76, .025, .5, .33);
+          panel(b, m.sign('←  Notausgang', 'exit'), s + 2, -2.87 - left, 2.13, .92, .24, Math.PI / 2);
+          b.box(m.steel, s + .7, 2.8 + right, 1.76, .21, .85, .52);
+          b.box(m.dark, s + .7, 2.685 + right, 1.76, .025, .5, .33);
         }
         if (s % 144 === 0) emergencyExit(b, m, s + 4.5);
-        if (s % 96 === 0) panel(b, m.sign(String(((Math.floor(s / 12) % 32) + 32) % 32).padStart(3, '0')), s + .5, -2.84, 1.74, .38, .2, Math.PI / 2);
+        if (s % 96 === 0) panel(b, m.sign(String(((Math.floor(s / 12) % 32) + 32) % 32).padStart(3, '0')), s + .5, -2.84 - left, 1.74, .38, .2, Math.PI / 2);
       } else {
         const side = st.side, accent = m.palette(st.color);
         const rel = s - st.start;
@@ -221,9 +298,13 @@ export class World {
         b.box(m.yellow, s + 1.5, side * 2.01, .956, .4, .015, 3.01);
         for (let z = s; z < s + 3; z += .18) for (const dx of [1.86, 1.99, 2.12]) b.box(m.yellow, z, side * dx, .969, .037, .01, .045);
         b.box(m.dark, s + 1.5, side * 1.66, .55, .025, .16, 3.01);
-        b.box(m.tiles, s + 1.5, side * 7.23, 3.03, .2, 4.24, 3.02);
-        b.box(accent, s + 1.5, side * 7.105, 2.6, .03, .64, 3.02);
-        b.box(m.dark, s + 1.5, side * 7.11, 1.08, .035, .24, 3.02);
+        const passageOpening = st.passage && rel >= 54 && rel < 60;
+        if (passageOpening) b.box(m.tiles, s + 1.5, side * 7.23, 4.5, .2, 1.3, 3.02);
+        else {
+          b.box(m.tiles, s + 1.5, side * 7.23, 3.03, .2, 4.24, 3.02);
+          b.box(accent, s + 1.5, side * 7.105, 2.6, .03, .64, 3.02);
+          b.box(m.dark, s + 1.5, side * 7.11, 1.08, .035, .24, 3.02);
+        }
         // The wall opposite the platform remains close to the track.
         b.box(m.tiles, s + 1.5, -side * 2.93, 2.3, .25, 5, 3.02);
         b.box(accent, s + 1.5, -side * 2.79, 2.18, .028, .58, 3.02);
@@ -259,6 +340,7 @@ export class World {
         }
         if (rel === 24 || rel === 90) bench(b, m, s, side);
         if (rel === 36) stairs(b, m, s, side);
+        if (rel === 54 && st.passage) { passage(b, m, s + 3, side, st.color); addLamp(s + 3, side * 9.1, 3.35, true); }
         if (rel === 78) { if (st.feature === 'escalator') escalator(b, m, s, side); else lift(b, m, s, side); }
         if (rel === 6 || rel === 66 || rel === 108) panel(b, m.sign(st.name), s, side * 7.1, 3.14, 3.4, .6, -side * Math.PI / 2);
         if (rel % 6 === 0 && rel > 3 && rel < 117) {
@@ -297,7 +379,7 @@ export class World {
     yield* b.finish(group); this.scene.add(group); this.chunks.set(base, chunk); return chunk;
   }
   signal(chunk, b, spec) {
-    const { s } = spec, m = this.m, x = junctionAt(s)?.branchX > 1 ? -2.23 : 2.23;
+    const { s } = spec, m = this.m, j = junctionAt(s), x = j && Math.abs(j.branchX) > 1 ? -j.side * 2.23 : 2.23;
     b.box(m.steel, s, x, 1.16, .07, 2.1, .07);
     b.box(m.dark, s, x, 2.17, .39, .76, .27);
     b.box(m.dark, s - .13, x, 2.6, .47, .05, .38);
@@ -319,7 +401,7 @@ export class World {
     p.rootY = .945;
     const location = point(s, x, p.rootY), origin = point(chunk.base);
     p.person.position.set(location[0] - origin[0], p.rootY, location[2] - origin[2]);
-    p.baseY = (x < 0 ? Math.PI / 2 : -Math.PI / 2) + (rng() - .5) * .9;
+    p.baseY = (x < 0 ? Math.PI / 2 : -Math.PI / 2) - trackAngle(s) + (rng() - .5) * .9;
     p.person.rotation.y = p.baseY;
     chunk.group.add(p.person);
     const shadow = new T.Mesh(plane, this.shadowMaterial);
@@ -360,8 +442,10 @@ export class World {
         p.shadow.visible = p.person.visible;
         if (!p.person.visible) continue;
         const t = train.time * p.pace + p.phase, walking = p.walker;
+        const reaction = passengerAttention(p, train.s, train.time);
         p.body.rotation.z = Math.sin(t * 1.3) * .018;
-        p.head.rotation.y = Math.sin(t * .43) * .16;
+        p.head.rotation.y = reaction.headYaw;
+        p.head.rotation.x = reaction.pitch;
         p.body.position.y = p.hipHeight + (walking ? Math.abs(Math.sin(t * 3)) * .012 : Math.sin(t * 1.7) * .003);
         for (let i = 0; i < 2; i++) {
           const stride = Math.sin(t * 3 + i * Math.PI);
@@ -369,27 +453,34 @@ export class World {
           p.legs[i].shin.rotation.x = walking ? Math.max(0, -stride) * .38 : .015;
           if (!(i === 1 && p.phone)) { p.arms[i].pivot.rotation.x = walking ? -stride * .23 : Math.sin(t + i) * .05; p.arms[i].forearm.rotation.x = -.1 + Math.sin(t * .7) * .065; }
         }
+        if (p.phone) {
+          p.arms[1].pivot.rotation.x = -.35 * (1 - reaction.attention);
+          p.arms[1].forearm.rotation.x = -1.26 + reaction.attention * .92;
+        }
         if (walking) {
           // Short pacing paths stay behind the tactile strip and inside each station.
           const walkS = p.s + Math.sin(t * .24) * 2.3;
           const wp = point(walkS, p.x, p.rootY), op = point(chunk.base);
           p.person.position.set(wp[0] - op[0], p.rootY, wp[2] - op[2]);
           const turn = Math.cos(t * .24);
-          p.person.rotation.y = Math.PI * T.MathUtils.smoothstep(turn, -.13, .13);
+          const walkingYaw = Math.PI * T.MathUtils.smoothstep(turn, -.13, .13) - trackAngle(walkS);
+          const walkingReaction = passengerAttention({ ...p, s: walkS, baseY: walkingYaw }, train.s, train.time);
+          p.person.rotation.y = walkingYaw;
+          p.head.rotation.y = T.MathUtils.clamp(walkingReaction.headYaw + walkingReaction.bodyYaw - walkingYaw, -.95, .95);
           p.shadow.position.x = p.person.position.x; p.shadow.position.z = p.person.position.z;
-        } else p.person.rotation.y = p.baseY + Math.sin(t * .31) * .08;
+        } else p.person.rotation.y = reaction.bodyYaw + Math.sin(t * .31) * .04 * (1 - reaction.attention);
       }
     }
-    const lamps = [...this.chunks.values()].flatMap(c => c.lamps).filter(l => l.s - train.s > -6 && l.s - train.s < 30);
-    const byKey = new Map(lamps.map(l => [l.s, l]));
+    const lamps = [...this.chunks.values()].flatMap(c => c.lamps).filter(l => l.s - train.s > -12 && l.s - train.s < 72);
+    const byKey = new Map(lamps.map(l => [l.key, l]));
     for (const light of this.lightPool) if (!byKey.has(light.userData.key)) { light.userData.key = null; light.intensity = 0; }
     const assigned = new Set(this.lightPool.map(l => l.userData.key));
-    for (const lamp of lamps) if (!assigned.has(lamp.s)) { const slot = this.lightPool.find(l => l.userData.key === null); if (slot) slot.userData.key = lamp.s; }
+    for (const lamp of lamps) if (!assigned.has(lamp.key)) { const slot = this.lightPool.find(l => l.userData.key === null); if (slot) slot.userData.key = lamp.key; }
     this.lightPool.forEach(light => {
       const lamp = byKey.get(light.userData.key); if (!lamp) return;
       const p = point(lamp.s, lamp.x, lamp.y); light.position.set(p[0] - trackX(train.s), p[1], p[2] + train.s);
-      const d = lamp.s - train.s, fade = T.MathUtils.smoothstep(d, -6, 0) * (1 - T.MathUtils.smoothstep(d, 20, 30));
-      light.color.set(lamp.stationLight ? '#dce5d9' : '#e2d1b6'); light.intensity = (lamp.stationLight ? 21 : 10) * fade; light.distance = lamp.stationLight ? 27 : 16;
+      const d = lamp.s - train.s, fade = T.MathUtils.smoothstep(d, -12, -3) * (1 - T.MathUtils.smoothstep(d, 48, 72));
+      light.color.set(lamp.stationLight ? '#dce5d9' : '#e2d1b6'); light.intensity = (lamp.stationLight ? 12 : 3) * fade; light.distance = lamp.stationLight ? 27 : 18;
     });
     this.updateMs = performance.now() - start;
   }

@@ -54,17 +54,24 @@ test('integration remains consistent at different simulation tick rates', () => 
   assert.ok(Math.abs(a.s - b.s) < .5); assert.ok(Math.abs(a.speed - b.speed) < .05);
 });
 
-test('passing loops stay clear of stations and have continuous widening and turnouts', () => {
+test('left/right passing loops and independent forks stay clear of stations', () => {
   for (let i = 0; i < 12; i++) {
-    const st = station(i), start = st.start - 246, end = start + 180;
+    const st = station(i), start = st.start - 246, first = junctionAt(start), end = first.end;
     assert.equal(junctionAt(st.start + 20), null);
-    assert.equal(junctionAt(start).branchX, 0); assert.equal(junctionAt(end).branchX, 0);
+    assert.ok(Math.abs(first.branchX) < 1e-8);
+    assert.equal(first.side, i % 2 === 0 ? 1 : -1);
+    assert.ok(end < st.start);
+    if (first.fork) {
+      assert.ok(Math.abs(junctionAt(end).branchX) > 30, 'fork continues away instead of rejoining');
+      assert.ok(Math.abs(junctionAt(first.split).branchX) > 6.1, 'separate portals leave a solid centre pier');
+    } else assert.ok(Math.abs(junctionAt(end).branchX) < 1e-8);
     for (let s = start; s <= end; s += .25) {
       const j = junctionAt(s);
-      assert.ok(j.branchX >= 0 && j.branchX <= 3.6);
-      assert.ok(j.extraWidth + .001 >= j.branchX, 'full train envelope fits beside the running track');
+      assert.ok(j.branchX * j.side >= 0);
+      if (!j.separate) assert.ok(j.extraWidth + .001 >= Math.abs(j.branchX), 'train envelope fits the shared chamber');
+      else assert.equal(j.extraWidth, 0, 'main running tunnel returns to its own bore');
       const next = junctionAt(s + .01);
-      if (next) assert.ok(Math.abs(next.branchX - j.branchX) < .002);
+      if (next) assert.ok(Math.abs(next.branchX - j.branchX) < .006);
     }
   }
 });

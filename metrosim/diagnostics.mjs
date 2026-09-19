@@ -1,8 +1,8 @@
 // Frame intervals are measured before any simulation-time clamp. A stall counts
 // for its full visible duration, not as just one bad frame among many fast ones.
 export class FrameDiagnostics {
-  constructor(windowMs = 60000, threshold = 30) {
-    this.windowMs = windowMs; this.thresholdMs = 1000 / threshold;
+  constructor(windowMs = 60000, threshold = 30, timingToleranceMs = 0) {
+    this.windowMs = windowMs; this.thresholdMs = 1000 / threshold + timingToleranceMs;
     this.samples = []; this.head = 0; this.last = null;
   }
   resetClock() { this.last = null; }

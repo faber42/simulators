@@ -4,6 +4,7 @@ import { createMaterials } from './materials.js';
 import { World } from './world.js';
 import { CameraRenderer } from './render.js';
 import { FrameDiagnostics } from './diagnostics.mjs';
+import { FrameCadence } from './cadence.mjs';
 
 const $ = id => document.getElementById(id);
 const loading = $('loading');
@@ -31,7 +32,7 @@ async function start() {
     train.paused = query.get('paused') === '1';
   }
   const look = new T.Vector3();
-  const diagnostics = new FrameDiagnostics();
+  const diagnostics = new FrameDiagnostics(60000, 30, 2), cadence = new FrameCadence(30);
   let previousPose = { s: train.s, time: train.time, speed: train.speed };
   const displayedTrain = {};
   const phaseNames = { signal: 'SIGNALHALT', depart: 'FAHRT FREIGEGEBEN', running: 'AUTOMATIKBETRIEB', opening: 'STATIONSHALT', open: 'FAHRGASTWECHSEL', closing: 'TÜREN SCHLIESSEN', dispatch: 'ABFAHRT VORBEREITET' };
@@ -41,17 +42,18 @@ async function start() {
   $('diagnostics').hidden = query.get('diagnostics') !== '1';
   let perf = diagnostics.snapshot(performance.now());
   let lastWork = null;
+  let lastDraw = performance.now();
   function syncDiagnostics(now) {
     perf = diagnostics.snapshot(now); fps = perf.fps;
     $('diag-fps').textContent = perf.samples ? fps.toFixed(0) : '—';
     $('diag-below').textContent = perf.below30Percent.toFixed(1) + ' %';
-    $('diag-detail').textContent = `Messfenster ${perf.observedSeconds.toFixed(1)} / 60 s · p95 ${perf.p95FrameMs.toFixed(1)} ms\nLängster Frame ${perf.maxFrameMs.toFixed(1)} ms\n${output.sceneDrawCalls || 0} Drawcalls · ${world.chunks.size} Abschnitte`;
+    $('diag-detail').textContent = `Limit 30 FPS · Messfenster ${perf.observedSeconds.toFixed(1)} / 60 s\np95 ${perf.p95FrameMs.toFixed(1)} ms · Maximum ${perf.maxFrameMs.toFixed(1)} ms\n${output.sceneDrawCalls || 0} Drawcalls · ${world.chunks.size} Abschnitte`;
     $('diag-detail').style.whiteSpace = 'pre-line';
     if (!$('diagnostics').hidden) {
       const c = $('diag-chart').getContext('2d'), w = 288, h = 64;
       c.clearRect(0, 0, w, h); c.fillStyle = '#14242a'; c.fillRect(0, 0, w, h);
-      c.strokeStyle = '#f0b47788'; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(0, 48); c.lineTo(w, 48); c.stroke(); c.setLineDash([]);
-      perf.history.forEach((value, i) => { if (value === null) return; const height = Math.min(62, value / 120 * 64); c.fillStyle = value < 30 ? '#e59c70' : '#8fc4a8'; c.fillRect(i * w / 60, h - height, w / 60 - 1, height); });
+      c.strokeStyle = '#f0b47788'; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(0, 32); c.lineTo(w, 32); c.stroke(); c.setLineDash([]);
+      perf.history.forEach((value, i) => { if (value === null) return; const height = Math.min(62, value / 60 * 64); c.fillStyle = value < 29.5 ? '#e59c70' : '#8fc4a8'; c.fillRect(i * w / 60, h - height, w / 60 - 1, height); });
     }
   }
   function syncUI() {
@@ -89,25 +91,28 @@ async function start() {
     loading.textContent = `Die Frontkamera konnte nicht gestartet werden: ${error.message}. Bitte einen Browser mit WebGL 2 verwenden.`; console.error(error);
   }
   $('view').addEventListener('webglcontextlost', event => { event.preventDefault(); train.paused = true; fail(new Error('Die Grafikverbindung wurde unterbrochen. Seite zum Neuverbinden laden')); });
-  function frame() {
+  function frame(timestamp) {
     if (failure) return;
     try {
-      const now = performance.now(), dt = Math.max(0, Math.min((now - last) / 1000, .1)); last = now;
-      if (!document.hidden) diagnostics.frame(now, lastWork);
+      // RAF's presentation timestamp keeps the limiter phase stable even when
+      // callback delivery has a little CPU scheduling jitter.
+      const now = timestamp, dt = Math.max(0, Math.min((now - last) / 1000, .1)); last = now;
       if (!document.hidden && !train.paused) {
         accumulator += dt * timeScale;
         while (accumulator >= 1 / 60) { previousPose.s = train.s; previousPose.time = train.time; previousPose.speed = train.speed; train.step(1 / 60); accumulator -= 1 / 60; }
       }
-      draw(dt, true);
+      if (document.hidden || !cadence.take(now)) { requestAnimationFrame(frame); return; }
+      diagnostics.frame(performance.now(), lastWork);
+      draw(Math.min((now - lastDraw) / 1000, .1), true); lastDraw = now;
       lastWork = { distance: train.s, buildMs: world.buildMs, updateMs: world.updateMs, renderMs: output.renderMs };
-      if (now - lastUI > 250) { syncDiagnostics(now); syncUI(); lastUI = now; }
+      if (now - lastUI > 250) { syncDiagnostics(performance.now()); syncUI(); lastUI = now; }
       requestAnimationFrame(frame);
     } catch (error) { fail(error); }
   }
-  document.addEventListener('visibilitychange', () => { last = performance.now(); accumulator = 0; diagnostics.resetClock(); });
+  document.addEventListener('visibilitychange', () => { last = lastDraw = performance.now(); accumulator = 0; diagnostics.resetClock(); cadence.reset(); });
   document.addEventListener('keydown', event => {
     if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) return;
-    if (event.code === 'Space') { event.preventDefault(); train.paused = !train.paused; syncUI(); }
+    if (event.code === 'Space' || event.code === 'KeyP') { event.preventDefault(); train.paused = !train.paused; syncUI(); }
     if (event.key.toLowerCase() === 'h') document.body.classList.toggle('clean');
     if (event.key.toLowerCase() === 'd') { $('diagnostics').hidden = !$('diagnostics').hidden; syncDiagnostics(performance.now()); }
     if (event.key.toLowerCase() === 'f') {

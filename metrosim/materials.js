@@ -1,4 +1,5 @@
 import * as T from '../pinsim/three.module.min.js';
+import { infrastructureLighting } from './lighting.js';
 
 export function random(seed) { let n = seed | 0; return () => { n = Math.imul(n ^ n >>> 15, 1 | n); n ^= n + Math.imul(n ^ n >>> 7, 61 | n); return ((n ^ n >>> 14) >>> 0) / 4294967296; }; }
 function canvasTexture(draw, w = 512, h = 512) {
@@ -47,7 +48,7 @@ export function createMaterials() {
     // shimmered under moving point lights and changed with texture mip levels.
     const bumpMap = canvasTexture((c, w, h) => { c.filter = 'blur(10px)'; c.drawImage(map.image, 0, 0, w, h); });
     bumpMap.colorSpace = T.NoColorSpace; bumpMap.wrapS = bumpMap.wrapT = T.RepeatWrapping;
-    m[name] = new T.MeshStandardMaterial({ map, bumpMap, bumpScale: .012, roughness: .9, ...opts });
+    m[name] = infrastructureLighting(new T.MeshStandardMaterial({ map, bumpMap, bumpScale: .012, roughness: .9, ...opts }));
   };
   textured('concrete', 'concrete', { color: '#a0a498' });
   textured('floor', 'floor', { color: '#a5a69a', roughness: .66, bumpScale: .012 });
@@ -70,7 +71,7 @@ export function createMaterials() {
   standard('glass', '#314347', { metalness: .65, roughness: .17 });
   m.palettes = new Map();
   m.palette = color => {
-    if (!m.palettes.has(color)) m.palettes.set(color, new T.MeshStandardMaterial({ color, map: m.tiles.map, roughness: .4, metalness: .08 }));
+    if (!m.palettes.has(color)) m.palettes.set(color, infrastructureLighting(new T.MeshStandardMaterial({ color, map: m.tiles.map, roughness: .4, metalness: .08 })));
     return m.palettes.get(color);
   };
   m.signs = new Map();
