@@ -126,6 +126,9 @@ export function createMaterials() {
   standard('railTop', '#a0a6a4', { metalness: .8, roughness: .37 });
   standard('railCover', '#6a6c61', { metalness: .35, roughness: .65 });
   standard('steel', '#9ca4a3', { metalness: .75, roughness: .32 });
+  // Oxidised rail fasteners should not catch the bright, sharp highlights of
+  // clean station steel and turn into a dotted line of lights in the distance.
+  standard('railFastener', '#49463c', { metalness: .18, roughness: .94 });
   standard('seat', '#8d9d92', { metalness: .2, roughness: .48 });
   m.escalatorSteps = new T.MeshStandardMaterial({ vertexColors: true, metalness: .55, roughness: .48 });
   standard('yellow', '#c9b568', { roughness: .84 });

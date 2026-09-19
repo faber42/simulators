@@ -311,7 +311,7 @@ export class World {
         b.box(m.sleeper, z, shared / 2, -.024, 2.02 + Math.abs(shared), .13, .22);
         for (const x of [-.7175, .7175]) {
           b.box(m.dark, z, x, .052, .23, .025, .18);
-          for (const off of [-.095, .095]) b.box(m.steel, z, x + off, .081, .028, .035, .085);
+          for (const off of [-.095, .095]) b.box(m.railFastener, z, x + off, .081, .028, .035, .085);
         }
       }
       b.box(m.dark, s + 1.5, -1.3, .19, .1, .18, 3.02);
