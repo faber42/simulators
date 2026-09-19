@@ -6,6 +6,7 @@ import { CameraRenderer } from './render.js';
 import { FrameDiagnostics } from './diagnostics.mjs';
 import { FrameCadence } from './cadence.mjs';
 import { Escalator } from './escalator.js';
+import { RenderLoop } from './render-loop.mjs';
 
 const $ = id => document.getElementById(id);
 const loading = $('loading');
@@ -56,18 +57,27 @@ async function start() {
   let previousPose = capturePose();
   const displayedTrain = {};
   const phaseNames = { signal: 'SIGNALHALT', waiting: 'WARTEN AUF BLOCKFREIGABE', depart: 'AUSFAHRT', running: 'AUTOMATIKBETRIEB', settling: 'STATIONSHALT', opening: 'STATIONSHALT', open: 'FAHRGASTWECHSEL', closing: 'TÜREN SCHLIESSEN', dispatch: 'ABFAHRT VORBEREITET' };
-  let exposure = 1.03, accumulator = 0, last = performance.now(), lastUI = -1, timeScale = T.MathUtils.clamp(Number(query.get('rate')) || 1, .25, 8), fps = 0, failure = false;
-  function resize() { output.resize(innerWidth, innerHeight); materials.distantLamp.uniforms.viewportHeight.value = output.height; camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+  let exposure = 1.03, accumulator = 0, last = performance.now(), lastUI = -1, timeScale = T.MathUtils.clamp(Number(query.get('rate')) || 1, .25, 8), fps = 0, failure = false, ready = false, renderedFrames = 0;
+  function resize() { output.resize(innerWidth, innerHeight); materials.distantLamp.uniforms.viewportHeight.value = output.height; camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); if (ready) loop.invalidate(); }
   window.addEventListener('resize', resize); resize();
   $('diagnostics').hidden = query.get('diagnostics') !== '1';
   let perf = diagnostics.snapshot(performance.now());
   let lastWork = null;
   let lastDraw = performance.now();
+  const loop = new RenderLoop(frame);
+  function resetTiming() {
+    last = lastDraw = performance.now(); lastUI = -1; accumulator = 0;
+    previousPose = capturePose(); diagnostics.resetClock(); cadence.reset();
+  }
+  function setPaused(value) {
+    train.paused = !!value; resetTiming(); syncDiagnostics(last); syncUI();
+    if (ready) loop.setState(!train.paused, !document.hidden);
+  }
   function syncDiagnostics(now) {
-    perf = diagnostics.snapshot(now); fps = perf.fps;
-    $('diag-fps').textContent = perf.samples ? fps.toFixed(0) : '—';
+    perf = diagnostics.snapshot(now); fps = train.paused ? 0 : perf.fps;
+    $('diag-fps').textContent = train.paused || perf.samples ? fps.toFixed(0) : '—';
     $('diag-below').textContent = perf.below30Percent.toFixed(1) + ' %';
-    $('diag-detail').textContent = `Limit 30 FPS · Messfenster ${perf.observedSeconds.toFixed(1)} / 60 s\np95 ${perf.p95FrameMs.toFixed(1)} ms · Maximum ${perf.maxFrameMs.toFixed(1)} ms\n${output.sceneDrawCalls || 0} Drawcalls · ${world.chunks.size} Abschnitte`;
+    $('diag-detail').textContent = `${train.paused ? 'PAUSIERT · Rendering angehalten\n' : ''}Limit 30 FPS · Messfenster ${perf.observedSeconds.toFixed(1)} / 60 s\np95 ${perf.p95FrameMs.toFixed(1)} ms · Maximum ${perf.maxFrameMs.toFixed(1)} ms\n${output.sceneDrawCalls || 0} Drawcalls · ${world.chunks.size} Abschnitte`;
     $('diag-detail').style.whiteSpace = 'pre-line';
     if (!$('diagnostics').hidden) {
       const c = $('diag-chart').getContext('2d'), w = 288, h = 64;
@@ -77,6 +87,7 @@ async function start() {
     }
   }
   function syncUI() {
+    document.body.classList.toggle('paused', train.paused);
     const st = train.stop;
     $('destination').textContent = st.name;
     $('destination-label').textContent = train.doors || ['settling', 'dispatch'].includes(train.phase) ? 'AKTUELLER HALT' : 'NÄCHSTER HALT';
@@ -111,16 +122,20 @@ async function start() {
     const headPoint = point(pose.s + 33, 0, .65); headlights.target.position.set(headPoint[0] - trackX(pose.s), .65, -33);
     const st = stationAt(pose.s + 8);
     const targetExposure = st ? .89 : 1.14;
-    exposure += (targetExposure - exposure) * (1 - Math.exp(-dt * .65));
-    ambient.intensity += ((st ? .48 : .3) - ambient.intensity) * (1 - Math.exp(-Math.max(.016, dt) * .8));
+    if (!ready) { exposure = targetExposure; ambient.intensity = st ? .48 : .3; }
+    else {
+      exposure += (targetExposure - exposure) * (1 - Math.exp(-dt * .65));
+      ambient.intensity += ((st ? .48 : .3) - ambient.intensity) * (1 - Math.exp(-dt * .8));
+    }
     output.render(scene, camera, pose.time, exposure);
+    $('view').dataset.renderedFrames = String(++renderedFrames);
   }
   function fail(error) {
-    failure = true; loading.style.display = 'flex'; loading.classList.add('error');
+    failure = true; loop.setState(false, false); loading.style.display = 'flex'; loading.classList.add('error');
     loading.textContent = `Die Frontkamera konnte nicht gestartet werden: ${error.message}. Bitte einen Browser mit WebGL 2 verwenden.`; console.error(error);
   }
   $('view').addEventListener('webglcontextlost', event => { event.preventDefault(); train.paused = true; fail(new Error('Die Grafikverbindung wurde unterbrochen. Seite zum Neuverbinden laden')); });
-  function frame(timestamp) {
+  function frame(timestamp, redraw) {
     if (failure) return;
     try {
       // RAF's presentation timestamp keeps the limiter phase stable even when
@@ -130,20 +145,24 @@ async function start() {
         accumulator += dt * timeScale;
         while (accumulator >= 1 / 60) { previousPose = capturePose(); train.step(1 / 60); accumulator -= 1 / 60; }
       }
-      if (document.hidden || !cadence.take(now)) { requestAnimationFrame(frame); return; }
-      diagnostics.frame(performance.now(), lastWork);
-      draw(Math.min((now - lastDraw) / 1000, .1), true); lastDraw = now;
+      if (redraw) cadence.reset();
+      if (document.hidden || !cadence.take(now)) return;
+      if (!train.paused) diagnostics.frame(performance.now(), lastWork);
+      draw(train.paused ? 0 : Math.min((now - lastDraw) / 1000, .1), !train.paused); lastDraw = now;
       lastWork = { distance: train.s, buildMs: world.buildMs, updateMs: world.updateMs, renderMs: output.renderMs };
-      if (now - lastUI > 250) { syncDiagnostics(performance.now()); syncUI(); lastUI = now; }
-      requestAnimationFrame(frame);
+      if (train.paused || redraw || now - lastUI > 250) { syncDiagnostics(performance.now()); syncUI(); lastUI = now; }
     } catch (error) { fail(error); }
   }
-  document.addEventListener('visibilitychange', () => { last = lastDraw = performance.now(); accumulator = 0; diagnostics.resetClock(); cadence.reset(); });
+  document.addEventListener('visibilitychange', () => {
+    resetTiming(); if (!ready) return;
+    loop.setState(!train.paused, !document.hidden);
+    if (!document.hidden) loop.invalidate();
+  });
   $('diag-close').addEventListener('click', () => { $('diagnostics').hidden = true; });
   document.addEventListener('keydown', event => {
     if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) return;
     if (event.code === 'Space' && event.target.tagName === 'BUTTON') return;
-    if (event.code === 'Space' || event.code === 'KeyP') { event.preventDefault(); train.paused = !train.paused; syncUI(); }
+    if (event.code === 'Space' || event.code === 'KeyP') { event.preventDefault(); setPaused(!train.paused); }
     if (event.key.toLowerCase() === 'h') document.body.classList.toggle('clean');
     if (event.key.toLowerCase() === 'd') { $('diagnostics').hidden = !$('diagnostics').hidden; syncDiagnostics(performance.now()); }
     if (event.key.toLowerCase() === 'f') {
@@ -154,11 +173,11 @@ async function start() {
   // Deterministic inspection hooks, deliberately outside the camera UI.
   window.METROSIM = {
     snapshot: () => ({ ...train.snapshot(), ...world.stats(), fps: Math.round(fps), geometries: output.renderer.info.memory.geometries, textures: output.renderer.info.memory.textures }),
-    pause: (value = true) => { train.paused = !!value; accumulator = 0; syncUI(); },
+    pause: (value = true) => setPaused(value),
     setSpeed: value => { if (Number.isFinite(value)) timeScale = T.MathUtils.clamp(value, .25, 8); },
     advance: seconds => { if (!Number.isFinite(seconds) || seconds < 0 || seconds > 1800) throw new RangeError('0–1800 Sekunden erwartet'); const paused = train.paused; train.paused = false; for (let i = 0; i < Math.round(seconds * 60); i++) train.step(1 / 60); train.paused = paused; draw(1); syncUI(); return train.snapshot(); },
-    inspectStation: (index = 0, offset = 20) => { if (!Number.isInteger(index) || index < 0 || index > 10000 || !Number.isFinite(offset)) throw new RangeError('Ungültiger Stationsindex'); const st = station(index); train.next = index; train.s = st.start + T.MathUtils.clamp(offset, -120, 110); train.speed = 0; train.phase = 'running'; train.timer = 0; train.paused = true; draw(5); syncUI(); return train.snapshot(); },
-    restart: () => { Object.assign(train, new Train()); accumulator = 0; draw(5); syncUI(); },
+    inspectStation: (index = 0, offset = 20) => { if (!Number.isInteger(index) || index < 0 || index > 10000 || !Number.isFinite(offset)) throw new RangeError('Ungültiger Stationsindex'); const st = station(index); train.next = index; train.s = st.start + T.MathUtils.clamp(offset, -120, 110); train.speed = 0; train.phase = 'running'; train.timer = 0; setPaused(true); draw(5); syncUI(); return train.snapshot(); },
+    restart: () => { Object.assign(train, new Train()); setPaused(false); draw(5); syncUI(); },
   };
   // Compile the skinned crowd variant during the loading screen, so the first
   // approaching station does not stall the visible camera for shader creation.
@@ -172,7 +191,7 @@ async function start() {
   output.renderer.getContext().finish(); // One startup sync, never in the frame loop.
   scene.remove(warmup); warmup.traverse(o => { if (o.isSkinnedMesh) { o.geometry.dispose(); o.skeleton.dispose(); } });
   scene.remove(treadWarmup); treadWarmup.geometry.dispose(); treadWarmup.dispose();
-  syncUI(); loading.style.display = 'none'; last = performance.now(); requestAnimationFrame(frame);
+  ready = true; resetTiming(); syncDiagnostics(last); syncUI(); loading.style.display = 'none'; loop.setState(!train.paused, !document.hidden);
 }
 start().catch(error => {
   loading.classList.add('error'); loading.textContent = `Die Frontkamera konnte nicht gestartet werden: ${error.message}`; console.error(error);

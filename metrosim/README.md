@@ -109,7 +109,10 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
 | D | Leistungsdiagnose aus-/einblenden |
 
 Die Türanzeige bleibt auch beim Ausblenden der übrigen Informationen sichtbar.
-In einem verborgenen Browser-Tab pausiert die Simulationszeit automatisch.
+Pause hält auch die Render-Schleife vollständig an: Es werden keine weiteren
+Animationsframes angefordert. Das letzte Bild bleibt stehen. Eine Größenänderung
+zeichnet das Standbild einmal neu; die Bedienung der Einblendungen bleibt möglich.
+In einem verborgenen Browser-Tab pausieren Simulation und Rendering automatisch.
 
 ## Leistungsdiagnose
 
@@ -123,8 +126,9 @@ Frame zwischen vielen schnellen Frames. Berechnet wird über ein gleitendes
 60-Sekunden-Fenster; in der Anlaufphase über die bereits gemessene Zeit.
 
 Zusätzlich erscheinen das 95. Perzentil der Framezeit, der längste Frame und die
-Zahl der Zeichenaufrufe der 3D-Szene. Verborgene Tabs werden nicht mitgezählt;
-ein pausierter, weiterhin sichtbarer Simulator misst seine Renderleistung weiter.
+Zahl der Zeichenaufrufe der 3D-Szene. Pausen und verborgene Tabs werden nicht
+mitgezählt. Während einer Pause zeigt die Diagnose 0 FPS und „Rendering
+angehalten“. Beim Fortsetzen beginnt die Zeitmessung ohne künstlichen langen Frame.
 
 ## Technik
 
@@ -171,7 +175,7 @@ ein pausierter, weiterhin sichtbarer Simulator misst seine Renderleistung weiter
 
 ## Prüfung und Diagnose
 
-`node --test metrosim/route.test.mjs metrosim/diagnostics.test.mjs metrosim/crowd.test.mjs metrosim/presentation.test.mjs metrosim/tunnel.test.mjs metrosim/boarding.test.mjs metrosim/pedestrians.test.mjs metrosim/platform-life.test.mjs` prüft Freigabe,
+`node --test metrosim/route.test.mjs metrosim/diagnostics.test.mjs metrosim/crowd.test.mjs metrosim/presentation.test.mjs metrosim/tunnel.test.mjs metrosim/boarding.test.mjs metrosim/pedestrians.test.mjs metrosim/platform-life.test.mjs metrosim/render-loop.test.mjs` prüft Freigabe,
 Bremsen, Türverriegelung, Pause, Stationsübergänge, Weichenabschnitte und eine
 Stunde durchgehenden Betrieb. Die Diagnoseprüfungen decken konstante FPS,
 lange Hänger, die gleitende Fenstergrenze und ausgeblendete Tabs ab. Die
@@ -179,6 +183,8 @@ Fahrgastprüfung kontrolliert gültige Geometrie, Knochengewichte, Kopfbewegung
 und genau einen Zeichenaufruf für den Körper jedes Fahrgasts.
 Zusätzlich werden der 30-FPS-Takt bei 60–240 Hz, die Behandlung von Hängern,
 die Messtoleranz und die Blickreaktion auf beiden Bahnsteigseiten geprüft.
+Die Render-Schleifen-Tests prüfen vollständig ausbleibende Frame-Callbacks bei
+Pause, einmaliges Neuzeichnen bei Größenänderungen und verborgene Tabs.
 Signaltests prüfen frühe, gleichzeitige und verspätete Blockfreigaben, den
 zweiten Halt ohne Türöffnung und das Verbot, rote Signale zu überfahren.
 Weitere Fahrtests prüfen auslaufende Bremskraft, verzögerte Türöffnung,
