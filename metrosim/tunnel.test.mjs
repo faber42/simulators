@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as T from '../pinsim/three.module.min.js';
 import { World } from './world.js';
 import { point, trackX, branchAt, station } from './route.mjs';
+import { updatePedestrians } from './pedestrians.mjs';
 
 // Exercise the actual merged scenery, without needing a WebGL context. The
 // canvas stub only supplies the crowd's texture data during construction.
@@ -70,7 +71,21 @@ test('stair and escalator rooms enclose the entire ceiling opening without block
       }
       assert.ok(between(point(start + .4, x, 6.3), point(start - 1, x, 6.3)).length, 'front header closes space above the lower ceiling');
       assert.ok(between(point(start + 14, x, 6.3), point(start + 16, x, 6.3)).length, 'upper landing has a closed far wall');
-      assert.ok(between(point(start + 12, x, 6.3), point(start + 12, x, 4.2)).length, 'upper landing has its own floor');
+      assert.ok(between(point(start + 12.13, x, 6.3), point(start + 12.13, x, 4.2)).length, 'upper landing has its own floor');
+      const landingTop = offset === 78 ? 4.62 : 4.75;
+      for (const rel of [7.53, 8.13, 12.13]) {
+        const floorHits = between(point(start + rel, x, 6.3), point(start + rel, x, 4.2));
+        assert.equal(floorHits.filter(h => Math.abs(h.point.y - landingTop) < .001).length, 1,
+          'the original landing and extended floor must not duplicate the same tread surface');
+      }
+      for (const rel of [.137, 3.53, 6.137, 11.53, 14.137]) for (const y of [4.8, 6.3]) {
+        const hits = between(point(start + rel, st.side * 6, y), point(start + rel, st.side * 8, y));
+        assert.equal(hits.filter(h => Math.abs(h.distance - 1.13) < .05).length, 1,
+          'upper and lower walls expose one face, never two coplanar layers');
+      }
+      const header = between(point(start - .1, x, 4.5), point(start - .1, x, 6));
+      assert.equal(header.filter(h => Math.abs(h.distance - .54) < .01).length, 1,
+        'the access header must not duplicate the platform ceiling underside');
       const walkX = st.side * (offset === 78 ? 5.55 : 5.75);
       const headHeight = rel => (offset === 78 ? Math.min(4.62, .95 + rel * .5) : Math.min(4.75, 1.1 + rel * .155 / .3)) + 1.75;
       for (let rel = .2; rel < 13; rel += .4) {
@@ -80,4 +95,28 @@ test('stair and escalator rooms enclose the entire ceiling opening without block
     }
     scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); if (o.isSkinnedMesh) o.skeleton.dispose(); });
   }
+});
+
+test('actual platform crowds keep their separation while some boarders stop for others', () => {
+  let blocked = 0, travelled = 0;
+  for (const index of [0, 1, 5]) {
+    const { scene, world } = fixture(), st = station(index);
+    for (let base = Math.floor(st.start / 24) * 24; base < st.end; base += 24)
+      for (const _ of world.build(base)) { /* real passenger distributions */ }
+    const people = [...world.chunks.values()].flatMap(c => c.people);
+    for (let frame = 0; frame < 30 * 35; frame++) {
+      const time = frame / 30;
+      updatePedestrians(people, { time, s: Math.min(st.stop, st.start - 42 + time * 10) });
+      for (let i = 0; i < people.length; i++) for (let j = i + 1; j < people.length; j++) {
+        const a = people[i], b = people[j];
+        assert.ok(Math.hypot(a.motion.s - b.motion.s, a.motion.x - b.motion.x) >= .78 * Math.max(a.height, b.height) - .001,
+          `station ${index}: passenger bodies remain separated`);
+      }
+    }
+    blocked += people.filter(p => p.halt && p.journey).length;
+    travelled += people.filter(p => p.journey && p.motion.distance > 3).length;
+    scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); if (o.isSkinnedMesh) o.skeleton.dispose(); });
+  }
+  assert.ok(blocked > 0, 'crowded routes actually trigger waiting');
+  assert.ok(travelled > 0, 'unobstructed passengers still approach the train');
 });

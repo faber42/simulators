@@ -3,7 +3,9 @@ import { point, trackX, trackAngle, stationAt, station, junctionAt, branchAt, si
 import { random } from './materials.js';
 import { Crowd } from './crowd.js';
 import { passengerAttention } from './attention.mjs';
-import { boardingPlan, boardingPose } from './boarding.mjs';
+import { boardingPlan } from './boarding.mjs';
+import { updatePedestrians } from './pedestrians.mjs';
+import { DistantLights } from './distant-lights.js';
 
 const box = new T.BoxGeometry(1, 1, 1).toNonIndexed();
 const plane = new T.PlaneGeometry(1, 1).toNonIndexed();
@@ -40,6 +42,20 @@ class Batch {
     }
   }
   box(material, s, x, y, w, h, d, rotation) { this.add(box, material, s, x, y, [w, h, d], rotation); }
+  sweptBox(material, from, to, x, y, width, height) {
+    // Adjacent slices share exact end sections, instead of overlapping tangent
+    // boxes whose almost coplanar faces fight on curved platforms.
+    const s = (from + to) / 2, origin = point(s), angle = trackAngle(s);
+    const geometry = box.clone(), positions = geometry.attributes.position;
+    const c = Math.cos(angle), sn = Math.sin(angle);
+    for (let i = 0; i < positions.count; i++) {
+      const p = point(positions.getZ(i) > 0 ? from : to, x + positions.getX(i) * width, y + positions.getY(i) * height);
+      const dx = p[0] - origin[0], dz = p[2] - origin[2];
+      positions.setXYZ(i, c * dx + sn * dz, p[1] - y, -sn * dx + c * dz);
+    }
+    geometry.computeVertexNormals();
+    this.add(geometry, material, s, 0, y, [1, 1, c]); geometry.dispose();
+  }
   *finish(group, renderOrder = 0) {
     for (const [material, d] of this.data) {
       const g = new T.BufferGeometry();
@@ -123,7 +139,6 @@ function stairs(b, m, s, side) {
   }
   for (const dx of [-1.05, 1.05]) b.box(m.steel, s + 3.48, x + dx, 3.73, .055, .07, 8.1, [slope, 0, 0]);
   b.box(m.concrete, s + 7.75, x, 2.81, 2.4, 3.74, 1.25);
-  b.box(m.floor, s + 7.75, x, 4.7, 2.4, .1, 1.25);
   panel(b, m.sign('↑  Ausgang', 'exit'), s - 1.2, x, 3.95, 2.15, .48);
 }
 function escalator(b, m, s, side) {
@@ -145,20 +160,23 @@ function escalator(b, m, s, side) {
 }
 
 // Construct the enclosure in the same three-metre slices as the opening in
-// the platform ceiling. This follows curved stations, overlaps every joint,
+// the platform ceiling. This follows curved stations with shared joints,
 // and keeps its walls alive when the stair mesh's earlier chunk is streamed out.
 function accessEnclosure(b, m, s, side, rel, escalator = false) {
   const floor = escalator ? 4.62 : 4.75;
   const centre = side * 5.815;
-  for (const x of [4.38, 7.25]) b.box(m.accessWall, s + 1.5, side * x, 6.06, .24, 3.58, 3.08);
-  b.box(m.accessCeiling, s + 1.5, centre, 7.82, 3.2, .24, 3.08);
+  b.sweptBox(m.accessWall, s, s + 3, side * 4.38, 6.06, .24, 3.58);
+  // The platform wall ends at 5.15 m. Continue exactly above it, never cover
+  // the same face with a second material in the 4.27–5.15 m band.
+  b.sweptBox(m.accessWall, s, s + 3, side * 7.23, 6.495, .2, 2.69);
+  b.sweptBox(m.accessCeiling, s, s + 3, centre, 7.82, 3.2, .24);
   // Visible slab edges tie the higher room into the platform's lower ceiling.
-  b.box(m.concrete, s + 1.5, side * 4.38, 5.08, .31, .31, 3.08);
-  if (rel === 0) b.box(m.accessWall, s - .06, centre, 6.45, 3.2, 2.82, .24);
+  b.sweptBox(m.concrete, s, s + 3, side * 4.38, 5.08, .31, .31);
+  if (rel === 0) b.sweptBox(m.accessWall, s, s + .2, centre, 6.58, 3.2, 2.52);
   if (rel >= 6) {
-    const start = Math.max(0, 7.05 - rel), length = 3 - start;
-    b.box(m.concrete, s + start + length / 2, centre, floor - .18, 2.88, .29, length + .08);
-    b.box(m.floor, s + start + length / 2, centre, floor - .035, 2.88, .07, length + .08);
+    const start = Math.max(0, 7.05 - rel);
+    b.sweptBox(m.concrete, s + start, s + 3, centre, floor - .18, 2.88, .29);
+    b.sweptBox(m.floor, s + start, s + 3, centre, floor - .035, 2.88, .07);
   }
   if (rel === 12) {
     const end = s + 3;
@@ -256,6 +274,7 @@ export class World {
   }
   *build(base) {
     const group = new T.Group(); const b = new Batch(base), sideBore = new Batch(base), m = this.m, rng = random(base + 907);
+    const distantLights = new DistantLights(base, m.distantLamp);
     const chunk = { group, base, people: [], signals: [], lamps: [] };
     const addLamp = (s, x, y, stationLight) => chunk.lamps.push({ s, x, y, stationLight, key: `${s}:${x}` });
     for (let s = base; s < base + 24; s += 3) {
@@ -296,7 +315,8 @@ export class World {
             // Ceiling fixtures reveal the receding bore from an oblique view
             // through the portal, even when the side wall hides a wall lamp.
             sideBore.box(m.dark, s + 1.5, continuation.branchX, 4.51, .28, .12, .9);
-            sideBore.box(m.lamp, s + 1.5, continuation.branchX, 4.43, .2, .035, .72);
+            sideBore.box(m.tunnelLamp, s + 1.5, continuation.branchX, 4.43, .2, .035, .72);
+            distantLights.add(s + 1.5, continuation.branchX, 4.43);
             addLamp(s + 1.5, continuation.branchX, 4.2, false);
           }
           if (s === continuation.split) forkPortal(b, m, s, junctionAt(s));
@@ -315,7 +335,8 @@ export class World {
           const side = (s / 12) % 2 === 0 ? -1 : 1;
           const shift = side > 0 ? right : -left;
           b.box(m.dark, s + 1.5, side * 2.57 + shift, 3.08, .34, .18, .85, [0, 0, side * .55]);
-          b.box(m.lamp, s + 1.5, side * 2.53 + shift, 3.02, .23, .06, .64, [0, 0, side * .55]);
+          b.box(m.tunnelLamp, s + 1.5, side * 2.53 + shift, 3.02, .23, .06, .64, [0, 0, side * .55]);
+          distantLights.add(s + 1.5, side * 2.53 + shift, 3.02);
           addLamp(s + 1.5, side * 2.35 + shift, 2.9, false);
         }
         if (s % 48 === 0) {
@@ -337,9 +358,9 @@ export class World {
         for (let z = s; z < s + 3; z += .18) for (const dx of [1.86, 1.99, 2.12]) b.box(m.yellow, z, side * dx, .969, .037, .01, .045);
         b.box(m.dark, s + 1.5, side * 1.66, .55, .025, .16, 3.01);
         const passageOpening = st.passage && rel >= 54 && rel < 60;
-        if (passageOpening) b.box(wall, s + 1.5, side * 7.23, 4.5, .2, 1.3, 3.02);
+        if (passageOpening) b.sweptBox(wall, s, s + 3, side * 7.23, 4.5, .2, 1.3);
         else {
-          b.box(wall, s + 1.5, side * 7.23, 3.03, .2, 4.24, 3.02);
+          b.sweptBox(wall, s, s + 3, side * 7.23, 3.03, .2, 4.24);
           if (st.wallStyle === 'band') b.box(accent, s + 1.5, side * 7.105, 2.6, .03, .64, 3.02);
           b.box(m.dark, s + 1.5, side * 7.11, 1.08, .035, .24, 3.02);
         }
@@ -348,7 +369,7 @@ export class World {
         if (st.wallStyle === 'band') b.box(accent, s + 1.5, -side * 2.79, 2.18, .028, .58, 3.02);
         b.box(m.concrete, s + 1.5, -side * 2.48, .22, .66, .5, 3.02);
         b.box(m.dark, s + 1.5, -side * 2.79, .74, .06, .1, 3.02);
-        b.box(m.ceiling, s + 1.5, side * (stairwell ? .65 : 2.1), 5.18, stairwell ? 7.5 : 10.4, .28, 3.03);
+        b.sweptBox(m.ceiling, s, s + 3, side * (stairwell ? .65 : 2.1), 5.18, stairwell ? 7.5 : 10.4, .28);
         for (const x of [side * 2.6, side * 5.65]) {
           if (stairwell && Math.abs(x) > 4.4) continue;
           b.box(m.dark, s + 1.5, x, 4.79, .18, .18, 3.02);
@@ -411,6 +432,7 @@ export class World {
     // Separate bounds allow hidden parallel bores to be culled. Draw them after
     // the main opaque scene so its walls reject their covered fragments early.
     yield* sideBore.finish(group, 1);
+    distantLights.finish(group);
     this.scene.add(group); this.chunks.set(base, chunk); return chunk;
   }
   signal(chunk, b, spec) {
@@ -431,6 +453,8 @@ export class World {
     chunk.signals.push({ ...spec, lights, glow });
   }
   person(chunk, s, x, rng) {
+    const neighbours = [...this.chunks.values(), chunk].flatMap(c => c.people);
+    for (let attempt = 0; attempt < 8 && neighbours.some(p => Math.hypot(p.s - s, p.x - x) < .86); attempt++) s += .86;
     const p = this.crowd.create(rng);
     p.person.scale.setScalar(p.height);
     p.rootY = .945;
@@ -469,6 +493,8 @@ export class World {
     }
     this.lastBase = base;
     this.buildMs = performance.now() - start;
+    const people = [...this.chunks.values()].filter(c => c.base >= base - 24 && c.base <= base + 216).flatMap(c => c.people);
+    updatePedestrians(people, train);
     for (const [key, chunk] of this.chunks) {
       if (key < base - 24 || key > base + 216) {
         this.scene.remove(chunk.group);
@@ -483,25 +509,24 @@ export class World {
       }
       for (const p of chunk.people) {
         const t = train.time * p.pace + p.phase;
-        const journey = p.journey ? boardingPose(p.journey, train) : null;
-        p.boardingMoving = journey?.moving || false;
-        p.boardingDistance = journey?.distance || 0;
-        const walkS = journey?.s ?? (p.walker ? p.s + Math.sin(t * .24) * 2.3 : p.s);
-        const walkX = journey?.x ?? p.x;
+        const motion = p.motion;
+        p.boardingMoving = !!p.journey && motion.moving;
+        p.boardingDistance = p.journey ? motion.distance : 0;
+        const walkS = motion.s, walkX = motion.x;
         p.person.visible = walkS - train.s < 140 && walkS - train.s > -18;
         p.shadow.visible = p.person.visible;
         if (!p.person.visible) continue;
-        const walking = journey ? journey.amount : p.walker ? 1 : 0;
-        const stridePhase = journey ? journey.distance * 5.2 : t * 3;
+        const walking = motion.amount;
+        const stridePhase = motion.stridePhase ?? motion.distance * 5.2;
         const edgeYaw = (walkX < 0 ? Math.PI / 2 : -Math.PI / 2) - trackAngle(walkS);
-        const baseY = p.baseY + Math.atan2(Math.sin(edgeYaw - p.baseY), Math.cos(edgeYaw - p.baseY)) * (journey?.settle || 0);
+        const baseY = p.baseY + Math.atan2(Math.sin(edgeYaw - p.baseY), Math.cos(edgeYaw - p.baseY)) * motion.settle;
         const reaction = passengerAttention({ ...p, s: walkS, x: walkX, baseY }, train.s, train.time);
         const idleYaw = reaction.bodyYaw + Math.sin(t * .31) * .04 * (1 - reaction.attention);
         let bodyYaw = idleYaw;
-        if (journey) {
-          const blend = journey.turn * (1 - journey.settle);
-          bodyYaw += Math.atan2(Math.sin(journey.yaw - bodyYaw), Math.cos(journey.yaw - bodyYaw)) * blend;
-        } else if (p.walker) bodyYaw = Math.PI * T.MathUtils.smoothstep(Math.cos(t * .24), -.13, .13) - trackAngle(walkS);
+        if (p.journey || p.halt) {
+          const blend = motion.turn * (1 - motion.settle);
+          bodyYaw += Math.atan2(Math.sin(motion.yaw - bodyYaw), Math.cos(motion.yaw - bodyYaw)) * blend;
+        } else if (p.walker) bodyYaw = motion.yaw;
         p.person.rotation.y = bodyYaw;
         const wp = point(walkS, walkX, p.rootY), op = point(chunk.base);
         p.person.position.set(wp[0] - op[0], p.rootY, wp[2] - op[2]);
@@ -540,6 +565,7 @@ export class World {
     const people = [...this.chunks.values()].flatMap(c => c.people);
     return { chunks: this.chunks.size, passengers: people.length,
       boardingWalking: people.filter(p => p.boardingMoving).length,
+      boardingBlocked: people.filter(p => p.journey && p.halt).length,
       boardingMetres: Math.round(people.reduce((n, p) => n + (p.boardingDistance || 0), 0) * 10) / 10,
       signals: [...this.chunks.values()].reduce((n, c) => n + c.signals.length, 0) };
   }

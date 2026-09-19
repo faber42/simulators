@@ -72,8 +72,13 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   Die Wege bleiben hinter dem taktilen Streifen und führen innen an den Säulen
   vorbei. Schrittlänge, Armbewegung, Anlaufen und Abbremsen folgen dem tatsächlich
   zurückgelegten Weg. Am Ziel wenden sich die Fahrgäste wieder zur Bahn.
-  Andere warten weiter oder gehen unabhängig davon kurze Wege. Die Simulation
-  zeigt das Annähern; ein Einsteigen in unsichtbare Waggons wird nicht dargestellt.
+  Andere warten weiter oder gehen unabhängig davon kurze Wege. Eine kurze
+  Kollisionsvorschau prüft die Gehwege. Bei drohendem Kontakt
+  bleiben die Beteiligten an ihrer letzten sicheren Position stehen und gehen
+  in die Wartehaltung über. Auch sich kreuzende Wege und längere Frameabstände
+  werden berücksichtigt. Es gibt kein Umplanen oder Ausweichen um andere herum.
+  Die Simulation zeigt das Annähern; ein Einsteigen in unsichtbare Waggons wird
+  nicht dargestellt.
 
 ## Tastatur
 
@@ -127,6 +132,15 @@ ein pausierter, weiterhin sichtbarer Simulator misst seine Renderleistung weiter
   Reflexionen reichen bis 72 m voraus und blenden über 24 m weich ein. Damit
   wird der vorherige sichtbare Helligkeitssprung wenige Leuchten vor dem Zug
   reduziert; Leuchtenzahl und Texturen bleiben begrenzt.
+  Tunnel-Leuchtflächen gehen zwischen 35 und 65 m Entfernung weich in gefilterte,
+  tiefengeprüfte Lichtpunkte über. Deren glatter Abtastbereich bleibt mindestens
+  fünf Renderpixel groß; die Helligkeit nimmt entsprechend der projizierten
+  Leuchtfläche ab. So verschwinden Leuchten kleiner als ein Pixel nicht mehr
+  zwischen Rasterpositionen. Nebel und verdeckende Tunnelwände gelten weiterhin.
+  Pro Abschnitt werden diese Lichtpunkte in einem Zeichenaufruf zusammengefasst.
+  Die Wände und Decken an den Aufgängen teilen sich exakte Querschnitte an den
+  Abschnittsgrenzen. Obere Wände beginnen an der Oberkante der Stationswand;
+  überlappende Sichtflächen an Wänden, Decken und Podesten werden vermieden.
   Die Geometriekoordinaten sind lokal zum Abschnitt, damit auch lange Fahrten
   nicht durch große GPU-Koordinaten instabil werden.
 - Die Szene ist eine prozedurale Echtzeitdarstellung. Die Fahrgäste sind
@@ -134,7 +148,7 @@ ein pausierter, weiterhin sichtbarer Simulator misst seine Renderleistung weiter
 
 ## Prüfung und Diagnose
 
-`node --test metrosim/route.test.mjs metrosim/diagnostics.test.mjs metrosim/crowd.test.mjs metrosim/presentation.test.mjs metrosim/tunnel.test.mjs metrosim/boarding.test.mjs` prüft Freigabe,
+`node --test metrosim/route.test.mjs metrosim/diagnostics.test.mjs metrosim/crowd.test.mjs metrosim/presentation.test.mjs metrosim/tunnel.test.mjs metrosim/boarding.test.mjs metrosim/pedestrians.test.mjs` prüft Freigabe,
 Bremsen, Türverriegelung, Pause, Stationsübergänge, Weichenabschnitte und eine
 Stunde durchgehenden Betrieb. Die Diagnoseprüfungen decken konstante FPS,
 lange Hänger, die gleitende Fenstergrenze und ausgeblendete Tabs ab. Die
@@ -148,6 +162,10 @@ Geometrische Strahltests durch die tatsächlich erzeugten Tunnel kontrollieren
 freie Portale, beide Gleiswege und die Enden der entfernten Nebenröhren.
 Strahltests in den oberen Treppen- und Rolltreppenräumen prüfen außerdem
 geschlossene Wände, Decken und Podeste sowie freie Kopfhöhe auf dem Aufgang.
+Dabei müssen die sichtbaren Wand-, Decken- und Podestflächen jeweils eindeutig
+sein, um Z-Fighting durch doppelte Geometrie zu verhindern. Kollisionstests
+prüfen Wartende, Gegenverkehr, kreuzende Wege, große Zeitschritte sowie die
+tatsächlich erzeugten Fahrgastgruppen mehrerer Stationen.
 Die Gehwegtests prüfen Abstand zu Kante und Säulen, Gehgeschwindigkeit,
 Pause, Ankunft am Wartepunkt und sichtbare Bewegung während einer Zug-Einfahrt.
 

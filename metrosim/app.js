@@ -41,7 +41,7 @@ async function start() {
   const displayedTrain = {};
   const phaseNames = { signal: 'SIGNALHALT', waiting: 'WARTEN AUF BLOCKFREIGABE', depart: 'AUSFAHRT', running: 'AUTOMATIKBETRIEB', opening: 'STATIONSHALT', open: 'FAHRGASTWECHSEL', closing: 'TÜREN SCHLIESSEN', dispatch: 'ABFAHRT VORBEREITET' };
   let exposure = 1.03, accumulator = 0, last = performance.now(), lastUI = -1, timeScale = T.MathUtils.clamp(Number(query.get('rate')) || 1, .25, 8), fps = 0, failure = false;
-  function resize() { output.resize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+  function resize() { output.resize(innerWidth, innerHeight); materials.distantLamp.uniforms.viewportHeight.value = output.height; camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
   window.addEventListener('resize', resize); resize();
   $('diagnostics').hidden = query.get('diagnostics') !== '1';
   let perf = diagnostics.snapshot(performance.now());

@@ -1,6 +1,7 @@
 import * as T from '../pinsim/three.module.min.js';
 import { infrastructureLighting } from './lighting.js';
 import { tunnelFinish } from './scenery.mjs';
+import { distantLightMaterial, filteredLampMaterial } from './distant-lights.js';
 
 export function random(seed) { let n = seed | 0; return () => { n = Math.imul(n ^ n >>> 15, 1 | n); n ^= n + Math.imul(n ^ n >>> 7, 61 | n); return ((n ^ n >>> 14) >>> 0) / 4294967296; }; }
 function canvasTexture(draw, w = 512, h = 512) {
@@ -124,6 +125,7 @@ export function createMaterials() {
   standard('yellow', '#c9b568', { roughness: .84 });
   standard('white', '#dfded0'); standard('bench', '#7d8982', { metalness: .65, roughness: .38 });
   standard('lamp', '#fff7da', { emissive: '#fff3d2', emissiveIntensity: 4 });
+  m.tunnelLamp = filteredLampMaterial(); m.distantLamp = distantLightMaterial();
   standard('coolLamp', '#e2f1ea', { emissive: '#d9eee5', emissiveIntensity: 2.5 });
   standard('green', '#90ffc0', { emissive: '#36ff80', emissiveIntensity: 3 });
   standard('red', '#ff7765', { emissive: '#ff2109', emissiveIntensity: 4 });
