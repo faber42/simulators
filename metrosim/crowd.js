@@ -16,11 +16,11 @@ export class Crowd {
     const map = new T.CanvasTexture(canvas); map.colorSpace = T.SRGBColorSpace; map.anisotropy = 4;
     this.material = new T.MeshStandardMaterial({ map, vertexColors: true, roughness: .81 });
   }
-  create(rng) {
+  create(rng, options = {}) {
     const bones = [], positions = [], colors = [], uvs = [], indices = [], skinIndices = [], weights = [];
     const bone = (parent, x, y, z) => { const b = new T.Bone(); b.position.set(x, y, z); if (parent) parent.add(b); bones.push(b); b.userData.index = bones.length - 1; return b; };
     const root = bone(null, 0, 0, 0), hips = bone(root, 0, .94, 0), chest = bone(hips, 0, .31, 0), neck = bone(chest, 0, .205, 0), head = bone(neck, 0, .135, 0);
-    const female = rng() > .56, longCoat = rng() > .65, phone = rng() > .66;
+    const female = rng() > .56, longCoat = rng() > .65 && !options.seated, phone = options.phone ?? rng() > .66;
     const coat = new T.Color(['#26323c', '#766c5f', '#aea394', '#435263', '#303e35', '#75443d', '#343034', '#6f725d'][Math.floor(rng() * 8)]);
     const pants = new T.Color(['#28303a', '#363634', '#535b61', '#343b4c'][Math.floor(rng() * 4)]);
     const skin = new T.Color(['#b8896c', '#8d644d', '#c6a184', '#654934', '#d2b49b'][Math.floor(rng() * 5)]);
@@ -150,9 +150,9 @@ export class Crowd {
       ellipsoid(side * .244, .772, .006, .029, .055, .017, wrist, skin);
       ellipsoid(side * .218, .782, .016, .012, .026, .012, wrist, skin);
       if (side === 1 && phone) block(.244, .748, .026, .064, .111, .008, wrist, new T.Color('#161b20'));
-      legs.push({ pivot: thigh, shin: knee }); arms.push({ pivot: shoulder, forearm: elbow });
+      legs.push({ pivot: thigh, shin: knee }); arms.push({ pivot: shoulder, forearm: elbow, wrist });
     }
-    if (rng() > .4) {
+    if (rng() > .4 && !options.seated) {
       const bag = new T.Color(['#343c3c', '#615140', '#424c58'][Math.floor(rng() * 3)]);
       loft([[1.01, .115, .072, 0, -.16], [1.09, .131, .085, 0, -.17], [1.3, .119, .071, 0, -.155], [1.35, .078, .044, 0, -.142]], chest, bag, true);
       for (const side of [-1, 1]) block(side * .11, 1.253, .118, .026, .27, .015, chest, bag);
@@ -164,6 +164,6 @@ export class Crowd {
     mesh.add(root); person.add(mesh); mesh.bind(new T.Skeleton(bones));
     mesh.boundingSphere = new T.Sphere(new T.Vector3(0, .9, 0), 1.35);
     if (phone) { arms[1].pivot.rotation.x = -.35; arms[1].forearm.rotation.x = -1.26; head.rotation.x = .09; }
-    return { person, body: hips, hipHeight: .94, head, legs, arms, phone, height: .93 + rng() * .13 };
+    return { person, body: hips, chest, hipHeight: .94, head, legs, arms, phone, seated: !!options.seated, height: .93 + rng() * .13 };
   }
 }

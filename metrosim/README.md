@@ -47,6 +47,13 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   ab und folgen auch gekrümmten Bahnsteigen. Manche Bahnsteige besitzen einen
   seitlichen, beleuchteten Verbindungsgang mit einer Ecke und Beschilderung
   zur Gegenrichtung.
+  Rolltreppen haben 32 einzeln bewegte, geriffelte Stufen mit gelben Vorderkanten.
+  Sie laufen aufwärts und tauchen unter die festen Abschlussplatten der Podeste;
+  Pause hält auch die Stufen an. Die Stützkonstruktion liegt unter der Stufenbahn.
+  Drei Sitzgruppen mit je drei Plätzen stehen an der Bahnsteigwand, abseits der
+  Aufgänge und Durchgänge. Je zwei Plätze sind belegt: Ein Fahrgast verfolgt die
+  einfahrende Bahn mit dem Kopf, der andere schaut auf ein schwarzes Smartphone
+  in seiner Hand. Hüfte und Füße bleiben auf Sitzfläche und Bahnsteig abgestimmt.
 - Im Tunnel gibt es Notausgangstüren mit Podest, Rahmen, Panikstange und
   beleuchteter Beschilderung. Feste Bauabschnitte von 96 bzw. 144 m wechseln
   zwischen dunklem verrußtem Beton, hellen Betonsegmenten, braunem Mauerwerk,
@@ -69,7 +76,7 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   ihr und senken ihr Telefon. Manche bemerken die Bahn früh, andere erst in
   14–31 m Entfernung; am Telefon ist eine spätere Reaktion häufiger. Nach der
   Vorbeifahrt kehren sie zur Wartehaltung zurück.
-  Etwa 58 % haben die Absicht einzusteigen: Sie reagieren zeitversetzt auf die
+  Etwa 58 % der stehenden Fahrgäste haben die Absicht einzusteigen: Sie reagieren zeitversetzt auf die
   Einfahrt, gehen mit 0,86–1,23 m/s in Richtung der Halteposition und anschließend
   näher an die Bahnsteigkante. Am vorderen Ende gehen sie dafür ein Stück zurück.
   Die Wege bleiben hinter dem taktilen Streifen und führen innen an den Säulen
@@ -155,7 +162,7 @@ ein pausierter, weiterhin sichtbarer Simulator misst seine Renderleistung weiter
 
 ## Prüfung und Diagnose
 
-`node --test metrosim/route.test.mjs metrosim/diagnostics.test.mjs metrosim/crowd.test.mjs metrosim/presentation.test.mjs metrosim/tunnel.test.mjs metrosim/boarding.test.mjs metrosim/pedestrians.test.mjs` prüft Freigabe,
+`node --test metrosim/route.test.mjs metrosim/diagnostics.test.mjs metrosim/crowd.test.mjs metrosim/presentation.test.mjs metrosim/tunnel.test.mjs metrosim/boarding.test.mjs metrosim/pedestrians.test.mjs metrosim/platform-life.test.mjs` prüft Freigabe,
 Bremsen, Türverriegelung, Pause, Stationsübergänge, Weichenabschnitte und eine
 Stunde durchgehenden Betrieb. Die Diagnoseprüfungen decken konstante FPS,
 lange Hänger, die gleitende Fenstergrenze und ausgeblendete Tabs ab. Die
@@ -176,6 +183,9 @@ prüfen Wartende, Gegenverkehr, kreuzende Wege, große Zeitschritte sowie die
 tatsächlich erzeugten Fahrgastgruppen mehrerer Stationen.
 Die Gehwegtests prüfen Abstand zu Kante und Säulen, Gehgeschwindigkeit,
 Pause, Ankunft am Wartepunkt und sichtbare Bewegung während einer Zug-Einfahrt.
+Die Sitz- und Rolltreppentests kontrollieren Fußkontakt bei verschiedenen
+Körpergrößen, feste Sitzplätze, unterschiedliche Blickreaktionen, tatsächliche
+Stufenbewegung, Umlauf und eingefrorene Stufen bei unveränderter Simulationszeit.
 
 In der Browser-Konsole: `METROSIM.snapshot()`, `METROSIM.pause()`,
 `METROSIM.setSpeed(4)`, `METROSIM.advance(60)`, `METROSIM.inspectStation(1, 20)`
@@ -191,6 +201,8 @@ Reproduzierbare Ansichten für visuelle QA:
 - `?view=station&station=5&offset=18`: weiße Kacheln in Zentralbahnhof.
 - `?view=access&station=0`: Prüfblick vom Treppenfuß bis zum oberen Abschluss.
 - `?view=access&station=2&kind=escalator`: entsprechender Blick die Rolltreppe hinauf.
+- `?view=access&station=2&kind=escalator&time=0.2`: Stufenphase; mit `time=0.45` vergleichen.
+- `?view=seating&station=0`: Nahansicht von Sitzgruppe, Kopfbewegung und Smartphone.
 - `?time=38`: Einfahrt mit beginnenden Gehwegen der Fahrgäste.
 - `?view=junction&junction=0&offset=130`: freie Abzweigung rechts.
 - `?view=junction&junction=1&offset=130`: freie Abzweigung links.

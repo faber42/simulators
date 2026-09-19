@@ -5,6 +5,7 @@ import { World } from './world.js';
 import { CameraRenderer } from './render.js';
 import { FrameDiagnostics } from './diagnostics.mjs';
 import { FrameCadence } from './cadence.mjs';
+import { Escalator } from './escalator.js';
 
 const $ = id => document.getElementById(id);
 const loading = $('loading');
@@ -20,12 +21,17 @@ async function start() {
   const materials = createMaterials();
   const world = new World(scene, materials), train = new Train();
   const query = new URLSearchParams(location.search);
-  const inspect = ['station', 'junction', 'access'].includes(query.get('view'));
+  const inspect = ['station', 'junction', 'access', 'seating'].includes(query.get('view'));
   let accessView = null;
   if (query.get('view') === 'junction') {
     const index = Math.max(0, Math.min(10000, Math.floor(Number(query.get('junction')) || 0)));
     train.next = index; train.s = station(index).start - 246 + T.MathUtils.clamp(Number(query.get('offset')) || 120, 0, 230);
     train.phase = 'running'; train.paused = query.get('play') !== '1';
+  } else if (query.get('view') === 'seating') {
+    const index = Math.max(0, Math.min(10000, Math.floor(Number(query.get('station')) || 0)));
+    const st = station(index);
+    train.next = index; train.s = st.start + 14; train.phase = 'running'; train.paused = true;
+    accessView = { x: st.side * 3.9, eyeHeight: 2.05, target: point(st.start + 18, st.side * 6.72, 1.92) };
   } else if (query.get('view') === 'access') {
     const index = Math.max(0, Math.min(10000, Math.floor(Number(query.get('station')) || 0)));
     const st = station(index), escalator = query.get('kind') === 'escalator';
@@ -43,6 +49,7 @@ async function start() {
     for (let i = 0; i < seconds * 60; i++) train.step(1 / 60);
     train.paused = query.get('paused') === '1';
   }
+  if (inspect && query.has('time')) train.time = T.MathUtils.clamp(Number(query.get('time')) || 0, 0, 1800);
   const look = new T.Vector3();
   const diagnostics = new FrameDiagnostics(60000, 30, 2), cadence = new FrameCadence(30);
   let previousPose = { s: train.s, time: train.time, speed: train.speed };
@@ -92,7 +99,7 @@ async function start() {
     const p = point(pose.s + 13, 0, 2.18);
     look.set(p[0] - trackX(pose.s), p[1], p[2] + pose.s); camera.lookAt(look);
     if (accessView) {
-      const eye = point(pose.s, accessView.x, 2.6), target = point(accessView.start + 13, accessView.x, 6.05);
+      const eye = point(pose.s, accessView.x, accessView.eyeHeight ?? 2.6), target = accessView.target ?? point(accessView.start + 13, accessView.x, 6.05);
       camera.position.set(eye[0] - trackX(pose.s), eye[1], eye[2] + pose.s);
       look.set(target[0] - trackX(pose.s), target[1], target[2] + pose.s); camera.lookAt(look);
     }
@@ -153,10 +160,13 @@ async function start() {
   world.update(train);
   const warmup = world.crowd.create(() => .4).person;
   warmup.position.set(1000, 0, 0); scene.add(warmup);
+  const treadWarmup = new Escalator(0, 1, 0, materials.escalatorSteps).mesh;
+  treadWarmup.position.set(1000, 0, 0); scene.add(treadWarmup);
   await output.renderer.compileAsync(scene, camera);
   draw(0);
   output.renderer.getContext().finish(); // One startup sync, never in the frame loop.
   scene.remove(warmup); warmup.traverse(o => { if (o.isSkinnedMesh) { o.geometry.dispose(); o.skeleton.dispose(); } });
+  scene.remove(treadWarmup); treadWarmup.geometry.dispose(); treadWarmup.dispose();
   syncUI(); loading.style.display = 'none'; last = performance.now(); requestAnimationFrame(frame);
 }
 start().catch(error => {

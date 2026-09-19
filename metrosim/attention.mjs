@@ -8,6 +8,6 @@ export function passengerAttention(passenger, trainS, time) {
   const target = Math.atan2(dx, dz);
   const bodyYaw = passenger.baseY + angleDifference(target - passenger.baseY) * attention * .64;
   const headYaw = Math.max(-1.05, Math.min(1.05, angleDifference(target - bodyYaw))) * attention + Math.sin(time * .32 + passenger.phase) * .035 * (1 - attention);
-  const pitch = Math.atan2(.945 + 1.66 * passenger.height - 2.22, Math.max(1.2, Math.hypot(dx, dz)));
+  const pitch = Math.atan2((passenger.eyeHeight ?? .945 + 1.66 * passenger.height) - 2.22, Math.max(1.2, Math.hypot(dx, dz)));
   return { attention, bodyYaw, headYaw, pitch: (passenger.phone ? .18 : .025) * (1 - attention) + pitch * attention };
 }

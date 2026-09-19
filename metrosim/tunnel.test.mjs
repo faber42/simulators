@@ -60,6 +60,14 @@ test('stair and escalator rooms enclose the entire ceiling opening without block
       const from = new T.Vector3(...a), to = new T.Vector3(...b);
       return new T.Raycaster(from, to.clone().sub(from).normalize(), 0, from.distanceTo(to)).intersectObjects(meshes, false);
     };
+    const seats = [...world.chunks.values()].flatMap(c => c.seats);
+    const seated = [...world.chunks.values()].flatMap(c => c.people).filter(p => p.seated);
+    assert.equal(seats.length, 9); assert.equal(seated.length, 6);
+    assert.equal(seated.filter(p => p.phone).length, 3);
+    for (const p of seated) {
+      assert.ok(seats.some(seat => seat.s === p.s && seat.x === p.x));
+      assert.ok(!p.journey && !p.walker, 'seated passengers stay at their assigned seats');
+    }
     const openings = st.feature === 'escalator' ? [36, 78] : [36];
     for (const offset of openings) {
       const start = st.start + offset, x = st.side * 5.75;

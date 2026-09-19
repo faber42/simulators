@@ -6,6 +6,8 @@ import { passengerAttention } from './attention.mjs';
 import { boardingPlan } from './boarding.mjs';
 import { updatePedestrians } from './pedestrians.mjs';
 import { DistantLights } from './distant-lights.js';
+import { Escalator, escalatorHeight } from './escalator.js';
+import { seatedPose, SEAT_TOP, SEAT_X } from './seating.js';
 
 const box = new T.BoxGeometry(1, 1, 1).toNonIndexed();
 const plane = new T.PlaneGeometry(1, 1).toNonIndexed();
@@ -122,10 +124,20 @@ function forkPortal(b, m, s, junction) {
 }
 function panel(b, material, s, x, y, w, h, facing = 0) { b.add(plane, material, s, x, y, [w, h, 1], [0, facing, 0]); }
 function bench(b, m, s, side) {
-  b.box(m.bench, s, side * 5.6, 1.43, .52, .1, 2.9);
-  b.box(m.bench, s, side * 5.86, 1.82, .08, .73, 2.9);
-  for (const dz of [-1.12, 1.12]) { b.box(m.steel, s + dz, side * 5.6, 1.12, .1, .5, .12); b.box(m.steel, s + dz, side * 5.57, 1.66, .56, .07, .07); }
-  for (let j = -1; j <= 1; j++) b.box(m.dark, s + j, side * 5.6, 1.49, .53, .006, .025);
+  const x = side * SEAT_X;
+  b.box(m.steel, s, x, 1.27, .12, .1, 2.85);
+  for (const dz of [-1.17, 1.17]) {
+    b.box(m.steel, s + dz, x, 1.12, .1, .35, .13);
+    b.box(m.steel, s + dz, x, .977, .53, .065, .19);
+  }
+  for (const dz of [-1, 0, 1]) {
+    b.box(m.seat, s + dz, x, SEAT_TOP - .045, .57, .09, .65);
+    b.box(m.seat, s + dz, x + side * .26, 1.74, .085, .62, .65, [0, 0, -side * .08]);
+    for (const edge of [-.4, .4]) {
+      b.box(m.steel, s + dz + edge, x, 1.59, .52, .045, .045);
+      b.box(m.steel, s + dz + edge, x + side * .2, 1.44, .045, .3, .045);
+    }
+  }
 }
 function stairs(b, m, s, side) {
   const x = side * 5.75, rise = .155, run = .3, steps = 24, slope = Math.atan2(rise, run);
@@ -143,13 +155,16 @@ function stairs(b, m, s, side) {
 }
 function escalator(b, m, s, side) {
   const x = side * 5.55;
-  for (let i = 0; i < 32; i++) {
-    b.box(m.steel, s + i * .23, x, .95 + i * .115, 1.35, .14, .24);
-    b.box(m.dark, s + i * .23 - .09, x, 1.025 + i * .115, 1.34, .006, .027);
+  for (const [rel, y] of [[-.62, .96], [7.43, 4.625]]) {
+    b.box(m.steel, s + rel, x, y - .035, 1.4, .07, .76);
+    b.box(m.yellow, s + rel + (rel < 0 ? .36 : -.36), x, y + .004, 1.36, .009, .035);
   }
-  b.box(m.dark, s + 3.55, x, 2.35, 1.52, .55, 8.1, [.464, 0, 0]);
-  b.box(m.steel, s + 3.55, x, 2.24, 1.45, .07, 8.1, [.464, 0, 0]);
-  for (const z of [0, 3.55, 7.1]) b.box(m.concrete, s + z, x, .94 + z * .25, 1.75, .45 + z * .5, .6);
+  b.box(m.dark, s + 3.55, x, 2.2, 1.52, .4, 8.1, [.464, 0, 0]);
+  b.box(m.steel, s + 3.55, x, 2.02, 1.45, .07, 8.1, [.464, 0, 0]);
+  for (const z of [3.55, 7.1]) {
+    const top = escalatorHeight(z) - .26, height = top - .94;
+    b.box(m.concrete, s + z, x, .94 + height / 2, 1.75, height, .6);
+  }
   for (const dx of [-.79, .79]) {
     b.box(m.steel, s + 3.55, x + dx, 3.06, .13, .75, 8, [.464, 0, 0]);
     b.box(m.rubber, s + 3.55, x + dx, 3.49, .12, .08, 8.1, [.464, 0, 0]);
@@ -277,7 +292,7 @@ export class World {
   *build(base) {
     const group = new T.Group(); const b = new Batch(base), sideBore = new Batch(base), m = this.m, rng = random(base + 907);
     const distantLights = new DistantLights(base, m.distantLamp);
-    const chunk = { group, base, people: [], signals: [], lamps: [] };
+    const chunk = { group, base, people: [], signals: [], lamps: [], escalators: [], seats: [] };
     const addLamp = (s, x, y, stationLight) => chunk.lamps.push({ s, x, y, stationLight, key: `${s}:${x}` });
     for (let s = base; s < base + 24; s += 3) {
       const st = stationAt(s + 1.5);
@@ -399,10 +414,21 @@ export class World {
           for (const x of [2.3, 4.1]) b.box(m.steel, boardS, side * x, 4.52, .04, .63, .04);
           panel(b, m.sign('↑  Ausgang', 'exit'), s + 8, side * 5.6, 4.05, 1.75, .43);
         }
-        if (rel === 24 || rel === 90) bench(b, m, s, side);
+        if (rel === 18 || rel === 63 || rel === 102) {
+          bench(b, m, s, side);
+          for (const dz of [-1, 0, 1]) chunk.seats.push({ s: s + dz, x: side * SEAT_X, y: SEAT_TOP });
+          const seatedRng = random(s + 5189);
+          for (const dz of [-1, 1]) this.person(chunk, s + dz, side * SEAT_X, seatedRng, { seated: true, phone: dz === 1 });
+        }
         if (rel === 36) stairs(b, m, s, side);
         if (rel === 54 && st.passage) { passage(b, m, s + 3, side, st.color); addLamp(s + 3, side * 9.1, 3.35, true); }
-        if (rel === 78) { if (st.feature === 'escalator') escalator(b, m, s, side); else lift(b, m, s, side); }
+        if (rel === 78) {
+          if (st.feature === 'escalator') {
+            escalator(b, m, s, side);
+            const conveyor = new Escalator(s, side, base, m.escalatorSteps);
+            chunk.escalators.push(conveyor); group.add(conveyor.mesh);
+          } else lift(b, m, s, side);
+        }
         if (rel === 6 || rel === 66 || rel === 108) panel(b, m.sign(st.name), s, side * 7.1, 3.14, 3.4, .6, -side * Math.PI / 2);
         if (rel % 6 === 0 && rel > 3 && rel < 117) {
           const count = rel % 18 === 0 ? 2 : 1;
@@ -454,30 +480,31 @@ export class World {
     glow.scale.set(1.4, 1.4, 1); glow.position.copy(lights[0].position); chunk.group.add(glow);
     chunk.signals.push({ ...spec, lights, glow });
   }
-  person(chunk, s, x, rng) {
+  person(chunk, s, x, rng, options = {}) {
     const neighbours = [...this.chunks.values(), chunk].flatMap(c => c.people);
-    for (let attempt = 0; attempt < 8 && neighbours.some(p => Math.hypot(p.s - s, p.x - x) < .86); attempt++) s += .86;
-    const p = this.crowd.create(rng);
+    for (let attempt = 0; !options.seated && attempt < 8 && neighbours.some(p => Math.hypot(p.s - s, p.x - x) < .86); attempt++) s += .86;
+    const p = this.crowd.create(rng, options);
     p.person.scale.setScalar(p.height);
     p.rootY = .945;
     const location = point(s, x, p.rootY), origin = point(chunk.base);
     p.person.position.set(location[0] - origin[0], p.rootY, location[2] - origin[2]);
-    p.baseY = (x < 0 ? Math.PI / 2 : -Math.PI / 2) - trackAngle(s) + (rng() - .5) * .9;
+    p.baseY = (x < 0 ? Math.PI / 2 : -Math.PI / 2) - trackAngle(s) + (p.seated ? 0 : (rng() - .5) * .9);
     p.person.rotation.y = p.baseY;
     chunk.group.add(p.person);
     const shadow = new T.Mesh(plane, this.shadowMaterial);
     shadow.rotation.x = -Math.PI / 2; shadow.scale.set(1.05, .8, 1); shadow.position.copy(p.person.position); shadow.position.y = .948;
     chunk.group.add(shadow);
-    Object.assign(p, { s, x, shadow, phase: rng() * Math.PI * 2, pace: .65 + rng() * .5, walker: rng() > .8 });
+    Object.assign(p, { s, x, shadow, phase: rng() * Math.PI * 2, pace: .65 + rng() * .5, walker: !p.seated && rng() > .8 });
     const attentionRng = random(Math.floor(s * 997) ^ Math.floor(x * 101));
     p.noticeDistance = attentionRng() < (p.phone ? .7 : .35) ? 14 + attentionRng() * 17 : 43 + attentionRng() * 32;
     const boardingRng = random(Math.floor(s * 1337) ^ Math.floor(x * 391));
-    if (boardingRng() < .58) {
+    if (!p.seated && boardingRng() < .58) {
       const reserved = [...this.chunks.values(), chunk].flatMap(c => c.people)
         .filter(other => other.journey).map(other => other.journey.path.at(-1));
       p.journey = boardingPlan(s, x, stationAt(s), boardingRng, reserved);
       p.walker = false;
     }
+    if (p.seated) seatedPose(p, s - 100, 0);
     chunk.people.push(p);
   }
   update(train) {
@@ -500,10 +527,11 @@ export class World {
     for (const [key, chunk] of this.chunks) {
       if (key < base - 24 || key > base + 216) {
         this.scene.remove(chunk.group);
-        chunk.group.traverse(o => { if (o.isMesh && ![box, plane, sphere].includes(o.geometry)) o.geometry.dispose(); if (o.isSkinnedMesh) o.skeleton.dispose(); if (o.isSprite) o.material.dispose(); });
+        chunk.group.traverse(o => { if (o.isMesh && ![box, plane, sphere].includes(o.geometry)) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); if (o.isSkinnedMesh) o.skeleton.dispose(); if (o.isSprite) o.material.dispose(); });
         this.chunks.delete(key); continue;
       }
       chunk.group.position.set(trackX(key) - trackX(train.s), 0, train.s - key);
+      for (const conveyor of chunk.escalators) conveyor.update(train.time);
       for (const signal of chunk.signals) {
         const green = train.signals.isGreen(signal, train.time);
         signal.lights[0].material = green ? this.m.dark : this.m.red; signal.lights[1].material = green ? this.m.green : this.m.dark;
@@ -518,6 +546,7 @@ export class World {
         p.person.visible = walkS - train.s < 140 && walkS - train.s > -18;
         p.shadow.visible = p.person.visible;
         if (!p.person.visible) continue;
+        if (p.seated) { seatedPose(p, train.s, train.time); continue; }
         const walking = motion.amount;
         const stridePhase = motion.stridePhase ?? motion.distance * 5.2;
         const edgeYaw = (walkX < 0 ? Math.PI / 2 : -Math.PI / 2) - trackAngle(walkS);
@@ -566,6 +595,9 @@ export class World {
   stats() {
     const people = [...this.chunks.values()].flatMap(c => c.people);
     return { chunks: this.chunks.size, passengers: people.length,
+      seatedPassengers: people.filter(p => p.seated).length,
+      seatedPhones: people.filter(p => p.seated && p.phone).length,
+      escalators: [...this.chunks.values()].reduce((n, c) => n + c.escalators.length, 0),
       boardingWalking: people.filter(p => p.boardingMoving).length,
       boardingBlocked: people.filter(p => p.journey && p.halt).length,
       boardingMetres: Math.round(people.reduce((n, p) => n + (p.boardingDistance || 0), 0) * 10) / 10,
