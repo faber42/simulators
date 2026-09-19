@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080d10">
+  <title>Metro · Automatische U-Bahn</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="feed" aria-label="Livebild der Frontkamera einer automatischen U-Bahn">
+    <canvas id="view" aria-label="Dreidimensionale Fahrt durch Tunnel und U-Bahnhöfe"></canvas>
+    <header class="overlay">
+      <a class="identity" href="../" title="Zur Simulatorenübersicht"><span class="mark">M</span><span>METRO<span class="sub">METROPOLITAN TRANSIT</span></span></a>
+      <div class="camera"><span class="live-dot"></span> LIVE <span class="divider">/</span> ZUG 024 <span class="divider">/</span> FRONTKAMERA <span id="clock">00:00:00</span></div>
+    </header>
+    <div id="loading"><span class="mark">M</span><p>Frontkamera wird verbunden<span class="ellipsis"> …</span></p><small>Automatischer Betrieb · Linie U8</small></div>
+    <section id="doors" class="door-status" aria-live="polite" hidden><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 27V5h22v22M14 6v20M18 6v20M2 27h28"/></svg><div><span id="door-title">Türen werden geöffnet</span><small id="door-side">Bahnsteig links</small></div><span class="door-pulse"></span></section>
+    <footer class="overlay">
+      <div class="route"><span class="line">U8</span><div><small id="destination-label">NÄCHSTER HALT</small><strong id="destination">Rathaus</strong></div></div>
+      <div class="telemetry"><span id="phase">SIGNALHALT</span><span class="divider">/</span><span><b id="speed">00</b> <small>km/h</small></span><span class="auto"><i></i> ATO</span></div>
+    </footer>
+    <div id="pause-indicator" hidden>ÜBERTRAGUNG PAUSIERT</div>
+    <div id="hint">Leertaste Pause &nbsp;·&nbsp; F Vollbild &nbsp;·&nbsp; H Einblendungen</div>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
