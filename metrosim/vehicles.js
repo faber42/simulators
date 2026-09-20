@@ -5,6 +5,7 @@ import { OWN_SERVICE, OTHER_SERVICES, serviceLabel } from './services.mjs';
 
 const box = new T.BoxGeometry(1, 1, 1).toNonIndexed();
 const wheel = new T.CylinderGeometry(.27, .27, .13, 16).toNonIndexed();
+const cameraLens = new T.CylinderGeometry(1, 1, 1, 18).toNonIndexed();
 const roofProfile = new T.Shape();
 roofProfile.moveTo(-1.41, 3.02); roofProfile.quadraticCurveTo(-1.37, 3.46, -1.02, 3.46);
 roofProfile.lineTo(1.02, 3.46); roofProfile.quadraticCurveTo(1.37, 3.46, 1.41, 3.02); roofProfile.closePath();
@@ -15,22 +16,30 @@ noseProfile.lineTo(-1.43, 2.9); noseProfile.quadraticCurveTo(-1.38, 3.42, -1.03,
 noseProfile.lineTo(1.03, 3.42); noseProfile.quadraticCurveTo(1.38, 3.42, 1.43, 2.9);
 noseProfile.lineTo(1.43, 1.21); noseProfile.quadraticCurveTo(1.43, .96, 1.22, .96); noseProfile.closePath();
 const nose = new T.ExtrudeGeometry(noseProfile, { depth: .12, bevelEnabled: true, bevelThickness: .035, bevelSize: .025, bevelSegments: 2, steps: 1, curveSegments: 8 });
+const cabProfile = noseProfile.clone(), windscreenOpening = new T.Path();
+windscreenOpening.moveTo(-1.15, 2.01); windscreenOpening.lineTo(1.15, 2.01);
+windscreenOpening.lineTo(1.15, 2.79); windscreenOpening.lineTo(-1.15, 2.79); windscreenOpening.closePath();
+cabProfile.holes.push(windscreenOpening);
+const cabNose = new T.ExtrudeGeometry(cabProfile, { depth: .12, bevelEnabled: true, bevelThickness: .035, bevelSize: .025, bevelSegments: 2, steps: 1, curveSegments: 8 });
+const FROSTED_GLASS = '#e1e8db';
 // One merged, vertex-coloured body per car; moving leaves share one instance mesh.
 class Parts {
-  constructor() { this.positions = []; this.normals = []; this.colors = []; }
-  add(geometry, color, position, scale = [1, 1, 1], rotation = [0, 0, 0]) {
+  constructor() { this.positions = []; this.normals = []; this.colors = []; this.panes = []; }
+  add(geometry, color, position, scale = [1, 1, 1], rotation = [0, 0, 0], glow = 0) {
     const matrix = new T.Matrix4().compose(new T.Vector3(...position), new T.Quaternion().setFromEuler(new T.Euler(...rotation)), new T.Vector3(...scale));
     const normalMatrix = new T.Matrix3().getNormalMatrix(matrix), v = new T.Vector3(), n = new T.Vector3(), c = new T.Color(color);
     const p = geometry.attributes.position, normal = geometry.attributes.normal;
     for (let i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i).applyMatrix4(matrix); n.fromBufferAttribute(normal, i).applyMatrix3(normalMatrix).normalize();
       this.positions.push(v.x, v.y, v.z); this.normals.push(n.x, n.y, n.z); this.colors.push(c.r, c.g, c.b);
+      this.panes.push(geometry.attributes.uv.getX(i), geometry.attributes.uv.getY(i), glow);
     }
   }
   box(color, x, y, z, w, h, d, rotation) { this.add(box, color, [x, y, z], [w, h, d], rotation); }
+  pane(x, y, z, w, h, d) { this.add(box, FROSTED_GLASS, [x, y, z], [w, h, d], [0, 0, 0], 1.15); }
   geometry() {
     const g = new T.BufferGeometry();
-    for (const [key, data] of [['position', this.positions], ['normal', this.normals], ['color', this.colors]]) g.setAttribute(key, new T.Float32BufferAttribute(data, 3));
+    for (const [key, data] of [['position', this.positions], ['normal', this.normals], ['color', this.colors], ['pane', this.panes]]) g.setAttribute(key, new T.Float32BufferAttribute(data, 3));
     g.computeBoundingSphere(); return g;
   }
 }
@@ -52,8 +61,7 @@ function carGeometry(first, last) {
       b.box(teal, side * 1.475, 1.69, mid, .025, .17, length);
       b.box(silver, side * 1.42, 2.83, mid, .09, .28, length);
       b.box(rubber, side * 1.436, 2.29, mid, .06, .92, length - .24);
-      b.box('#718d91', side * 1.475, 2.3, mid, .022, .78, length - .36);
-      b.box('#a2b5b2', side * 1.489, 2.61, mid, .01, .05, length - .42);
+      b.pane(side * 1.475, 2.3, mid, .022, .78, length - .36);
       for (const edge of [a + .06, z - .06]) b.box(silver, side * 1.435, 2.29, edge, .085, 1.08, .12);
     }
     for (const z of [-5.4, 0, 5.4]) {
@@ -63,16 +71,33 @@ function carGeometry(first, last) {
     }
   }
   // The vestibule has a floor and a dim inner partition, no detailed interior.
-  b.box('#4b5d59', 0, 1.97, 0, .09, 2.02, 17.2);
+  b.box('#4b5d59', 0, 1.97, first ? .6 : 0, .09, 2.02, first ? 16 : 17.2);
   for (const z of [-8.72, 8.72]) {
-    const cab = z < 0 ? first : last;
-    if (cab) b.add(nose, teal, [0, 0, z - .06]);
+    const front = z < 0 && first, cab = z < 0 ? first : last;
+    if (cab) b.add(front ? cabNose : nose, teal, [0, 0, z - .06]);
     else {
       b.box(dark, 0, 1.86, z, 2.79, 1.8, .12);
       b.box(silver, 0, 2.98, z, 2.65, .49, .13);
     }
-    b.box('#17292e', 0, 2.37, z + Math.sign(z) * .11, 2.48, .91, .025);
-    b.box('#48676c', 0, 2.4, z + Math.sign(z) * .13, 2.28, .74, .012);
+    if (front) {
+      // An open gasket surrounds real recessed geometry, not a dark panel
+      // painted over the nose. The only equipment is the automatic cab camera.
+      for (const x of [-1.19, 1.19]) b.box(rubber, x, 2.4, z - .11, .1, .91, .045);
+      for (const y of [1.9825, 2.8175]) b.box(rubber, 0, y, z - .11, 2.28, .075, .045);
+      b.box('#323e3f', 0, 2.35, -7.42, 2.65, 1.42, .08);
+      b.box('#232d30', 0, 1.86, -8.02, 2.6, .09, 1.28);
+      b.box('#303a3c', 0, 2.96, -8.02, 2.6, .08, 1.28);
+      for (const x of [-1.26, 1.26]) b.box('#384448', x, 2.42, -8.04, .08, 1.08, 1.36);
+      b.box('#212c30', 0, 2.26, -7.47, .62, .44, .03);
+      b.box('#687779', .35, 2.81, -8.15, .065, .32, .065);
+      b.box('#9ca9a5', .35, 2.59, -8.16, .24, .18, .3);
+      b.add(cameraLens, '#182228', [.35, 2.59, -8.33], [.074, .055, .074], [Math.PI / 2, 0, 0]);
+      b.add(cameraLens, '#3a6470', [.35, 2.59, -8.365], [.048, .014, .048], [Math.PI / 2, 0, 0]);
+    } else {
+      b.box('#17292e', 0, 2.37, z + Math.sign(z) * .11, 2.48, .91, .025);
+      if (last && z > 0) b.pane(0, 2.4, z + .13, 2.28, .74, .012);
+      else b.box('#48676c', 0, 2.4, z + Math.sign(z) * .13, 2.28, .74, .012);
+    }
     b.box('#112122', 0, 1.01, z, 1.7, .19, .22);
     b.box('#3b4848', 0, .64, z + Math.sign(z) * .2, .48, .24, .48);
     if (cab) {
@@ -97,7 +122,7 @@ function doorGeometry() {
   for (const z of [-.307, .307]) b.box('#263332', .04, 1.97, z, .012, 1.96, .016);
   for (const y of [1, 2.94]) b.box('#455753', .04, y, 0, .012, .02, .63);
   b.box('#204a4b', .041, 2.33, 0, .014, .87, .46);
-  b.box('#839d9b', .05, 2.34, 0, .012, .73, .34);
+  b.pane(.05, 2.34, 0, .012, .73, .34);
   b.box('#297d79', .042, 1.68, 0, .01, .15, .63);
   b.box('#535f5c', .046, 1.83, .21, .023, .15, .023);
   b.box('#b9aa70', .046, 1.46, -.2, .018, .07, .035);
@@ -108,6 +133,30 @@ export class Vehicles {
   constructor(scene, materials) {
     this.scene = scene;
     this.material = new T.MeshStandardMaterial({ vertexColors: true, roughness: .5, metalness: .25, emissive: '#9caeaa', emissiveIntensity: .07 });
+    // Glazing remains in the existing merged bodies and instanced door leaves.
+    // Opaque diffuse transmission suggests the lit saloon without revealing an
+    // interior or adding lights/draw calls for every pane. Broad gradients stay
+    // stable in the small, mip-filtered monitor image.
+    this.material.onBeforeCompile = shader => {
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>
+        attribute vec3 pane; varying vec3 vPane;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vPane = pane;`);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>
+        varying vec3 vPane;`)
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        vec2 rim = min(vPane.xy, 1. - vPane.xy);
+        float frost = .76 + .24 * smoothstep(0., .08, rim.x) * smoothstep(0., .13, rim.y);
+        float ceilingLight = .88 + .12 * smoothstep(.15, .85, vPane.y);
+        totalEmissiveRadiance += diffuseColor.rgb * vPane.z * frost * ceilingLight;`)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, .72, min(1., vPane.z));`)
+        .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+        metalnessFactor *= 1. - min(1., vPane.z);`);
+    };
+    this.material.customProgramCacheKey = () => 'metro-frosted-glazing-v1';
+    this.windscreenMaterial = new T.MeshStandardMaterial({ color: '#a3bec2', roughness: .18, metalness: .12, transparent: true, opacity: .18, depthWrite: false });
+    this.windscreenGeometry = new T.PlaneGeometry(2.28, .76);
     this.geometries = [carGeometry(true, false), carGeometry(false, false), carGeometry(false, true)];
     this.doorGeometry = doorGeometry();
     this.signMaterials = new Map([OWN_SERVICE, ...OTHER_SERVICES].map(service => [serviceLabel(service), materials.sign(serviceLabel(service), 'vehicle')]));
@@ -123,6 +172,10 @@ export class Vehicles {
     for (let i = 0; i < CAR_COUNT; i++) {
       const car = new T.Group(); car.add(new T.Mesh(this.geometries[i === 0 ? 0 : i === CAR_COUNT - 1 ? 2 : 1], this.material));
       const doors = new T.InstancedMesh(this.doorGeometry, this.material, 12); doors.instanceMatrix.setUsage(T.DynamicDrawUsage); doors.frustumCulled = false; car.add(doors);
+      if (i === 0) {
+        const windscreen = new T.Mesh(this.windscreenGeometry, this.windscreenMaterial);
+        windscreen.name = 'cab-windscreen'; windscreen.position.set(0, 2.4, -8.86); windscreen.rotation.y = Math.PI; car.add(windscreen);
+      }
       for (const side of [-1, 1]) {
         const sign = new T.Mesh(new T.PlaneGeometry(2.6, .25), signMaterial); signs.push(sign);
         sign.position.set(side * 1.485, 2.85, -2.6); sign.rotation.y = side * Math.PI / 2; car.add(sign);

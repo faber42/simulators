@@ -9,6 +9,7 @@ import { Escalator } from './escalator.js';
 import { RenderLoop } from './render-loop.mjs';
 import { DoorInspection } from './door-inspection.js';
 import { boardPosition } from './destination-display.mjs';
+import { TRAIN_LENGTH } from './traffic.mjs';
 
 const $ = id => document.getElementById(id);
 const loading = $('loading');
@@ -26,9 +27,15 @@ async function start() {
   const materials = createMaterials();
   const world = new World(scene, materials), train = new Train();
   const query = new URLSearchParams(location.search);
-  const inspect = ['station', 'junction', 'access', 'seating', 'display'].includes(query.get('view'));
+  const inspect = ['station', 'junction', 'access', 'seating', 'display', 'vehicle'].includes(query.get('view'));
   let accessView = null;
-  if (query.get('view') === 'display') {
+  if (query.get('view') === 'vehicle') {
+    const index = Math.max(0, Math.min(10000, Math.floor(Number(query.get('station')) || 0))), st = station(index);
+    const rear = query.get('end') === 'rear', end = rear ? st.stop - TRAIN_LENGTH : st.stop;
+    train.next = index; train.s = st.stop; train.phase = 'running'; train.paused = true;
+    accessView = { s: end + (rear ? -5.5 : 5.5), x: st.side * 2.8, eyeHeight: 2.65,
+      target: point(end + (rear ? .6 : -.6), 0, 2.18) };
+  } else if (query.get('view') === 'display') {
     const index = Math.max(0, Math.min(10000, Math.floor(Number(query.get('station')) || 0))), st = station(index);
     const s = boardPosition(st, query.get('board') === '0' ? 0 : 1);
     const offset = Number(query.get('offset') ?? -8);
@@ -138,6 +145,7 @@ async function start() {
       camera.copy(world.mirror.camera); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
       world.mirror.rig.traverse(object => object.layers.set(2));
     }
+    if (query.get('view') === 'vehicle') camera.layers.enable(1);
     const headPoint = point(pose.s + 33, 0, .65); headlights.target.position.set(headPoint[0] - trackX(pose.s), .65, -33);
     const st = stationAt(pose.s + 8);
     const targetExposure = st ? .89 : 1.14;

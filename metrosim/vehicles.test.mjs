@@ -11,6 +11,39 @@ import { PassengerExchange } from './exchanges.js';
 const material = new T.MeshStandardMaterial();
 const materials = { dark: material, steel: material, sign: () => material };
 
+test('side, door and rear glazing is exposed luminous glass while the surrounding body stays unlit', () => {
+  const vehicles = new Vehicles(new T.Scene(), materials);
+  const hit = (geometry, from, direction) => new T.Raycaster(new T.Vector3(...from), new T.Vector3(...direction))
+    .intersectObject(new T.Mesh(geometry, vehicles.material), false)[0];
+  const emission = h => h.object.geometry.attributes.pane.getZ(h.face.a);
+  for (const geometry of vehicles.geometries) {
+    assert.equal(geometry.attributes.pane.count, geometry.attributes.position.count);
+    for (const side of [-1, 1]) for (const z of [-7.3, -2.6, 2.6, 7.3]) {
+      assert.ok(emission(hit(geometry, [side * 4, 2.3, z], [-side, 0, 0])) > 1, 'no body panel hides a lit side pane');
+      assert.equal(emission(hit(geometry, [side * 4, 1.3, z], [-side, 0, 0])), 0);
+    }
+  }
+  assert.ok(emission(hit(vehicles.doorGeometry, [1, 2.34, 0], [-1, 0, 0])) > 1, 'the moving leaf carries its illuminated pane');
+  assert.ok(emission(hit(vehicles.geometries[2], [.7, 2.4, 11], [0, 0, -1])) > 1, 'the preceding train has a lit rear window');
+  assert.equal(vehicles.material.transparent, false, 'frosted saloon windows conceal the unfinished interior');
+});
+
+test('the transparent front window opens onto an enclosed camera cab rather than a solid nose panel', () => {
+  const vehicles = new Vehicles(new T.Scene(), materials), body = new T.Mesh(vehicles.geometries[0], vehicles.material);
+  const cast = (x, y) => new T.Raycaster(new T.Vector3(x, y, -11), new T.Vector3(0, 0, 1)).intersectObject(body, false)[0];
+  const interior = cast(-.45, 2.4), lens = cast(.35, 2.59), sill = cast(0, 1.7);
+  assert.ok(interior.point.z > -7.6 && interior.point.z < -7.3, 'the sightline reaches a recessed back wall');
+  assert.ok(lens.point.z > -8.4 && lens.point.z < -8.3, 'the actual camera lens sits ahead of the back wall');
+  assert.ok(sill.point.z < -8.6, 'the nose remains solid below the window');
+  for (const train of [vehicles.own, vehicles.ahead]) {
+    const glass = train.cars[0].getObjectByName('cab-windscreen');
+    assert.ok(glass.material.transparent && glass.material.opacity < .3);
+    assert.equal(glass.material.depthWrite, false);
+    assert.ok(glass.position.z < -8.85, 'glazing and gasket do not share a coplanar surface');
+    assert.equal(train.cars.at(-1).getObjectByName('cab-windscreen'), undefined, 'rear glazing stays frosted');
+  }
+});
+
 test('only platform-side door leaves move and all cars remain articulated along the route', () => {
   const vehicles = new Vehicles(new T.Scene(), materials), matrix = new T.Matrix4();
   for (const index of [0, 1, 2, 5]) {

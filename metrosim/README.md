@@ -54,8 +54,12 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   einzeln der Gleiskrümmung. Die Stationskurven bleiben so sanft, dass vordere
   Wagen und Säulen die Sicht auf die hinteren Türen nicht verdecken.
   Linien- und Zielanzeigen, Drehgestelle, Kupplungen,
-  Türdichtungen und Schlusslichter gehören zum Modell. Die Fenster sind opak
-  getönt; hinter den Türöffnungen liegen einfache beleuchtete Vorräume.
+  Türdichtungen und Schlusslichter gehören zum Modell. Seiten-, Tür- und
+  Heckfenster zeigen helles, von innen beleuchtetes Milchglas mit weichen
+  Helligkeitsverläufen und dunkleren Rändern; der Fahrgastraum bleibt verdeckt.
+  Die Frontscheibe ist dagegen durchsichtig: Dahinter liegt ein schlichter,
+  dunklerer Automatik-Führerraum mit einer Kamera an einer Deckenhalterung.
+  Hinter den Türöffnungen liegen einfache beleuchtete Vorräume.
   Nur die Türen auf der Bahnsteigseite öffnen sich, synchron zur Türanzeige.
   Die Türflügel bleiben auch geschlossen sichtbar. Sie schwenken zunächst sechs
   Zentimeter aus dem Wagenkasten aus und gleiten erst dann seitlich auseinander;
@@ -355,6 +359,8 @@ Reproduzierbare Ansichten für visuelle QA:
 - `?time=203`: Annäherung an die belegte Station Westhafen und Einfahrsignal.
 - `?time=207&paused=1`: rotes Einfahrsignal und noch stehender vorausfahrender Zug.
 - `?view=mirror&time=67&paused=1`: vergrößerte, ungespiegelte zweite Kamera für Tür- und Fahrgastprüfung.
+- `?view=vehicle`: Nahansicht der Frontscheibe und des Automatik-Kameraraums.
+- `?view=vehicle&end=rear`: beleuchtetes Heckfenster und seitliche Milchglasscheiben.
 
 - `?view=station&station=0&offset=18`: linker Bahnsteig mit massiver Treppe.
 - `?view=station&station=1&offset=60`: rechter, gekrümmter Bahnsteig mit Aufzug.
