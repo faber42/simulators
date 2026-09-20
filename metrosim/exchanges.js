@@ -1,7 +1,7 @@
 import * as T from '../pinsim/three.module.min.js';
 import { point, trackX, trackAngle } from './route.mjs';
 import { random } from './materials.js';
-import { exchangePose } from './exchange.mjs';
+import { exchangePose, MAX_EXCHANGE_PASSENGERS } from './exchange.mjs';
 import { EXCHANGE_DOORS } from './traffic.mjs';
 
 export class PassengerExchange {
@@ -10,16 +10,16 @@ export class PassengerExchange {
     this.groups = new Map(); this.obstacles = []; this.boarding = 0; this.alighting = 0;
     this.shadowGeometry = new T.PlaneGeometry(.85, .65);
     // Prepare both exchange groups during loading. Entering the next station
-    // only repositions existing skeletons instead of building eight at once.
+    // only repositions existing skeletons, including the three-person queues.
     this.pool = [this.createGroup(21), this.createGroup(94)];
   }
   createGroup(seed) {
     const group = new T.Group(), people = [];
-    for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) for (const outgoing of [true, false]) {
-      const p = this.crowd.create(random(seed * 97 + slot * 139 + (outgoing ? 8102 : 3361)), { phone: false });
+    for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) for (const outgoing of [true, false]) for (let ordinal = 0; ordinal < MAX_EXCHANGE_PASSENGERS; ordinal++) {
+      const p = this.crowd.create(random(seed * 97 + slot * 139 + ordinal * 773 + (outgoing ? 8102 : 3361)), { phone: false });
       p.person.scale.setScalar(p.height); group.add(p.person);
       const shadow = new T.Mesh(this.shadowGeometry, this.shadowMaterial); shadow.rotation.x = -Math.PI / 2; group.add(shadow);
-      people.push({ ...p, slot, outgoing, shadow });
+      people.push({ ...p, slot, outgoing, ordinal, shadow });
     }
     group.visible = false; this.scene.add(group); return { group, people, station: null };
   }
@@ -36,22 +36,21 @@ export class PassengerExchange {
       const entry = this.groups.get(key) || this.create(key, st);
       for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
         const lane = exchangePose(st, slot, false, -1);
-        this.obstacles.push({ s: lane.s + .28, x: st.side * 2.65, height: 1, phase: 0, pace: 1 });
-        this.obstacles.push({ s: lane.s + 1.18, x: st.side * 3.18, height: 1, phase: 0, pace: 1 });
-        this.obstacles.push({ s: lane.s + 2.06, x: st.side * 3.18, height: 1, phase: 0, pace: 1 });
+        for (let offset = -2; offset <= 6.5; offset += .7)
+          this.obstacles.push({ s: lane.s + offset, x: st.side * 3.15, height: 1, phase: 0, pace: 1 });
       }
       for (const p of entry.people) {
-        const pose = exchangePose(st, p.slot, p.outgoing, age, previousService);
+        const pose = exchangePose(st, p.slot, p.outgoing, age, previousService, p.ordinal);
         p.person.visible = p.shadow.visible = pose.visible;
         if (!pose.visible) continue;
         const world = point(pose.s, pose.x, .945);
         p.person.position.set(world[0] - trackX(train.s), .945, world[2] + train.s);
-        p.person.rotation.y = (pose.alongPlatform ? Math.PI : pose.direction * Math.PI / 2) - trackAngle(pose.s);
+        p.person.rotation.y = pose.yaw - trackAngle(pose.s);
         p.shadow.position.set(p.person.position.x, .95, p.person.position.z);
-        const walking = pose.walking ? Math.sin(Math.PI * pose.strideProgress) ** .4 : 0, phase = pose.distance * 6.6;
+        const walking = pose.amount, phase = pose.distance * 6.6;
         p.body.position.y = p.hipHeight + Math.abs(Math.sin(phase)) * .014 * walking;
-        p.body.rotation.z = Math.sin(train.time * .9 + p.slot) * .009 * (1 - walking);
-        p.head.rotation.y = pose.walking ? .025 * Math.sin(phase) : Math.sin(train.time * .35 + p.slot) * .14;
+        p.body.rotation.z = Math.sin(train.time * .9 + p.slot + p.ordinal) * .009 * (1 - walking);
+        p.head.rotation.y = pose.walking ? .025 * Math.sin(phase) : Math.sin(train.time * .35 + p.slot + p.ordinal) * .14;
         p.head.rotation.x = pose.walking ? .04 : 0;
         for (let i = 0; i < 2; i++) {
           const stride = Math.sin(phase + i * Math.PI);

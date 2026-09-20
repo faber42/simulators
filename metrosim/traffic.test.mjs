@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Train, station, entrySignal, SIGNAL_CLEARANCE, SIGNAL_REACTION } from './route.mjs';
 import { TRAIN_LENGTH, CAR_COUNT, DOOR_OFFSETS, EXCHANGE_DOORS, doorOpening, ownExchangeAge } from './traffic.mjs';
-import { exchangePose } from './exchange.mjs';
+import { exchangePose, exchangeCount } from './exchange.mjs';
 
 test('an occupied entry stays red until the complete preceding train leaves; both dwell variants clear safely', () => {
   const train = new Train(), encountered = new Map();
@@ -102,4 +102,37 @@ test('earlier alighters remain present and leave room for passengers from the fo
     assert.ok(Math.hypot(earlier.s - next.s, earlier.x - next.x) > 1.4);
     assert.ok(Math.abs(earlier.x) > 2.5 && Math.abs(earlier.x) < 3.4);
   }
+});
+
+test('one to three passengers per door queue without intersections and finish inside the dwell window', () => {
+  const seenCounts = new Set();
+  for (let index = 0; index < 6; index++) for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
+    const st = station(index), doorS = st.stop - DOOR_OFFSETS[EXCHANGE_DOORS[slot]];
+    const counts = [true, false].map(outgoing => exchangeCount(st, slot, outgoing));
+    counts.forEach(count => { seenCounts.add(count); assert.ok(count >= 1 && count <= 3); });
+    let lastOut = 0, firstIn = Infinity;
+    for (let frame = -1; frame <= 8 * 60; frame++) {
+      const age = frame / 60, people = [];
+      for (const outgoing of [true, false]) for (let ordinal = 0; ordinal < 3; ordinal++) {
+        const pose = exchangePose(st, slot, outgoing, age, false, ordinal);
+        if (ordinal >= exchangeCount(st, slot, outgoing)) { assert.equal(pose.visible, false); continue; }
+        if (age < 0) assert.equal(pose.visible, !outgoing, 'boarders already wait before opening');
+        if (age === 8) { assert.equal(pose.visible, outgoing); assert.equal(pose.walking, false); }
+        if (!pose.visible) continue;
+        if (Math.abs(pose.x) < 1.8) assert.ok(Math.abs(pose.s - doorS) < .35, 'all passengers cross the actual door opening');
+        if (pose.walking) { if (outgoing) lastOut = age; else firstIn = Math.min(firstIn, age); }
+        people.push(pose);
+      }
+      for (let a = 0; a < people.length; a++) for (let b = a + 1; b < people.length; b++)
+        assert.ok(Math.hypot(people[a].s - people[b].s, people[a].x - people[b].x) >= .62,
+          `station ${index}, door ${slot}, age ${age}: passengers retain personal space`);
+      for (let ordinal = 0; ordinal < counts[0]; ordinal++) {
+        const earlier = exchangePose(st, slot, true, 12, true, ordinal);
+        for (const person of people) assert.ok(Math.hypot(earlier.s - person.s, earlier.x - person.x) > 1.3,
+          'earlier alighters leave room for the whole next group');
+      }
+    }
+    assert.ok(lastOut < firstIn, 'the last alighter clears before the queue starts boarding');
+  }
+  assert.deepEqual([...seenCounts].sort(), [1, 2, 3]);
 });

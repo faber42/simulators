@@ -12,6 +12,11 @@ export const ease = value => { const t = clamp(value); return t * t * (3 - 2 * t
 export function doorOpening(phase, timer) {
   return phase === 'opening' ? ease(timer / 2) : phase === 'open' ? 1 : phase === 'closing' ? 1 - ease(timer / 2.8) : 0;
 }
+export function doorMotion(opening) {
+  // Plug doors first clear the body, then slide alongside it. Closing follows
+  // the same path in reverse, seating the leaves only after they meet.
+  return { plug: .06 * ease(opening / .18), slide: .66 * ease((opening - .18) / .82) };
+}
 export function exchangeAge(phase, timer) {
   return phase === 'open' ? timer : phase === 'closing' ? 8 + timer : ['dispatch', 'depart', 'running'].includes(phase) ? 12 : -1;
 }

@@ -492,10 +492,10 @@ export class World {
     // Reserve the exchange lanes beside the selected doors. Ordinary walkers
     // also see the boarding/alighting passengers as pedestrian obstacles.
     const reserved = at => st && EXCHANGE_DOORS.some(i => {
-      const relative = at - (st.stop - DOOR_OFFSETS[i]); return relative > -1.2 && relative < 2.7;
+      const relative = at - (st.stop - DOOR_OFFSETS[i]); return relative > -3.7 && relative < 6.5;
     });
     const neighbours = [...this.chunks.values(), chunk].flatMap(c => c.people);
-    for (let attempt = 0; !options.seated && attempt < 12 && (reserved(s) || neighbours.some(p => Math.hypot(p.s - s, p.x - x) < .86)); attempt++) s += .86;
+    for (let attempt = 0; !options.seated && attempt < 18 && (reserved(s) || neighbours.some(p => Math.hypot(p.s - s, p.x - x) < .86)); attempt++) s += .86;
     const p = this.crowd.create(rng, options);
     p.person.scale.setScalar(p.height);
     p.rootY = .945;

@@ -1,6 +1,6 @@
 import * as T from '../pinsim/three.module.min.js';
 import { point, trackX, trackAngle } from './route.mjs';
-import { CAR_LENGTH, CAR_PITCH, CAR_COUNT, TRAIN_LENGTH } from './traffic.mjs';
+import { CAR_LENGTH, CAR_PITCH, CAR_COUNT, TRAIN_LENGTH, doorMotion } from './traffic.mjs';
 
 const box = new T.BoxGeometry(1, 1, 1).toNonIndexed();
 const wheel = new T.CylinderGeometry(.27, .27, .13, 16).toNonIndexed();
@@ -92,6 +92,9 @@ function carGeometry(first, last) {
 function doorGeometry() {
   const b = new Parts();
   b.box('#c7ceca', 0, 1.97, 0, .072, 1.96, .63);
+  // Permanent perimeter seals keep the closed leaves distinct from the body.
+  for (const z of [-.307, .307]) b.box('#263332', .04, 1.97, z, .012, 1.96, .016);
+  for (const y of [1, 2.94]) b.box('#455753', .04, y, 0, .012, .02, .63);
   b.box('#204a4b', .041, 2.33, 0, .014, .87, .46);
   b.box('#839d9b', .05, 2.34, 0, .012, .73, .34);
   b.box('#297d79', .042, 1.68, 0, .01, .15, .63);
@@ -140,8 +143,8 @@ export class Vehicles {
       const car = vehicle.cars[i]; car.position.set(p[0] - trackX(originS), 0, originS - s); car.rotation.y = -trackAngle(s);
       let leaf = 0;
       for (const wall of [-1, 1]) for (const z of [-5.4, 0, 5.4]) for (const direction of [-1, 1]) {
-        const slide = wall === side ? opening : 0;
-        this.position.set(wall * (1.48 + slide * .075), 0, z + direction * (.325 + .66 * slide));
+        const motion = doorMotion(wall === side ? opening : 0);
+        this.position.set(wall * (1.485 + motion.plug), 0, z + direction * (.325 + motion.slide));
         this.quaternion.setFromAxisAngle(this.axis, wall < 0 ? Math.PI : 0);
         this.matrix.compose(this.position, this.quaternion, this.unit); vehicle.leaves[i].setMatrixAt(leaf++, this.matrix);
       }

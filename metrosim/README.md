@@ -57,8 +57,14 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   Türdichtungen und Schlusslichter gehören zum Modell. Die Fenster sind opak
   getönt; hinter den Türöffnungen liegen einfache beleuchtete Vorräume.
   Nur die Türen auf der Bahnsteigseite öffnen sich, synchron zur Türanzeige.
-  An vier über den Zug verteilten Türen steigen zunächst Fahrgäste aus,
-  anschließend steigen andere ein. Alle Übergänge sind vor dem Schließen beendet.
+  Die Türflügel bleiben auch geschlossen sichtbar. Sie schwenken zunächst sechs
+  Zentimeter aus dem Wagenkasten aus und gleiten erst dann seitlich auseinander;
+  beim Schließen treffen sie sich zuerst und ziehen danach wieder in die Dichtung.
+  An vier über den Zug verteilten Türen steigen jeweils ein bis drei Fahrgäste
+  nacheinander aus; anschließend rücken ein bis drei wartende Fahrgäste nach und
+  steigen ein. Die Anzahl variiert nach Station, Tür und Fahrtrichtung des Wechsels.
+  Getrennte Laufwege und Warteschlangen halten Abstand. Alle Übergänge sind
+  innerhalb der acht Sekunden Offenzeit und vor dem Schließen beendet.
   Der tatsächliche Stationshalt startet diesen Ablauf; der letzte Zentimeter
   beim Bremsen und ein späterer Signalhalt vertauschen oder ersetzen keine Figuren.
   Ausgestiegene des vorausfahrenden Zugs bleiben am Bahnsteig und treten aus
@@ -187,7 +193,8 @@ angehalten“. Beim Fortsetzen beginnt die Zeitmessung ohne künstlichen langen 
   dahinter, damit die Tiefengenauigkeit in der Ferne keine schwarzen Flächen erzeugt.
   Eigener Zug, vorausfahrender Zug und Monitor werden als feste Pools wiederverwendet.
   Zusammengefasste Wagenkörper und instanzierte Türflügel begrenzen Zeichenaufrufe.
-  Auch die beiden Gruppen für den Fahrgastwechsel werden vorab gebaut und wiederverwendet.
+  Auch die beiden Gruppen für den Fahrgastwechsel mit je 24 möglichen Figuren
+  werden vorab gebaut und wiederverwendet; nicht benötigte Personen bleiben unsichtbar.
   Ein festes, pro Fragment berechnetes Lichtfeld beleuchtet Tunnelwände und
   Bahnsteige auch in der Ferne. Es hängt ausschließlich von der Infrastruktur
   ab, nicht von der Kameraposition. 16 ergänzende Punktlichter für Figuren und
@@ -250,6 +257,8 @@ die richtige Türseite und den Monitorausschnitt einschließlich Türschwellen �
 36 Stationen sowie freie Sicht über nahe Fahrgastköpfe. Strahltests prüfen zusätzlich die freie Sicht an Wagen und
 gebauten Bahnsteigsäulen vorbei. Fahrgasttests prüfen Türpositionen, getrennte Gehspuren
 und die Reihenfolge von Ausstieg, Einstieg und Türschluss.
+Zusätzliche Tests prüfen die Dreiergruppen samt Abstand und vollständigem
+Fahrgastwechsel vor Türschluss sowie das Ausschwenken vor dem seitlichen Gleiten.
 Regressionstests prüfen den letzten Bremszentimeter, den abgeschlossenen Wechsel
 beim Signalhalt, den Abstand der Monitorrückwand und das durchgehende Livebild.
 

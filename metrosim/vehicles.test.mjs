@@ -4,7 +4,7 @@ import * as T from '../pinsim/three.module.min.js';
 import { Vehicles } from './vehicles.js';
 import { PlatformMirror } from './mirrors.js';
 import { station, point, trackX } from './route.mjs';
-import { CAR_COUNT, DOOR_OFFSETS } from './traffic.mjs';
+import { CAR_COUNT, DOOR_OFFSETS, doorOpening } from './traffic.mjs';
 import { Crowd } from './crowd.js';
 import { PassengerExchange } from './exchanges.js';
 
@@ -61,6 +61,30 @@ test('station mirrors frame every door on both platform sides, including curved 
   }
 });
 
+test('plug doors stay visible, clear the body before sliding, and reseat along the same path', () => {
+  const vehicles = new Vehicles(new T.Scene(), materials), matrix = new T.Matrix4();
+  const st = station(0), positions = [];
+  for (let frame = 0; frame <= 120; frame++) {
+    const opening = doorOpening('opening', frame / 60);
+    vehicles.place(vehicles.own, st.stop, st.stop, opening, st.side);
+    assert.equal(vehicles.own.leaves[0].visible, true);
+    vehicles.own.leaves[0].getMatrixAt(0, matrix);
+    const plug = Math.abs(matrix.elements[12]) - 1.485;
+    const slide = Math.abs(matrix.elements[14] + 5.4) - .325;
+    assert.ok(plug >= -1e-6 && plug <= .060001);
+    if (slide > .00001) {
+      assert.ok(Math.abs(plug - .06) < 1e-6, 'the full 6 cm outward movement precedes any lateral movement');
+      assert.ok(Math.abs(matrix.elements[12]) - .036 > 1.50, 'the inner leaf face clears the outer body and seals');
+    }
+    positions.push([...matrix.elements]);
+    vehicles.place(vehicles.own, st.stop, st.stop, doorOpening('closing', 2.8 * (1 - frame / 120)), st.side);
+    vehicles.own.leaves[0].getMatrixAt(0, matrix);
+    matrix.elements.forEach((value, i) => assert.ok(Math.abs(value - positions.at(-1)[i]) < 1e-6, 'closing retraces the opening movement'));
+  }
+  assert.ok(positions.slice(1, 30).some(p => Math.abs(p[12] - positions[0][12]) > .02 && p[14] === positions[0][14]),
+    'a visible outward-only stage precedes sliding');
+});
+
 test('monitor housing leaves depth clearance behind the picture and stays live throughout approach', () => {
   const scene = new T.Scene(), mirror = new PlatformMirror(scene, materials), st = station(0);
   mirror.rig.visible = true; scene.updateMatrixWorld(true);
@@ -84,7 +108,7 @@ test('endless passenger exchanges reuse a fixed pair of prebuilt groups', () => 
   const crowd = Object.create(Crowd.prototype); crowd.material = material;
   const scene = new T.Scene(), exchange = new PassengerExchange(scene, crowd, material);
   const geometry = new Set(); scene.traverse(o => { if (o.isSkinnedMesh) geometry.add(o.geometry); });
-  assert.equal(geometry.size, 16);
+  assert.equal(geometry.size, 48);
   for (let index = 0; index < 30; index++) {
     const st = station(index), train = { s: st.stop, time: index * 80 };
     for (const age of [-1, 1, 5, 12]) exchange.update(train, [
