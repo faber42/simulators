@@ -60,13 +60,17 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   Die Türflügel bleiben auch geschlossen sichtbar. Sie schwenken zunächst sechs
   Zentimeter aus dem Wagenkasten aus und gleiten erst dann seitlich auseinander;
   beim Schließen treffen sie sich zuerst und ziehen danach wieder in die Dichtung.
-  An vier über den Zug verteilten Türen steigen jeweils ein bis drei Fahrgäste
-  nacheinander aus; anschließend rücken ein bis drei wartende Fahrgäste nach und
+  An vier über den Zug verteilten Türen steigen jeweils ein bis vier Fahrgäste
+  nacheinander aus; anschließend rücken ein bis vier wartende Fahrgäste nach und
   steigen ein. Die Anzahl variiert nach Station, Tür und Fahrtrichtung des Wechsels.
-  Einsteiger gehen von ihren unterschiedlich weit entfernten Warteplätzen
-  diagonal zur Tür. Die Wege münden in einem weichen Bogen in die Türöffnung,
+  Einsteiger warten links und rechts neben der Tür, höchstens zwei je Seite.
+  Einzelne Personen stehen mal links, mal rechts; größere Gruppen verteilen
+  sich als 1+1, 2+1 oder 2+2. Sie steigen abwechselnd von beiden Seiten ein und
+  gehen von ihren unterschiedlich weit entfernten Warteplätzen diagonal zur Tür.
+  Die Wege münden in einem weichen Bogen in die Türöffnung,
   ohne seitliche Zwischenschritte oder rechtwinklige Drehungen. Aussteiger gehen
-  zunächst vom Zug weg und wenden sich während des Gehens zur festen Treppe:
+  zunächst gut zwei Meter geradeaus durch die freie Mitte an den Wartenden
+  vorbei und wenden sich erst danach während des Gehens zur festen Treppe:
   Je nach Tür laufen sie längs des Bahnsteigs nach vorn oder nach hinten,
   innerhalb der Säulenreihe. Die Tür wird vor dem Einstieg freigegeben;
   Ausgestiegene gehen ohne Zwischenhalt weiter Richtung Ausgang, auch während
@@ -237,7 +241,7 @@ Pause zeichnet nur ein neues Standbild und startet kein dauerhaftes Rendering.
   dahinter, damit die Tiefengenauigkeit in der Ferne keine schwarzen Flächen erzeugt.
   Eigener Zug, vorausfahrender Zug und Monitor werden als feste Pools wiederverwendet.
   Zusammengefasste Wagenkörper und instanzierte Türflügel begrenzen Zeichenaufrufe.
-  Auch die beiden Gruppen für den Fahrgastwechsel mit je 24 möglichen Figuren
+  Auch die beiden Gruppen für den Fahrgastwechsel mit je 32 möglichen Figuren
   werden vorab gebaut und wiederverwendet; nicht benötigte Personen bleiben unsichtbar.
   Fahrzielanzeiger verwenden fünf wiederverwendete, vorgefilterte Texturen.
   Die Faltblätter werden im Shader animiert; während der Fahrt werden dafür
@@ -305,8 +309,10 @@ die richtige Türseite und den Monitorausschnitt einschließlich Türschwellen �
 36 Stationen sowie freie Sicht über nahe Fahrgastköpfe. Strahltests prüfen zusätzlich die freie Sicht an Wagen und
 gebauten Bahnsteigsäulen vorbei. Fahrgasttests prüfen Türpositionen, getrennte Gehspuren
 und die Reihenfolge von Ausstieg, Einstieg und Türschluss.
-Zusätzliche Tests prüfen die Dreiergruppen samt Abstand und vollständigem
+Zusätzliche Tests prüfen die Vierergruppen samt Abstand und vollständigem
 Fahrgastwechsel vor Türschluss sowie das Ausschwenken vor dem seitlichen Gleiten.
+Sie prüfen außerdem die beidseitigen Warteplätze, den freien geraden Ausstiegsweg
+und die abwechselnde Reihenfolge beim Überqueren der Türschwelle.
 Die Türkamera wird auf beiden Bahnsteigseiten, gekrümmten Stationen und schmalen
 Bildformaten geprüft. Tests sichern ihre Umschaltzeiten sowie die individuellen
 Tempi, Abstände und Schrittfolgen der Warteschlangen ab.

@@ -10,7 +10,7 @@ export class PassengerExchange {
     this.groups = new Map(); this.obstacles = []; this.boarding = 0; this.alighting = 0;
     this.shadowGeometry = new T.PlaneGeometry(.85, .65);
     // Prepare both exchange groups during loading. Entering the next station
-    // only repositions existing skeletons, including the three-person queues.
+    // only repositions existing skeletons, including both two-person queues.
     this.pool = [this.createGroup(21), this.createGroup(94)];
   }
   createGroup(seed) {

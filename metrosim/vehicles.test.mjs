@@ -108,7 +108,7 @@ test('endless passenger exchanges reuse a fixed pair of prebuilt groups', () => 
   const crowd = Object.create(Crowd.prototype); crowd.material = material;
   const scene = new T.Scene(), exchange = new PassengerExchange(scene, crowd, material);
   const geometry = new Set(); scene.traverse(o => { if (o.isSkinnedMesh) geometry.add(o.geometry); });
-  assert.equal(geometry.size, 48);
+  assert.equal(geometry.size, 64);
   for (let index = 0; index < 30; index++) {
     const st = station(index), train = { s: st.stop, time: index * 80 };
     for (const age of [-1, 1, 5, 12]) exchange.update(train, [
