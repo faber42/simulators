@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Train, station, entrySignal, SIGNAL_CLEARANCE, SIGNAL_REACTION } from './route.mjs';
-import { TRAIN_LENGTH, CAR_COUNT, DOOR_OFFSETS, EXCHANGE_DOORS, doorOpening } from './traffic.mjs';
+import { TRAIN_LENGTH, CAR_COUNT, DOOR_OFFSETS, EXCHANGE_DOORS, doorOpening, ownExchangeAge } from './traffic.mjs';
 import { exchangePose } from './exchange.mjs';
 
 test('an occupied entry stays red until the complete preceding train leaves; both dwell variants clear safely', () => {
@@ -35,6 +35,38 @@ test('pause also freezes visible predecessor doors and tail position', () => {
   train.paused = true;
   for (let i = 0; i < 1000; i++) train.step(1 / 60);
   assert.deepEqual(train.traffic.pose(2, train.time), before);
+});
+
+test('boarders keep their identity through final braking and exchanges never restart at exit signals', () => {
+  const train = new Train(), previousAge = new Map();
+  let finalBraking = 0, exitWait = 0;
+  for (let frame = 0; frame < 600 * 60; frame++) {
+    train.step(1 / 60);
+    for (const index of [train.next - 1, train.next]) {
+      if (index < 0) continue;
+      const st = station(index);
+      if (train.s < st.start || train.s > st.end + 14) continue;
+      const age = ownExchangeAge(train, st);
+      assert.ok(age >= (previousAge.get(index) ?? -1), 'exchange lifecycle cannot run backwards');
+      previousAge.set(index, age);
+      if (train.visits <= index) {
+        assert.equal(age, -1, 'approaching passengers must still be waiting');
+        if (train.s >= st.stop - .01) finalBraking++;
+      }
+      if (train.next > index && train.phase === 'waiting') { exitWait++; assert.equal(age, 12); }
+      for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
+        const out = exchangePose(st, slot, true, age), into = exchangePose(st, slot, false, age);
+        if (age < 0) {
+          assert.equal(out.visible, false, 'alighters stay inside before the doors open');
+          assert.equal(into.visible, true, 'the same boarder stays visible');
+          assert.equal(into.progress, 0);
+        }
+        if (train.next > index) { assert.equal(out.visible, true); assert.equal(into.visible, false); }
+      }
+    }
+  }
+  assert.ok(finalBraking > 0, 'exercise the final centimetre before settling');
+  assert.ok(exitWait > 0, 'exercise a second stop at a red exit');
 });
 
 test('passengers cross actual door centres, alight before boarding, and finish before closing', () => {

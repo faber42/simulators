@@ -48,8 +48,9 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   findet am Westhafen statt; spätere Begegnungen wechseln zwischen beiden Abläufen.
 - Jeder Bahnsteig hat am vorderen Ende einen Abfertigungsmonitor. Eine zweite
   Kamera rendert dieselbe Szene entlang der eigenen Türenreihe, horizontal
-  gespiegelt. Sie sitzt nahe der Bahnsteigkante und zeigt mit 28° vertikalem
-  Blickwinkel die Türen und den Ein- und Ausstieg größer. Die Wagen folgen
+  gespiegelt. Sie sitzt nahe der Bahnsteigkante auf 3,65 m Höhe über dem Gleis,
+  oberhalb der Fahrgastköpfe, und blickt leicht abwärts. Ihr vertikaler Blickwinkel
+  von 28° umfasst die Türen bis zu den Schwellen und den Ein- und Ausstieg. Die Wagen folgen
   einzeln der Gleiskrümmung. Die Stationskurven bleiben so sanft, dass vordere
   Wagen und Säulen die Sicht auf die hinteren Türen nicht verdecken.
   Linien- und Zielanzeigen, Drehgestelle, Kupplungen,
@@ -58,6 +59,8 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   Nur die Türen auf der Bahnsteigseite öffnen sich, synchron zur Türanzeige.
   An vier über den Zug verteilten Türen steigen zunächst Fahrgäste aus,
   anschließend steigen andere ein. Alle Übergänge sind vor dem Schließen beendet.
+  Der tatsächliche Stationshalt startet diesen Ablauf; der letzte Zentimeter
+  beim Bremsen und ein späterer Signalhalt vertauschen oder ersetzen keine Figuren.
   Ausgestiegene des vorausfahrenden Zugs bleiben am Bahnsteig und treten aus
   der Türgasse, damit die nächste Abfertigung Platz hat.
   Das Ausfahrsignal steht gegenüber dem Monitor und bleibt dadurch sichtbar.
@@ -173,12 +176,15 @@ angehalten“. Beim Fortsetzen beginnt die Zeitmessung ohne künstlichen langen 
   Zeichenaufruf für seinen Körper statt vieler einzelner Körperteile.
   In Stationen bleiben zusätzlich 96 m hinter der Frontkamera erhalten, damit
   der Monitor auch den letzten Wagen, Bahnsteig und Fahrgäste zeigt. Sein
-  768×512-HDR-Renderziel mit 4× MSAA wird wiederverwendet und in der Nähe mit
-  demselben 30-FPS-Takt aktualisiert; in Pause wird auch der Monitor nicht neu
+  576×384-HDR-Renderziel mit 4× MSAA wird wiederverwendet und während der gesamten
+  Sichtbarkeit mit demselben 30-FPS-Takt aktualisiert. Es gibt keinen Wechsel von
+  einem eingefrorenen Fernbild zu einem Livebild; in Pause wird auch der Monitor nicht neu
   gerendert. Trilinear gefilterte Mipmaps und anisotrope Filterung glätten das
   verkleinerte Bild. Ein von der projizierten Pixelgröße abhängiger Mipmap-Bias
   verstärkt die Glättung in der Ferne, damit feine Details bei der Einfahrt
   nicht zwischen einzelnen Bildpunkten flimmern.
+  Der Monitorrahmen lässt die Bildfläche frei; seine Rückwand liegt deutlich
+  dahinter, damit die Tiefengenauigkeit in der Ferne keine schwarzen Flächen erzeugt.
   Eigener Zug, vorausfahrender Zug und Monitor werden als feste Pools wiederverwendet.
   Zusammengefasste Wagenkörper und instanzierte Türflügel begrenzen Zeichenaufrufe.
   Auch die beiden Gruppen für den Fahrgastwechsel werden vorab gebaut und wiederverwendet.
@@ -240,10 +246,12 @@ Körpergrößen, feste Sitzplätze, unterschiedliche Blickreaktionen, tatsächli
 Stufenbewegung, Umlauf und eingefrorene Stufen bei unveränderter Simulationszeit.
 Verkehrstests kontrollieren die Freigabe erst hinter dem Zugschluss, beide
 Belegungsvarianten, Zugabstand, Türverriegelung und Pause. Fahrzeugtests prüfen
-die richtige Türseite und den Monitorausschnitt für sämtliche Türen über
-36 Stationen. Strahltests prüfen zusätzlich die freie Sicht an Wagen und
+die richtige Türseite und den Monitorausschnitt einschließlich Türschwellen über
+36 Stationen sowie freie Sicht über nahe Fahrgastköpfe. Strahltests prüfen zusätzlich die freie Sicht an Wagen und
 gebauten Bahnsteigsäulen vorbei. Fahrgasttests prüfen Türpositionen, getrennte Gehspuren
 und die Reihenfolge von Ausstieg, Einstieg und Türschluss.
+Regressionstests prüfen den letzten Bremszentimeter, den abgeschlossenen Wechsel
+beim Signalhalt, den Abstand der Monitorrückwand und das durchgehende Livebild.
 
 In der Browser-Konsole: `METROSIM.snapshot()`, `METROSIM.pause()`,
 `METROSIM.setSpeed(4)`, `METROSIM.advance(60)`, `METROSIM.inspectStation(1, 20)`

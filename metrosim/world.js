@@ -11,7 +11,7 @@ import { seatedPose, SEAT_TOP, SEAT_X } from './seating.js';
 import { Vehicles } from './vehicles.js';
 import { PlatformMirror } from './mirrors.js';
 import { PassengerExchange } from './exchanges.js';
-import { doorOpening, exchangeAge, DOOR_OFFSETS, EXCHANGE_DOORS } from './traffic.mjs';
+import { doorOpening, ownExchangeAge, DOOR_OFFSETS, EXCHANGE_DOORS } from './traffic.mjs';
 
 const box = new T.BoxGeometry(1, 1, 1).toNonIndexed();
 const plane = new T.PlaneGeometry(1, 1).toNonIndexed();
@@ -534,7 +534,7 @@ export class World {
       if (lead && !train.traffic.services.get(st.index).waiting)
         exchanges.push({ key: `lead-${st.index}`, station: st, age: lead.exchange, previousService: true });
       if (!lead || lead.clear || train.traffic.services.get(st.index).waiting) exchanges.push({ key: `own-${st.index}`, station: st,
-        age: train.s >= st.stop - .01 ? exchangeAge(train.phase, train.timer) : -1 });
+        age: ownExchangeAge(train, st) });
     }
     this.exchange.update(train, exchanges);
     if (this.lastBase === null || Math.abs(base - this.lastBase) > 48) {

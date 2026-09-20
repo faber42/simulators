@@ -16,6 +16,16 @@ export function exchangeAge(phase, timer) {
   return phase === 'open' ? timer : phase === 'closing' ? 8 + timer : ['dispatch', 'depart', 'running'].includes(phase) ? 12 : -1;
 }
 
+export function ownExchangeAge(train, station) {
+  // Position alone cannot distinguish the last centimetre of braking from a
+  // completed stop: "running" would briefly put alighters on the platform and
+  // hide boarders, before "settling" reset the exchange. Use the actual visit.
+  if (train.visits <= station.index) return -1;
+  // Once dispatched, preserve the completed exchange even at a red exit.
+  if (train.next > station.index) return 12;
+  return exchangeAge(train.phase, train.timer);
+}
+
 // Deterministic predecessor services. Only approaching stations are retained.
 // Their real rear axle/body position, never a release timer, clears the entry.
 export class Traffic {

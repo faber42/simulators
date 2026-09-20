@@ -44,12 +44,39 @@ test('station mirrors frame every door on both platform sides, including curved 
     }
     for (let door = 0; door < DOOR_OFFSETS.length; door++) {
       const car = Math.floor(door / 3);
+      for (const y of [.97, 2.95]) for (const edge of [-.65, .65]) {
+        const corner = new T.Vector3(st.side * 1.51, y, [-5.4, 0, 5.4][door % 3] + edge)
+          .applyMatrix4(vehicles.own.cars[car].matrixWorld).project(mirror.camera);
+        assert.ok(Math.abs(corner.x) < 1 && Math.abs(corner.y) < 1,
+          `station ${index}, door ${door}: frame the whole opening including the threshold`);
+      }
       const target = new T.Vector3(st.side * 1.51, 2.1, [-5.4, 0, 5.4][door % 3]).applyMatrix4(vehicles.own.cars[car].matrixWorld);
       const delta = target.sub(mirror.camera.position);
+      assert.ok(mirror.camera.position.y + delta.clone().normalize().y * 2.5 > 2.9,
+        'door sightlines pass above even a tall passenger standing directly in front of the camera');
       const ray = new T.Raycaster(mirror.camera.position, delta.clone().normalize(), .1, delta.length() - .18); ray.layers.set(1);
       const blockers = vehicles.own.cars.filter((_, i) => i !== car).map(c => c.children[0]);
       assert.equal(ray.intersectObjects(blockers, false).length, 0, `station ${index}, door ${door}: nearer cars must not hide the rear doors`);
     }
+  }
+});
+
+test('monitor housing leaves depth clearance behind the picture and stays live throughout approach', () => {
+  const scene = new T.Scene(), mirror = new PlatformMirror(scene, materials), st = station(0);
+  mirror.rig.visible = true; scene.updateMatrixWorld(true);
+  for (const x of [-.9, 0, .9]) for (const y of [2.34, 2.94, 3.54]) {
+    const ray = new T.Raycaster(new T.Vector3(x, y, 1), new T.Vector3(0, 0, -1));
+    const hits = ray.intersectObject(mirror.rig, true);
+    assert.equal(hits[0].object, mirror.surface, 'the screen is the only front face inside the bezel');
+    for (const hit of hits.filter(hit => hit.object !== mirror.surface))
+      assert.ok(hit.distance - hits[0].distance > .2, 'no almost-coplanar plate can break through at distant depth precision');
+  }
+  for (const distance of [209, 150, 90, 68.1, 67.9, 20, 0]) {
+    mirror.update({ s: st.stop - distance });
+    let draws = 0;
+    scene.fog = { density: .016 };
+    mirror.render({ getRenderTarget: () => null, setRenderTarget() {}, render() { draws++; } });
+    assert.equal(draws, 1, 'every visible image is current, with no frozen/live distance boundary');
   }
 });
 
