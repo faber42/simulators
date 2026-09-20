@@ -151,11 +151,19 @@ test('actual platform crowds keep their separation while some boarders stop for 
     const people = [...world.chunks.values()].flatMap(c => c.people);
     for (let frame = 0; frame < 30 * 35; frame++) {
       const time = frame / 30;
-      updatePedestrians(people, { time, s: Math.min(st.stop, st.start - 42 + time * 10) });
+      const train = { time, s: Math.min(st.stop, st.start - 42 + time * 10) };
+      world.exchange.update(train, [{ key: 'own', station: st, age: time < 25 ? -1 : Math.min(8, time - 25) }]);
+      updatePedestrians([...people, ...world.exchange.obstacles], train);
       for (let i = 0; i < people.length; i++) for (let j = i + 1; j < people.length; j++) {
         const a = people[i], b = people[j];
         assert.ok(Math.hypot(a.motion.s - b.motion.s, a.motion.x - b.motion.x) >= .78 * Math.max(a.height, b.height) - .001,
           `station ${index}: passenger bodies remain separated`);
+      }
+      for (const p of people) for (const entry of world.exchange.groups.values()) for (const other of entry.people) {
+        if (!other.person.visible) continue;
+        const at = point(p.motion.s, p.motion.x, .945);
+        assert.ok(Math.hypot(at[0] - trackX(train.s) - other.person.position.x, at[2] + train.s - other.person.position.z) > .62,
+          `station ${index}, time ${time}: ordinary platform walkers leave the curved exchange paths clear`);
       }
     }
     blocked += people.filter(p => p.halt && p.journey).length;

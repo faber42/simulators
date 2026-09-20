@@ -11,7 +11,8 @@ import { seatedPose, SEAT_TOP, SEAT_X } from './seating.js';
 import { Vehicles } from './vehicles.js';
 import { PlatformMirror } from './mirrors.js';
 import { PassengerExchange } from './exchanges.js';
-import { doorOpening, ownExchangeAge, DOOR_OFFSETS, EXCHANGE_DOORS } from './traffic.mjs';
+import { doorOpening, ownExchangeAge } from './traffic.mjs';
+import { exchangeCorridors } from './exchange.mjs';
 
 const box = new T.BoxGeometry(1, 1, 1).toNonIndexed();
 const plane = new T.PlaneGeometry(1, 1).toNonIndexed();
@@ -491,11 +492,19 @@ export class World {
     const st = stationAt(s);
     // Reserve the exchange lanes beside the selected doors. Ordinary walkers
     // also see the boarding/alighting passengers as pedestrian obstacles.
-    const reserved = at => st && EXCHANGE_DOORS.some(i => {
-      const relative = at - (st.stop - DOOR_OFFSETS[i]); return relative > -3.7 && relative < 6.5;
-    });
+    const corridor = st ? exchangeCorridors(st) : [];
+    const reserved = at => corridor.some(p => Math.hypot(at - p.s, x - p.x) < .98);
     const neighbours = [...this.chunks.values(), chunk].flatMap(c => c.people);
-    for (let attempt = 0; !options.seated && attempt < 18 && (reserved(s) || neighbours.some(p => Math.hypot(p.s - s, p.x - x) < .86)); attempt++) s += .86;
+    if (!options.seated) {
+      let available = false;
+      for (let attempt = 0; attempt < 49; attempt++) {
+        const at = s + Math.ceil(attempt / 2) * (attempt % 2 ? .86 : -.86);
+        if (st && (at < st.start + 2 || at > st.end - 2)) continue;
+        if (reserved(at) || neighbours.some(p => Math.hypot(p.s - at, p.x - x) < .86)) continue;
+        s = at; available = true; break;
+      }
+      if (!available) return;
+    }
     const p = this.crowd.create(rng, options);
     p.person.scale.setScalar(p.height);
     p.rootY = .945;

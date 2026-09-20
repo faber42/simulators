@@ -63,10 +63,18 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   An vier über den Zug verteilten Türen steigen jeweils ein bis drei Fahrgäste
   nacheinander aus; anschließend rücken ein bis drei wartende Fahrgäste nach und
   steigen ein. Die Anzahl variiert nach Station, Tür und Fahrtrichtung des Wechsels.
-  Getrennte Laufwege und Warteschlangen halten Abstand. Alle Übergänge sind
-  innerhalb der acht Sekunden Offenzeit und vor dem Schließen beendet.
-  Einsteiger haben unterschiedliche Warteabstände, Reaktionszeiten, Tempi und
-  Schrittfolgen. Wer auf seinen Vordermann aufläuft, passt sein Tempo an.
+  Einsteiger gehen von ihren unterschiedlich weit entfernten Warteplätzen
+  diagonal zur Tür. Die Wege münden in einem weichen Bogen in die Türöffnung,
+  ohne seitliche Zwischenschritte oder rechtwinklige Drehungen. Aussteiger gehen
+  zunächst vom Zug weg und wenden sich während des Gehens zur festen Treppe:
+  Je nach Tür laufen sie längs des Bahnsteigs nach vorn oder nach hinten,
+  innerhalb der Säulenreihe. Die Tür wird vor dem Einstieg freigegeben;
+  Ausgestiegene dürfen währenddessen weiter Richtung Ausgang gehen.
+  Alle Einsteiger sind innerhalb der acht Sekunden Offenzeit im Zug.
+  Warteabstände, Reaktionszeiten, Tempi und Schrittfolgen unterscheiden sich
+  deutlich; auch zwischen den Aussteigenden wechseln kurze und längere Pausen.
+  Wer auf seinen Vordermann aufläuft, passt sein Tempo an. Die Beinbewegung
+  verwendet kleinere Ausschläge und weichere Kniebewegungen.
   Die Variation ist pro Station und Person fest, damit Pause und Zeitvorsprünge
   keine neuen Bewegungen auswürfeln.
   Der tatsächliche Stationshalt startet diesen Ablauf; der letzte Zentimeter
@@ -275,6 +283,10 @@ Fahrgastwechsel vor Türschluss sowie das Ausschwenken vor dem seitlichen Gleite
 Die Türkamera wird auf beiden Bahnsteigseiten, gekrümmten Stationen und schmalen
 Bildformaten geprüft. Tests sichern ihre Umschaltzeiten sowie die individuellen
 Tempi, Abstände und Schrittfolgen der Warteschlangen ab.
+Weitere Prüfungen kontrollieren diagonale Einstiege, kontinuierliche Drehungen,
+die Laufrichtung zur Treppe und freie gebogene Laufwege zwischen den übrigen
+Fahrgästen. Tausend Stationsvarianten prüfen, dass auch bei langsamen Vorderleuten
+alle Nachfolgenden vor Türschluss einsteigen.
 Regressionstests prüfen den letzten Bremszentimeter, den abgeschlossenen Wechsel
 beim Signalhalt, den Abstand der Monitorrückwand und das durchgehende Livebild.
 

@@ -69,7 +69,7 @@ test('boarders keep their identity through final braking and exchanges never res
   assert.ok(exitWait > 0, 'exercise a second stop at a red exit');
 });
 
-test('passengers cross actual door centres, alight before boarding, and finish before closing', () => {
+test('passengers cross actual door centres, clear the exit before boarding, and finish before closing', () => {
   assert.equal(DOOR_OFFSETS.length, CAR_COUNT * 3);
   for (const index of [0, 1, 2, 5]) for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
     const st = station(index), offset = DOOR_OFFSETS[EXCHANGE_DOORS[slot]];
@@ -83,7 +83,7 @@ test('passengers cross actual door centres, alight before boarding, and finish b
         assert.equal(doorOpening('open', age), 1);
         if (Math.abs(p.x) < 1.8) assert.ok(Math.abs(p.s - (st.stop - offset)) < .35, 'inside the 1.3 metre doorway');
       }
-      if (out.walking) lastOut = age;
+      if (out.visible && Math.abs(out.x) < 2.1) lastOut = age;
       if (into.walking) firstIn = Math.min(firstIn, age);
       if (out.visible && into.visible) assert.ok(Math.hypot(out.s - into.s, out.x - into.x) > .54, 'separate passenger lanes');
     }
@@ -120,7 +120,8 @@ test('one to three passengers per door queue without intersections and finish in
         if (age === 8) { assert.equal(pose.visible, outgoing); assert.equal(pose.walking, false); }
         if (!pose.visible) continue;
         if (Math.abs(pose.x) < 1.8) assert.ok(Math.abs(pose.s - doorS) < .35, 'all passengers cross the actual door opening');
-        if (pose.walking) { if (outgoing) lastOut = age; else firstIn = Math.min(firstIn, age); }
+        if (outgoing && Math.abs(pose.x) < 2.1) lastOut = age;
+        if (!outgoing && pose.walking) firstIn = Math.min(firstIn, age);
         people.push(pose);
       }
       for (let a = 0; a < people.length; a++) for (let b = a + 1; b < people.length; b++)
@@ -132,7 +133,7 @@ test('one to three passengers per door queue without intersections and finish in
           'earlier alighters leave room for the whole next group');
       }
     }
-    assert.ok(lastOut < firstIn, 'the last alighter clears before the queue starts boarding');
+    assert.ok(lastOut < firstIn, 'the last alighter clears the doorway before boarding begins; onward walks may overlap');
   }
   assert.deepEqual([...seenCounts].sort(), [1, 2, 3]);
 });
@@ -141,13 +142,64 @@ test('boarding queues vary spacing, pace, reaction time and stride without frame
   const st = station(0), poses = age => [0, 1, 2].map(i => exchangePose(st, 0, false, age, false, i));
   const waiting = poses(-1), moving = poses(4.4), later = poses(4.5);
   const gaps = [waiting[0].s - waiting[1].s, waiting[1].s - waiting[2].s];
-  assert.ok(Math.abs(gaps[0] - gaps[1]) > .04, 'queue members do not wait at equal intervals');
+  assert.ok(Math.abs(gaps[0] - gaps[1]) > .25, 'waiting gaps differ visibly, not just by a few centimetres');
   const speeds = later.map((p, i) => (p.distance - moving[i].distance) * 10);
   assert.ok(Math.max(...speeds) - Math.min(...speeds) > .1, 'individual walking speeds differ');
   const starts = [0, 1, 2].map(i => {
-    for (let frame = 3.8 * 120; frame < 4.5 * 120; frame++) if (poses(frame / 120)[i].walking) return frame;
+    for (let frame = 3 * 120; frame < 4.5 * 120; frame++) if (poses(frame / 120)[i].walking) return frame;
   });
   assert.equal(new Set(starts).size, 3, 'the queue does not start marching at once');
   assert.equal(new Set(moving.map(p => Math.round(p.stridePhase * 100))).size, 3, 'independent leg phases');
   poses(7); assert.deepEqual(poses(4.4), moving, 'pause, seeking and rendering order do not change the motion');
+});
+
+test('boarding is diagonal and alighters follow continuous bends towards the stairs on either side', () => {
+  for (let index = 0; index < 36; index++) for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
+    const st = station(index), doorS = st.stop - DOOR_OFFSETS[EXCHANGE_DOORS[slot]];
+    const direction = Math.sign(st.start + 36 - doorS);
+    for (const outgoing of [false, true]) for (let ordinal = 0; ordinal < exchangeCount(st, slot, outgoing); ordinal++) {
+      let previous = exchangePose(st, slot, outgoing, -1, false, ordinal), diagonal = 0;
+      for (let frame = 0; frame <= 8 * 60; frame++) {
+        const p = exchangePose(st, slot, outgoing, frame / 60, false, ordinal);
+        if (p.visible && previous.visible) {
+          const ds = p.s - previous.s, dx = Math.abs(p.x) - Math.abs(previous.x);
+          const turn = Math.atan2(Math.sin(p.yaw - previous.yaw), Math.cos(p.yaw - previous.yaw));
+          assert.ok(Math.abs(turn) < .09, 'no instant quarter-turn, including departure from the waiting pose');
+          assert.ok(direction * ds >= -1e-8, 'walk towards the door or the stairs without reversing sideways');
+          if (Math.abs(ds) > .006 && Math.abs(dx) > .003) diagonal++;
+          if (outgoing) assert.ok(dx >= -1e-8); else assert.ok(dx <= 1e-8);
+        }
+        previous = p;
+      }
+      assert.ok(diagonal > 15, 'a sustained diagonal approach/bend replaces the L-shaped path');
+      if (outgoing) {
+        assert.ok(direction * (previous.s - doorS) > 2, 'continue along the platform towards the stairs');
+        assert.ok(Math.abs(previous.x) > 3.2 && Math.abs(previous.x) < 3.5, 'walk away from the edge, inside the column line');
+      }
+    }
+  }
+});
+
+test('preceding-service alighters keep variable intervals throughout their longer onward walk', () => {
+  for (let index = 0; index < 36; index++) for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
+    const st = station(index), count = exchangeCount(st, slot, true);
+    for (let frame = 0; frame <= 12 * 60; frame++) {
+      const poses = Array.from({ length: count }, (_, i) => exchangePose(st, slot, true, frame / 60, true, i)).filter(p => p.visible);
+      for (let i = 1; i < poses.length; i++) assert.ok(Math.hypot(poses[i].s - poses[i - 1].s, poses[i].x - poses[i - 1].x) > .62);
+      if (frame === 12 * 60) assert.ok(poses.every(p => !p.walking));
+    }
+  }
+  const st = station(0), times = [0, 1, 2].map(i => {
+    for (let frame = 0; frame < 240; frame++) if (exchangePose(st, 0, true, frame / 60, false, i).visible) return frame / 60;
+  });
+  assert.ok(Math.abs((times[1] - times[0]) - (times[2] - times[1])) > .1, 'alighters do not leave at a fixed cadence');
+});
+
+test('variable queues leave sufficient time for all followers even over a thousand station seeds', () => {
+  for (let index = 0; index < 1000; index++) for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
+    const st = station(index);
+    for (let i = 0; i < exchangeCount(st, slot, false); i++)
+      assert.equal(exchangePose(st, slot, false, 7.9, false, i).visible, false,
+        `station ${index}, door ${slot}: a slower leader cannot strand a follower at door closure`);
+  }
 });

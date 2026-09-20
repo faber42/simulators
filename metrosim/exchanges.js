@@ -1,7 +1,7 @@
 import * as T from '../pinsim/three.module.min.js';
 import { point, trackX, trackAngle } from './route.mjs';
 import { random } from './materials.js';
-import { exchangePose, MAX_EXCHANGE_PASSENGERS } from './exchange.mjs';
+import { exchangePose, exchangeCorridors, MAX_EXCHANGE_PASSENGERS } from './exchange.mjs';
 import { EXCHANGE_DOORS } from './traffic.mjs';
 
 export class PassengerExchange {
@@ -25,6 +25,7 @@ export class PassengerExchange {
   }
   create(key, st) {
     const entry = this.pool.pop(); entry.station = st; entry.group.visible = true;
+    entry.corridor = exchangeCorridors(st).map(p => ({ ...p, height: 1.12, phase: 0, pace: 1 }));
     this.groups.set(key, entry); return entry;
   }
   update(train, services) {
@@ -32,13 +33,11 @@ export class PassengerExchange {
     for (const [key, entry] of this.groups) if (!alive.has(key)) {
       entry.group.visible = false; this.pool.push(entry); this.groups.delete(key);
     }
+    const reserved = new Set();
     for (const { key, station: st, age, previousService = false } of services) {
       const entry = this.groups.get(key) || this.create(key, st);
-      for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
-        const lane = exchangePose(st, slot, false, -1);
-        for (let offset = -2; offset <= 6.5; offset += .7)
-          this.obstacles.push({ s: lane.s + offset, x: st.side * 3.15, height: 1, phase: 0, pace: 1 });
-      }
+      if (!reserved.has(st.index)) this.obstacles.push(...entry.corridor);
+      reserved.add(st.index);
       for (const p of entry.people) {
         const pose = exchangePose(st, p.slot, p.outgoing, age, previousService, p.ordinal);
         p.person.visible = p.shadow.visible = pose.visible;
@@ -54,9 +53,9 @@ export class PassengerExchange {
         p.head.rotation.x = pose.walking ? .04 : 0;
         for (let i = 0; i < 2; i++) {
           const stride = Math.sin(phase + i * Math.PI);
-          p.legs[i].pivot.rotation.x = stride * .43 * walking;
-          p.legs[i].shin.rotation.x = Math.max(0, -stride) * .5 * walking;
-          p.arms[i].pivot.rotation.x = -stride * .25 * walking;
+          p.legs[i].pivot.rotation.x = stride * .34 * walking;
+          p.legs[i].shin.rotation.x = Math.max(0, -stride) * .58 * walking;
+          p.arms[i].pivot.rotation.x = -stride * .21 * walking;
           p.arms[i].forearm.rotation.x = -.13;
         }
         if (pose.walking) { if (p.outgoing) this.alighting++; else this.boarding++; }
