@@ -112,8 +112,12 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   nach unten; ihre Rückseite trägt die neue untere Hälfte. Die Bewegung zeigt
   Beschleunigung, einen weichen Schatten und leichtes Nachfedern beim Aufschlag.
   Dazwischen erscheinen andere bedruckte Zielblätter, bevor das letzte Blatt
-  die richtige Anzeige erreicht. Mattweiße Fallblätter, schwarze Druckschrift und Symbole,
+  die richtige Anzeige erreicht. Leicht gealterte elfenbeinweiße Fallblätter,
+  schwarze Druckschrift und Symbole,
   ein tieferes Gehäuse und sichtbare Lager ersetzen die bisherige LED-Optik.
+  Drei verdeckte warme Leuchten erzeugen sanft ungleichmäßige Lichtkegel,
+  dunklere Ränder und Scharnierschatten. Dezente Patina bleibt auf den Blättern,
+  während sich ihre Beleuchtung beim Umklappen mit der Blattstellung verändert.
   Schon vor dem ersten Schild ist ein vollständiger Blattwechsel sichtbar.
   Die Faltblattanimation endet, wenn das zweite Schild fünf Meter
   vor dem Zug steht. Alle Schildseiten wechseln synchron; Pause hält auch die
