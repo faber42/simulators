@@ -149,20 +149,12 @@ export function createMaterials() {
     const key = text + type;
     if (m.signs.has(key)) return m.signs.get(key);
     const map = canvasTexture((c, w, h) => {
-      c.fillStyle = type === 'led' ? '#080f11' : type === 'exit' ? '#215849' : '#1b2c30'; c.fillRect(0, 0, w, h);
-      if (type === 'led') {
-        c.fillStyle = '#a1b4af'; c.font = '18px monospace'; c.fillText('U8   METROPOLITAN TRANSIT', 28, 33);
-        c.fillStyle = '#f5ca7c'; c.font = 'bold 43px monospace'; c.fillText('Zug fährt ein', 27, 94);
-        c.fillStyle = '#687678'; c.fillRect(27, 117, 713, 1);
-        c.font = '18px monospace'; c.fillStyle = '#ced5c7'; c.fillText('Bitte zurücktreten', 28, 149);
-        c.fillStyle = '#040b0d4d'; for (let x = 0; x < w; x += 4) c.fillRect(x, 0, 1, h);
-      } else {
-        c.fillStyle = '#eef1e5'; c.textAlign = 'center'; c.textBaseline = 'middle';
-        c.font = `500 ${type === 'exit' ? 58 : 64}px Arial`;
-        c.fillText(text, w / 2, h / 2, w - 50);
-      }
+      c.fillStyle = type === 'exit' ? '#215849' : '#1b2c30'; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#eef1e5'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = `500 ${type === 'exit' ? 58 : 64}px Arial`;
+      c.fillText(text, w / 2, h / 2, w - 50);
     }, 768, 180);
-    const mat = new T.MeshStandardMaterial({ map, emissiveMap: map, emissive: '#ffffff', emissiveIntensity: type === 'led' ? .75 : .3, roughness: .6 });
+    const mat = new T.MeshStandardMaterial({ map, emissiveMap: map, emissive: '#ffffff', emissiveIntensity: .3, roughness: .6 });
     m.signs.set(key, mat); return mat;
   };
   m.posters = Array.from({ length: 6 }, (_, index) => {

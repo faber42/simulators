@@ -1,6 +1,7 @@
 import * as T from '../pinsim/three.module.min.js';
 import { point, trackX, trackAngle } from './route.mjs';
 import { CAR_LENGTH, CAR_PITCH, CAR_COUNT, TRAIN_LENGTH, doorMotion } from './traffic.mjs';
+import { OWN_SERVICE, OTHER_SERVICES, serviceLabel } from './services.mjs';
 
 const box = new T.BoxGeometry(1, 1, 1).toNonIndexed();
 const wheel = new T.CylinderGeometry(.27, .27, .13, 16).toNonIndexed();
@@ -108,7 +109,8 @@ export class Vehicles {
     this.scene = scene;
     this.material = new T.MeshStandardMaterial({ vertexColors: true, roughness: .5, metalness: .25, emissive: '#9caeaa', emissiveIntensity: .07 });
     this.geometries = [carGeometry(true, false), carGeometry(false, false), carGeometry(false, true)];
-    this.doorGeometry = doorGeometry(); this.sign = materials.sign('U8  Zentralbahnhof', 'vehicle');
+    this.doorGeometry = doorGeometry();
+    this.signMaterials = new Map([OWN_SERVICE, ...OTHER_SERVICES].map(service => [serviceLabel(service), materials.sign(serviceLabel(service), 'vehicle')]));
     this.red = new T.MeshBasicMaterial({ color: new T.Color(3.5, .055, .018) }); this.white = new T.MeshBasicMaterial({ color: new T.Color(2, 2.1, 1.8) });
     this.lightGeometry = new T.SphereGeometry(.072, 10, 6);
     this.own = this.create(true); this.ahead = this.create(false);
@@ -116,16 +118,17 @@ export class Vehicles {
     this.axis = new T.Vector3(0, 1, 0);
   }
   create(own) {
-    const group = new T.Group(), cars = [], leaves = [];
+    const group = new T.Group(), cars = [], leaves = [], signs = [];
+    const service = own ? OWN_SERVICE : OTHER_SERVICES[0], signMaterial = this.signMaterials.get(serviceLabel(service));
     for (let i = 0; i < CAR_COUNT; i++) {
       const car = new T.Group(); car.add(new T.Mesh(this.geometries[i === 0 ? 0 : i === CAR_COUNT - 1 ? 2 : 1], this.material));
       const doors = new T.InstancedMesh(this.doorGeometry, this.material, 12); doors.instanceMatrix.setUsage(T.DynamicDrawUsage); doors.frustumCulled = false; car.add(doors);
       for (const side of [-1, 1]) {
-        const sign = new T.Mesh(new T.PlaneGeometry(2.6, .25), this.sign);
+        const sign = new T.Mesh(new T.PlaneGeometry(2.6, .25), signMaterial); signs.push(sign);
         sign.position.set(side * 1.485, 2.85, -2.6); sign.rotation.y = side * Math.PI / 2; car.add(sign);
       }
       if (i === 0 || i === CAR_COUNT - 1) {
-        const end = i === 0 ? -1 : 1, sign = new T.Mesh(new T.PlaneGeometry(2.12, .26), this.sign);
+        const end = i === 0 ? -1 : 1, sign = new T.Mesh(new T.PlaneGeometry(2.12, .26), signMaterial); signs.push(sign);
         sign.position.set(0, 3.0, end * 8.855); sign.rotation.y = end < 0 ? Math.PI : 0; car.add(sign);
         for (const x of [-.91, .91]) {
           const light = new T.Mesh(this.lightGeometry, end > 0 ? this.red : this.white); light.position.set(x, 1.38, end * 8.86); light.scale.set(1, 1, .3); car.add(light);
@@ -134,7 +137,12 @@ export class Vehicles {
       group.add(car); cars.push(car); leaves.push(doors);
     }
     if (own) group.traverse(o => o.layers.set(1));
-    group.visible = false; this.scene.add(group); return { group, cars, leaves };
+    group.visible = false; this.scene.add(group); return { group, cars, leaves, signs, service };
+  }
+  setService(vehicle, service) {
+    if (vehicle.service === service) return;
+    vehicle.service = service;
+    for (const sign of vehicle.signs) sign.material = this.signMaterials.get(serviceLabel(service));
   }
   place(vehicle, front, originS, opening, side) {
     vehicle.group.visible = true;
@@ -156,8 +164,11 @@ export class Vehicles {
     this.ahead.group.visible = false; this.preceding = null;
     for (const [index] of train.traffic.services) {
       const lead = train.traffic.pose(index, train.time);
-      if (lead.rear > train.s - 30 && lead.rear < train.s + 225) { this.preceding = lead; this.place(this.ahead, lead.s, train.s, lead.opening, lead.side); break; }
+      if (lead.rear > train.s - 30 && lead.rear < train.s + 225) {
+        this.preceding = lead; this.setService(this.ahead, lead.service);
+        this.place(this.ahead, lead.s, train.s, lead.opening, lead.side); break;
+      }
     }
   }
-  stats() { return { precedingTrain: this.preceding ? { front: this.preceding.s, rear: this.preceding.rear, phase: this.preceding.phase, doorOpening: this.preceding.opening, station: this.preceding.station.index } : null, trainLength: TRAIN_LENGTH }; }
+  stats() { return { ownService: this.own.service, precedingTrain: this.preceding ? { front: this.preceding.s, rear: this.preceding.rear, phase: this.preceding.phase, doorOpening: this.preceding.opening, station: this.preceding.station.index, service: this.preceding.service } : null, trainLength: TRAIN_LENGTH }; }
 }

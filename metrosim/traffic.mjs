@@ -1,4 +1,5 @@
 // Shared dimensions keep block occupancy, doors and visible vehicles in agreement.
+import { precedingService } from './services.mjs';
 export const CAR_LENGTH = 17.6;
 export const CAR_PITCH = 18;
 export const CAR_COUNT = 5;
@@ -51,7 +52,7 @@ export class Traffic {
     const timer = phase === 'closing' ? time - closeAt : phase === 'open' ? Math.max(0, 8 - (closeAt - time)) : 0;
     return { s, rear: s - TRAIN_LENGTH, speed: Math.min(limit, acceleration * elapsed), phase, timer,
       opening: doorOpening(phase, timer), exchange: waiting ? 12 : Math.max(0, time - (closeAt - 8)),
-      side: st.side, station: st, exitGreen: time >= departAt - (waiting ? 1.25 : 5.5),
+      side: st.side, station: st, service: precedingService(index), exitGreen: time >= departAt - (waiting ? 1.25 : 5.5),
       clear: s - TRAIN_LENGTH > st.end + 2 };
   }
   entryGreen(index, time) {

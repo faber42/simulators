@@ -12,6 +12,7 @@ import { exchangePose } from './exchange.mjs';
 // canvas stub only supplies the crowd's texture data during construction.
 globalThis.document = { createElement: () => ({ getContext: () => ({
   createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData() {},
+  fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {}, arc() {},
 }) }) };
 function fixture() {
   const scene = new T.Scene(), material = new T.MeshStandardMaterial();

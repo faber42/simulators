@@ -8,6 +8,7 @@ import { FrameCadence } from './cadence.mjs';
 import { Escalator } from './escalator.js';
 import { RenderLoop } from './render-loop.mjs';
 import { DoorInspection } from './door-inspection.js';
+import { boardPosition } from './destination-display.mjs';
 
 const $ = id => document.getElementById(id);
 const loading = $('loading');
@@ -25,9 +26,16 @@ async function start() {
   const materials = createMaterials();
   const world = new World(scene, materials), train = new Train();
   const query = new URLSearchParams(location.search);
-  const inspect = ['station', 'junction', 'access', 'seating'].includes(query.get('view'));
+  const inspect = ['station', 'junction', 'access', 'seating', 'display'].includes(query.get('view'));
   let accessView = null;
-  if (query.get('view') === 'junction') {
+  if (query.get('view') === 'display') {
+    const index = Math.max(0, Math.min(10000, Math.floor(Number(query.get('station')) || 0))), st = station(index);
+    const s = boardPosition(st, query.get('board') === '0' ? 0 : 1);
+    const offset = Number(query.get('offset') ?? -8);
+    train.next = index; train.s = st.start + T.MathUtils.clamp(Number.isFinite(offset) ? offset : -8, -120, 110);
+    train.phase = 'running'; train.paused = query.get('play') !== '1';
+    accessView = { s: s - 5.5, x: st.side * 3.2, eyeHeight: 3.86, target: point(s, st.side * 3.2, 3.86) };
+  } else if (query.get('view') === 'junction') {
     const index = Math.max(0, Math.min(10000, Math.floor(Number(query.get('junction')) || 0)));
     train.next = index; train.s = station(index).start - 246 + T.MathUtils.clamp(Number(query.get('offset')) || 120, 0, 230);
     train.phase = 'running'; train.paused = query.get('play') !== '1';
@@ -122,7 +130,7 @@ async function start() {
     const p = point(pose.s + surge + 13, 0, 2.18 + heave);
     look.set(p[0] - trackX(pose.s), p[1], p[2] + pose.s); camera.lookAt(look); camera.rotateX(pitch);
     if (accessView) {
-      const eye = point(pose.s, accessView.x, accessView.eyeHeight ?? 2.6), target = accessView.target ?? point(accessView.start + 13, accessView.x, 6.05);
+      const eye = point(accessView.s ?? pose.s, accessView.x, accessView.eyeHeight ?? 2.6), target = accessView.target ?? point(accessView.start + 13, accessView.x, 6.05);
       camera.position.set(eye[0] - trackX(pose.s), eye[1], eye[2] + pose.s);
       look.set(target[0] - trackX(pose.s), target[1], target[2] + pose.s); camera.lookAt(look);
     }
@@ -201,6 +209,8 @@ async function start() {
   warmup.position.set(1000, 0, 0); scene.add(warmup);
   const treadWarmup = new Escalator(0, 1, 0, materials.escalatorSteps).mesh;
   treadWarmup.position.set(1000, 0, 0); scene.add(treadWarmup);
+  const displayWarmup = new T.Mesh(new T.PlaneGeometry(1, 1), world.displays.warmupMaterial(station(train.next)));
+  displayWarmup.position.set(1000, 0, 0); scene.add(displayWarmup);
   camera.layers.enable(1); // Warm the own-train bodies and instanced door shaders, too.
   await output.renderer.compileAsync(scene, camera);
   camera.layers.disable(1);
@@ -208,6 +218,7 @@ async function start() {
   output.renderer.getContext().finish(); // One startup sync, never in the frame loop.
   scene.remove(warmup); warmup.traverse(o => { if (o.isSkinnedMesh) { o.geometry.dispose(); o.skeleton.dispose(); } });
   scene.remove(treadWarmup); treadWarmup.geometry.dispose(); treadWarmup.dispose();
+  scene.remove(displayWarmup); displayWarmup.geometry.dispose();
   ready = true; resetTiming(); syncDiagnostics(last); syncUI(); loading.style.display = 'none'; loop.setState(!train.paused, !document.hidden);
 }
 start().catch(error => {

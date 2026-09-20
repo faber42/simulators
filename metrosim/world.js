@@ -13,6 +13,8 @@ import { PlatformMirror } from './mirrors.js';
 import { PassengerExchange } from './exchanges.js';
 import { doorOpening, ownExchangeAge } from './traffic.mjs';
 import { exchangeCorridors } from './exchange.mjs';
+import { DestinationDisplays } from './destination-displays.js';
+import { BOARD_ANCHORS, boardPosition } from './destination-display.mjs';
 
 const box = new T.BoxGeometry(1, 1, 1).toNonIndexed();
 const plane = new T.PlaneGeometry(1, 1).toNonIndexed();
@@ -295,6 +297,7 @@ export class World {
     this.shadowMaterial = new T.MeshBasicMaterial({ map: materials.shadow, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
     this.vehicles = new Vehicles(scene, materials); this.mirror = new PlatformMirror(scene, materials);
     this.exchange = new PassengerExchange(scene, this.crowd, this.shadowMaterial);
+    this.displays = new DestinationDisplays();
   }
   *build(base) {
     const group = new T.Group(); const b = new Batch(base), sideBore = new Batch(base), m = this.m, rng = random(base + 907);
@@ -413,11 +416,11 @@ export class World {
           b.box(m.steel, s + 5, x, 2.88, .11, 1.87, 1.25);
           panel(b, m.posters[(Math.floor(s / 12) + st.index) % 6], s + 5, x + side * .06, 2.88, 1.1, 1.7, facing);
         }
-        if (rel === 12 || rel === 72) {
-          const boardS = s - 1.2;
+        if (BOARD_ANCHORS.includes(rel)) {
+          const boardS = boardPosition(st, BOARD_ANCHORS.indexOf(rel)), display = this.displays.material(st);
           b.box(m.dark, boardS, side * 3.2, 3.86, 2.55, .68, .12);
-          panel(b, m.sign('', 'led'), boardS - .075, side * 3.2, 3.86, 2.45, .57);
-          panel(b, m.sign('', 'led'), boardS + .075, side * 3.2, 3.86, 2.45, .57, Math.PI);
+          panel(b, display, boardS - .075, side * 3.2, 3.86, 2.45, .57);
+          panel(b, display, boardS + .075, side * 3.2, 3.86, 2.45, .57, Math.PI);
           for (const x of [2.3, 4.1]) b.box(m.steel, boardS, side * x, 4.52, .04, .63, .04);
           panel(b, m.sign('↑  Ausgang', 'exit'), s + 8, side * 5.6, 4.05, 1.75, .43);
         }
@@ -626,12 +629,13 @@ export class World {
       const d = lamp.s - train.s, fade = T.MathUtils.smoothstep(d, -12, -3) * (1 - T.MathUtils.smoothstep(d, 48, 72)) * (1 - T.MathUtils.smoothstep(Math.abs(lamp.x), 8, 14));
       light.color.set(lamp.stationLight ? '#dce5d9' : '#e2d1b6'); light.intensity = (lamp.stationLight ? 12 : 3) * fade; light.distance = lamp.stationLight ? 27 : 18;
     });
+    this.displays.update(train, base - rear, base + 240);
     this.updateMs = performance.now() - start;
   }
   stats() {
     const people = [...this.chunks.values()].flatMap(c => c.people);
     return { chunks: this.chunks.size, passengers: people.length,
-      ...this.vehicles.stats(), ...this.exchange.stats(), mirrorActive: this.mirror.active,
+      ...this.vehicles.stats(), ...this.exchange.stats(), ...this.displays.stats(), mirrorActive: this.mirror.active,
       seatedPassengers: people.filter(p => p.seated).length,
       seatedPhones: people.filter(p => p.seated && p.phone).length,
       escalators: [...this.chunks.values()].reduce((n, c) => n + c.escalators.length, 0),

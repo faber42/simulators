@@ -40,7 +40,7 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   Bremskurve. Die Freigaben simulieren wechselnden Abstand zu einem vorausfahrenden
   Zug. Zusätzlich gibt es sichtbare vorausfahrende Züge an ausgewählten Stationen.
 - Gelegentlich ist die Station noch belegt: Ein fünfteiliger, 89,6 m langer
-  U8-Zug beendet den Fahrgastwechsel oder wartet bereits mit geschlossenen Türen
+  Zug der U3 nach Lindenau oder U6 nach Falkenried beendet den Fahrgastwechsel oder wartet bereits mit geschlossenen Türen
   vor seinem Ausfahrsignal. Der eigene Zug hält am Einfahrsignal acht Meter vor
   dem Bahnsteig. Dieses bleibt rot, bis das **gesamte Fahrzeug** die Station
   verlassen hat und sein Zugschluss zwei Meter hinter dem Bahnsteigende liegt.
@@ -96,7 +96,22 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   Botanischer Garten behält das horizontale Band; Zentralbahnhof ist weiß.
   Kachelformate und Kopfwandgestaltung passen zur jeweiligen Variante.
 - Die Bahnsteige haben Säulen, Bänke, taktile Sicherheitsstreifen, abstrakte
-  Werbeplakate, Stationsnamen und Anzeigen mit „Zug fährt ein“. Jede Station
+  Werbeplakate, Stationsnamen und zwei doppelseitige Fahrzielanzeiger.
+  Vor der Einfahrt zeigen diese drei Züge: zuerst **U8 Waldheim · 1 Min**, danach
+  U3 Lindenau und U6 Falkenried mit drei bzw. sechs Minuten Wartezeit. Die beiden
+  Folgezeilen wechseln je nach Station ihre Reihenfolge. Beim Einfahren wird die
+  Anzeige zur großen Linien- und Zielansicht mit fünf gekuppelten Wagensymbolen
+  über den Bahnsteigabschnitten A–E. Der Zug ist passend zu seiner Länge und
+  Halteposition eingezeichnet; Zwischenziele werden nicht angezeigt.
+  Der bisherige Inhalt bleibt bis vier Meter hinter dem Einfahrsignal stehen.
+  Danach klappen die einzelnen Anzeigefelder versetzt über ihre horizontalen
+  Scharniere um. Die Faltblattanimation endet, wenn das zweite Schild fünf Meter
+  vor dem Zug steht. Alle Schildseiten wechseln synchron; Pause hält auch die
+  Animation an. Bei belegter Station zeigt die große Ansicht zunächst Linie
+  und Ziel des vorausfahrenden Zugs und wechselt direkt zur eigenen großen
+  Ansicht, ohne zwischenzeitlich zur Dreizeilenliste zurückzukehren.
+  Stirn-, Heck- und Seitenanzeigen der Fahrzeuge verwenden dieselben Ziele.
+  Jede Station
   besitzt eine feste, massive Treppe sowie eine Rolltreppe oder einen Aufzug.
   Die Treppen haben tragende Unterbauten, Seitenwände und Handläufe; darüber
   öffnen sich die Decken zu vollständig eingefassten Treppenschächten. Die
@@ -222,6 +237,10 @@ Pause zeichnet nur ein neues Standbild und startet kein dauerhaftes Rendering.
   Zusammengefasste Wagenkörper und instanzierte Türflügel begrenzen Zeichenaufrufe.
   Auch die beiden Gruppen für den Fahrgastwechsel mit je 24 möglichen Figuren
   werden vorab gebaut und wiederverwendet; nicht benötigte Personen bleiben unsichtbar.
+  Fahrzielanzeiger verwenden fünf wiederverwendete, vorgefilterte Texturen.
+  Die Faltblätter werden im Shader animiert; während der Fahrt werden dafür
+  keine Canvasbilder neu gezeichnet oder hochgeladen. Das Shaderprogramm wird
+  beim Laden vorbereitet und zwischen Stationen behalten.
   Ein festes, pro Fragment berechnetes Lichtfeld beleuchtet Tunnelwände und
   Bahnsteige auch in der Ferne. Es hängt ausschließlich von der Infrastruktur
   ab, nicht von der Kameraposition. 16 ergänzende Punktlichter für Figuren und
@@ -299,6 +318,9 @@ halten sie an. Sichtstrahlen vom Abfertigungsmonitor prüfen, dass der gesamte
 Körper hinter Wänden verdeckt ist, bevor die Figur aus der Szene entfernt wird.
 Regressionstests prüfen den letzten Bremszentimeter, den abgeschlossenen Wechsel
 beim Signalhalt, den Abstand der Monitorrückwand und das durchgehende Livebild.
+Anzeigentests prüfen Dreizeilenliste, abweichende Vorgängerlinie, Zugbeschilderung,
+Signalpassage und die vollständige Umschaltung fünf Meter vor dem zweiten Schild.
+Sie decken Signalhalte, Pause und begrenzten Material-/Texturspeicher ab.
 
 In der Browser-Konsole: `METROSIM.snapshot()`, `METROSIM.pause()`,
 `METROSIM.setSpeed(4)`, `METROSIM.advance(60)`, `METROSIM.inspectStation(1, 20)`
@@ -323,6 +345,12 @@ Reproduzierbare Ansichten für visuelle QA:
 - `?view=access&station=2&kind=escalator`: entsprechender Blick die Rolltreppe hinauf.
 - `?view=access&station=2&kind=escalator&time=0.2`: Stufenphase; mit `time=0.45` vergleichen.
 - `?view=seating&station=0`: Nahansicht von Sitzgruppe, Kopfbewegung und Smartphone.
+- `?view=display&station=0&offset=-8`: Nahansicht der Dreizeilenanzeige beim Einfahrsignal.
+- `?view=display&station=0&offset=29`: angehaltene Faltblattanimation während der Einfahrt.
+- `?view=display&station=0&offset=65.8`: fertige große Zielanzeige mit Wagenstand.
+- `?view=display&station=2&offset=-8`: große Vorgängeranzeige U3 Lindenau.
+- `?time=40.8&rate=0.25`: langsame erste Einfahrt mit Wechsel der Fahrzielanzeiger.
+- `?time=234&rate=0.25`: Einfahrt hinter dem vorausfahrenden Zug mit direktem Zielwechsel.
 - `?time=38`: Einfahrt mit beginnenden Gehwegen der Fahrgäste.
 - `?view=junction&junction=0&offset=130`: freie Abzweigung rechts.
 - `?view=junction&junction=1&offset=130`: freie Abzweigung links.
