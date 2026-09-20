@@ -214,13 +214,21 @@ Zahl der Zeichenaufrufe der 3D-Szene. Pausen und verborgene Tabs werden nicht
 mitgezählt. Während einer Pause zeigt die Diagnose 0 FPS und „Rendering
 angehalten“. Beim Fortsetzen beginnt die Zeitmessung ohne künstlichen langen Frame.
 
-Die standardmäßig ausgeschaltete Checkbox **Türansicht** aktiviert eine reine
-Diagnosekamera. Sie zeigt die erste Tür auf der Bahnsteigseite frontal und aus
-der Nähe, ab 0,45 Sekunden vor der Öffnung bis 0,3 Sekunden nach dem Schließen.
-Danach kehrt die Hauptansicht automatisch zur Frontkamera zurück; am nächsten
-Halt gilt die Auswahl wieder. Abwählen stellt die Frontkamera sofort wieder her.
-Das Diagnose-Overlay lässt sich mit D oder × ausblenden, während die Auswahl
-aktiv bleibt. P pausiert auch die Türansicht. Ein Kamerawechsel während einer
+Im Diagnose-Overlay stehen drei gegenseitig ausschließende Kameraansichten:
+
+- **Normalansicht**: die reguläre Frontkamera aus dem Zugcockpit. Damit lassen
+  sich auch per URL geöffnete Sonderansichten wie die Fahrzeug-Nahansicht verlassen.
+- **Türansicht**: die erste Tür auf der Bahnsteigseite frontal und aus der Nähe,
+  ab 0,45 Sekunden vor der Öffnung bis 0,3 Sekunden nach dem Schließen. Dazwischen
+  erscheint die Frontkamera; am nächsten Halt gilt die Auswahl wieder.
+- **Zugabfertigungsmonitor**: das vergrößerte Bild der festen Bahnsteigkamera
+  entlang des Zuges. Die Ansicht bleibt bei Annäherung und Aufenthalt am Bahnhof
+  aktiv; außerhalb der geladenen Station erscheint die Frontkamera.
+
+Die Auswahl aktualisiert auch die URL, damit Neuladen die gewählte Ansicht
+übernimmt und keine alte Sonderansicht zurückholt. Das Diagnose-Overlay lässt
+sich mit D oder × ausblenden, während die Auswahl aktiv bleibt.
+P pausiert alle Ansichten. Ein Kamerawechsel während einer
 Pause zeichnet nur ein neues Standbild und startet kein dauerhaftes Rendering.
 
 ## Technik

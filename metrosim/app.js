@@ -7,7 +7,7 @@ import { FrameDiagnostics } from './diagnostics.mjs';
 import { FrameCadence } from './cadence.mjs';
 import { Escalator } from './escalator.js';
 import { RenderLoop } from './render-loop.mjs';
-import { DoorInspection } from './door-inspection.js';
+import { DiagnosticViews, diagnosticViewURL } from './diagnostic-views.js';
 import { boardPosition } from './destination-display.mjs';
 import { TRAIN_LENGTH } from './traffic.mjs';
 
@@ -19,15 +19,16 @@ async function start() {
   const scene = new T.Scene(); scene.background = new T.Color('#030607');
   scene.fog = new T.FogExp2('#050909', .016);
   const camera = new T.PerspectiveCamera(57, 1, .06, 225);
-  const doorInspection = new DoorInspection();
-  let doorViewActive = false;
   const ambient = new T.HemisphereLight('#b8cace', '#484236', .52); scene.add(ambient);
   const headlights = new T.SpotLight('#e8e6d8', 95, 88, .62, .9, 1.55);
   headlights.position.set(0, 1.15, -.3); scene.add(headlights); scene.add(headlights.target);
   const materials = createMaterials();
   const world = new World(scene, materials), train = new Train();
   const query = new URLSearchParams(location.search);
-  const inspect = ['station', 'junction', 'access', 'seating', 'display', 'vehicle'].includes(query.get('view'));
+  let inspect = ['station', 'junction', 'access', 'seating', 'display', 'vehicle'].includes(query.get('view'));
+  const views = new DiagnosticViews(inspect ? 'inspection' : ['door', 'mirror'].includes(query.get('view')) ? query.get('view') : 'front');
+  const cameraChoices = [...document.querySelectorAll('input[name="diagnostic-camera"]')];
+  for (const choice of cameraChoices) choice.checked = choice.value === views.mode;
   let accessView = null;
   if (query.get('view') === 'vehicle') {
     const index = Math.max(0, Math.min(10000, Math.floor(Number(query.get('station')) || 0))), st = station(index);
@@ -106,7 +107,7 @@ async function start() {
   }
   function syncUI() {
     document.body.classList.toggle('paused', train.paused);
-    document.body.classList.toggle('door-inspection', doorViewActive);
+    document.body.classList.toggle('camera-inspection', ['door', 'mirror'].includes(views.active));
     const st = train.stop;
     $('destination').textContent = st.name;
     $('destination-label').textContent = train.doors || ['settling', 'dispatch'].includes(train.phase) ? 'AKTUELLER HALT' : 'NÄCHSTER HALT';
@@ -117,9 +118,13 @@ async function start() {
     $('door-side').textContent = `Bahnsteig ${st.side < 0 ? 'links' : 'rechts'} · ${st.name}`;
     $('clock').textContent = new Date().toLocaleTimeString('de-DE');
     $('pause-indicator').hidden = !train.paused || inspect;
-    $('camera-label').textContent = doorViewActive ? 'TÜRANSICHT · DIAGNOSE' : 'FRONTKAMERA';
-    $('diag-door-status').textContent = doorViewActive ? 'Türkamera aktiv' : 'Automatisch beim Türwechsel';
-    $('view').dataset.camera = doorViewActive ? 'door' : 'front';
+    $('camera-label').textContent = { front: 'FRONTKAMERA', door: 'TÜRANSICHT · DIAGNOSE', mirror: 'ZUGABFERTIGUNG · DIAGNOSE', inspection: 'SONDERANSICHT · DIAGNOSE' }[views.active];
+    $('diag-door-status').textContent = views.active === 'door' ? 'Türkamera aktiv' : 'Automatisch beim Türwechsel';
+    $('diag-mirror-status').textContent = views.active === 'mirror' ? 'Feste Bahnsteigkamera · vergrößert' : 'Bei Annäherung und Halt am Bahnhof';
+    $('diag-camera-status').textContent = views.active === 'inspection' ? 'Sonderansicht aktiv · unten zur Normalansicht wechseln' : '';
+    $('diag-camera-status').hidden = views.active !== 'inspection';
+    $('view').dataset.camera = views.active;
+    $('view').dataset.cameraMode = views.mode;
     $('view').dataset.diagnostics = JSON.stringify({ ...train.snapshot(), ...world.stats(), fps: Math.round(fps), below30Percent: perf.below30Percent, observedSeconds: perf.observedSeconds, p95FrameMs: perf.p95FrameMs, maxFrameMs: perf.maxFrameMs, drawCalls: output.sceneDrawCalls, geometries: output.renderer.info.memory.geometries, textures: output.renderer.info.memory.textures, slowFrames: perf.slowFrames });
   }
   function draw(dt = 0, interpolate = false) {
@@ -128,6 +133,7 @@ async function start() {
     Object.assign(displayedTrain, train, { s: T.MathUtils.lerp(previousPose.s, train.s, alpha), time: T.MathUtils.lerp(previousPose.time, train.time, alpha), speed: T.MathUtils.lerp(previousPose.speed, train.speed, alpha) });
     const pose = displayedTrain;
     world.update(pose);
+    camera.layers.set(0);
     const heave = T.MathUtils.lerp(previousPose.heave, train.ride.heave, alpha);
     const pitch = T.MathUtils.lerp(previousPose.pitch, train.ride.pitch, alpha);
     const surge = T.MathUtils.lerp(previousPose.surge, train.ride.surge, alpha);
@@ -141,11 +147,7 @@ async function start() {
       camera.position.set(eye[0] - trackX(pose.s), eye[1], eye[2] + pose.s);
       look.set(target[0] - trackX(pose.s), target[1], target[2] + pose.s); camera.lookAt(look);
     }
-    if (query.get('view') === 'mirror') {
-      camera.copy(world.mirror.camera); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-      world.mirror.rig.traverse(object => object.layers.set(2));
-    }
-    if (query.get('view') === 'vehicle') camera.layers.enable(1);
+    if (inspect && query.get('view') === 'vehicle') camera.layers.enable(1);
     const headPoint = point(pose.s + 33, 0, .65); headlights.target.position.set(headPoint[0] - trackX(pose.s), .65, -33);
     const st = stationAt(pose.s + 8);
     const targetExposure = st ? .89 : 1.14;
@@ -154,8 +156,7 @@ async function start() {
       exposure += (targetExposure - exposure) * (1 - Math.exp(-dt * .65));
       ambient.intensity += ((st ? .48 : .3) - ambient.intensity) * (1 - Math.exp(-dt * .8));
     }
-    const inspectionCamera = doorInspection.update($('diag-door-view').checked, pose, world.vehicles.own, camera.aspect);
-    doorViewActive = !!inspectionCamera;
+    const inspectionCamera = views.update(pose, world.vehicles.own, world.mirror, camera.aspect);
     output.render(scene, inspectionCamera || camera, pose.time, exposure, world.mirror);
     $('view').dataset.renderedFrames = String(++renderedFrames);
   }
@@ -188,11 +189,16 @@ async function start() {
     if (!document.hidden) loop.invalidate();
   });
   $('diag-close').addEventListener('click', () => { $('diagnostics').hidden = true; });
-  $('diag-door-view').addEventListener('change', () => { if (ready) loop.invalidate(); });
+  for (const choice of cameraChoices) choice.addEventListener('change', () => {
+    if (!choice.checked) return;
+    views.mode = choice.value; accessView = null; inspect = false;
+    history.replaceState(null, '', diagnosticViewURL(location.href, views.mode, train, !$('diagnostics').hidden));
+    if (ready) loop.invalidate();
+  });
   document.addEventListener('keydown', event => {
-    const checkbox = event.target.tagName === 'INPUT' && event.target.type === 'checkbox';
-    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || /TEXTAREA|SELECT/.test(event.target.tagName) || event.target.tagName === 'INPUT' && !checkbox) return;
-    if (event.code === 'Space' && (event.target.tagName === 'BUTTON' || checkbox)) return;
+    const choice = event.target.tagName === 'INPUT' && ['checkbox', 'radio'].includes(event.target.type);
+    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || /TEXTAREA|SELECT/.test(event.target.tagName) || event.target.tagName === 'INPUT' && !choice) return;
+    if (event.code === 'Space' && (event.target.tagName === 'BUTTON' || choice)) return;
     if (event.code === 'Space' || event.code === 'KeyP') { event.preventDefault(); setPaused(!train.paused); }
     if (event.key.toLowerCase() === 'h') document.body.classList.toggle('clean');
     if (event.key.toLowerCase() === 'd') { $('diagnostics').hidden = !$('diagnostics').hidden; syncDiagnostics(performance.now()); }
