@@ -7,6 +7,7 @@ import { station, point, trackX } from './route.mjs';
 import { CAR_COUNT, DOOR_OFFSETS, doorOpening } from './traffic.mjs';
 import { Crowd } from './crowd.js';
 import { PassengerExchange } from './exchanges.js';
+import { exchangePose } from './exchange.mjs';
 
 const material = new T.MeshStandardMaterial();
 const materials = { dark: material, steel: material, sign: () => material };
@@ -153,4 +154,49 @@ test('endless passenger exchanges reuse a fixed pair of prebuilt groups', () => 
     exchange.update(train, []);
     assert.equal(exchange.groups.size, 0); assert.equal(exchange.pool.length, 2);
   }
+});
+
+test('actual boarding queues follow the incoming train on both sides, then face the doors', () => {
+  const crowd = Object.create(Crowd.prototype); crowd.material = material;
+  const exchange = new PassengerExchange(new T.Scene(), crowd, material);
+  const difference = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+  let responseSpread = 0;
+  for (const index of [0, 1, 2, 5]) {
+    const st = station(index), key = `own-${index}`;
+    const show = (s, age = -1, previousService = false) => {
+      exchange.update({ s, time: 50 }, [{ key, station: st, age, previousService }]);
+      return exchange.groups.get(key).people.filter(p => !p.outgoing && p.person.visible && p.slot === 0);
+    };
+    const waiting = exchangePose(st, 0, false, -1), trainS = waiting.s - 5;
+    const far = show(waiting.s - 100).map(p => p.person.rotation.y);
+    const noticing = show(waiting.s - 32).map((p, i) => Math.abs(difference(p.person.rotation.y, far[i])));
+    responseSpread = Math.max(responseSpread, Math.max(...noticing) - Math.min(...noticing));
+    show(trainS).forEach((p, i) => {
+      const pose = exchangePose(st, p.slot, false, -1, false, p.ordinal), location = point(pose.s, pose.x);
+      const target = Math.atan2(trackX(trainS) - location[0], -trainS - location[2]);
+      assert.ok(Math.abs(difference(p.person.rotation.y + p.head.rotation.y, target)) < .06, 'the rendered boarder looks at the approaching train');
+      assert.ok(Math.abs(difference(p.person.rotation.y, far[i])) > .25, 'shoulders join the head turn');
+    });
+    show(st.stop).forEach(p => {
+      const pose = exchangePose(st, p.slot, false, -1, false, p.ordinal), location = point(pose.s, pose.x);
+      const target = Math.atan2(trackX(pose.s) - location[0], -pose.s - location[2]);
+      assert.ok(Math.abs(difference(p.person.rotation.y + p.head.rotation.y, target)) < .01, 'keep looking towards the train, not after the cab or towards the wall');
+    });
+    const poses = people => people.map(p => [p.person.rotation.y, p.head.rotation.y, p.head.rotation.x]);
+    const held = poses(show(trainS)); show(st.stop);
+    assert.deepEqual(poses(show(trainS)), held, 'pause and seeking must reproduce the same gaze');
+    const preceding = poses(show(waiting.s - 90, 0, true));
+    assert.deepEqual(poses(show(waiting.s - 5, 0, true)), preceding, 'previous-service boarders watch their own train');
+    let previous = null;
+    for (let frame = 0; frame <= 8 * 60; frame++) {
+      const people = show(st.stop, frame / 60), now = new Map();
+      for (const p of people) {
+        const angles = [p.person.rotation.y, p.head.rotation.y]; now.set(p.ordinal, angles);
+        if (previous?.has(p.ordinal)) angles.forEach((angle, i) => assert.ok(Math.abs(difference(angle, previous.get(p.ordinal)[i])) < .09,
+          'looking at the train blends smoothly into the diagonal boarding walk'));
+      }
+      previous = now;
+    }
+  }
+  assert.ok(responseSpread > .15, 'boarding passengers notice the arrival at different times');
 });

@@ -68,6 +68,10 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   nacheinander aus; anschließend rücken ein bis vier wartende Fahrgäste nach und
   steigen ein. Die Anzahl variiert nach Station, Tür und Fahrtrichtung des Wechsels.
   Einsteiger warten links und rechts neben der Tür, höchstens zwei je Seite.
+  Auch diese tatsächlich einsteigenden Fahrgäste verfolgen den ankommenden Zug
+  mit Kopf und Körper, mit individuell unterschiedlichem Reaktionsbeginn.
+  Sobald die Zugspitze vorbei ist, bleibt ihr Blick bei der Bahn neben ihnen;
+  vor dem Losgehen geht die Blickreaktion weich in die Gehhaltung über.
   Einzelne Personen stehen mal links, mal rechts; größere Gruppen verteilen
   sich als 1+1, 2+1 oder 2+2. Sie steigen abwechselnd von beiden Seiten ein und
   gehen von ihren unterschiedlich weit entfernten Warteplätzen diagonal zur Tür.

@@ -3,6 +3,7 @@ import { point, trackX, trackAngle } from './route.mjs';
 import { random } from './materials.js';
 import { exchangePose, exchangeCorridors, MAX_EXCHANGE_PASSENGERS } from './exchange.mjs';
 import { EXCHANGE_DOORS } from './traffic.mjs';
+import { passengerAttention } from './attention.mjs';
 
 export class PassengerExchange {
   constructor(scene, crowd, shadowMaterial) {
@@ -16,10 +17,11 @@ export class PassengerExchange {
   createGroup(seed) {
     const group = new T.Group(), people = [];
     for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) for (const outgoing of [true, false]) for (let ordinal = 0; ordinal < MAX_EXCHANGE_PASSENGERS; ordinal++) {
-      const p = this.crowd.create(random(seed * 97 + slot * 139 + ordinal * 773 + (outgoing ? 8102 : 3361)), { phone: false });
+      const rng = random(seed * 97 + slot * 139 + ordinal * 773 + (outgoing ? 8102 : 3361));
+      const p = this.crowd.create(rng, { phone: false });
       p.person.scale.setScalar(p.height); group.add(p.person);
       const shadow = new T.Mesh(this.shadowGeometry, this.shadowMaterial); shadow.rotation.x = -Math.PI / 2; group.add(shadow);
-      people.push({ ...p, slot, outgoing, ordinal, shadow });
+      people.push({ ...p, slot, outgoing, ordinal, shadow, phase: rng() * Math.PI * 2, noticeDistance: 26 + rng() * 44 });
     }
     group.visible = false; this.scene.add(group); return { group, people, station: null };
   }
@@ -51,6 +53,20 @@ export class PassengerExchange {
         p.body.rotation.z = Math.sin(train.time * .9 + p.slot + p.ordinal) * .009 * (1 - walking);
         p.head.rotation.y = pose.walking ? pose.headYaw + .025 * Math.sin(phase) : Math.sin(train.time * .35 + p.slot + p.ordinal) * .14;
         p.head.rotation.x = pose.walking ? .04 : 0;
+        if (!p.outgoing) {
+          const baseY = -st.side * Math.PI / 2 - trackAngle(pose.s);
+          // Follow the incoming cab, then keep looking at the train beside us
+          // instead of craning after its front. Earlier-service queues watch
+          // their own train, not the one waiting at the entry signal.
+          const targetS = Math.min(previousService ? st.stop : train.s, pose.s);
+          const reaction = passengerAttention({ ...p, s: pose.s, x: pose.x, baseY }, targetS, train.time);
+          const waiting = 1 - pose.boardingTurn;
+          p.person.rotation.y += Math.atan2(Math.sin(reaction.bodyYaw - baseY), Math.cos(reaction.bodyYaw - baseY)) * waiting;
+          const headTurn = reaction.bodyYaw + reaction.headYaw - p.person.rotation.y;
+          p.head.rotation.y = T.MathUtils.clamp(Math.atan2(Math.sin(headTurn), Math.cos(headTurn)), -.95, .95) * waiting
+            + .025 * Math.sin(phase) * (1 - waiting);
+          p.head.rotation.x = reaction.pitch * waiting + .04 * (1 - waiting);
+        }
         for (let i = 0; i < 2; i++) {
           const stride = Math.sin(phase + i * Math.PI);
           p.legs[i].pivot.rotation.x = stride * .34 * walking;

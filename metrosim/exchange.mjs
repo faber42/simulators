@@ -206,7 +206,7 @@ export function exchangePose(station, slot, outgoing, age, _previousService = fa
   const y = outgoing && coordinate > path.stairDistance ? .945 + Math.max(0, Math.min(1, (s - station.start - 35.8) / 7.25)) * 3.805 : .945;
   return { s, x: station.side * position.x, y,
     visible: ordinal < exchangeCount(station, slot, outgoing) && progress < 1 && (!outgoing || age >= profile.delay),
-    walking, yaw, headYaw, amount: motion.amount,
+    walking, yaw, headYaw, boardingTurn: outgoing ? 1 : turn, amount: motion.amount,
     stridePhase: motion.distance * (5.9 + 1.2 * variation(station, slot, ordinal, outgoing ? 6 : 7))
       + variation(station, slot, ordinal, outgoing ? 8 : 9) * Math.PI * 2,
     distance: motion.distance, progress, door: EXCHANGE_DOORS[slot], outgoing };
