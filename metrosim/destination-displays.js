@@ -2,12 +2,13 @@ import * as T from '../pinsim/three.module.min.js';
 import { displayTransition, flapMotion, flapPage } from './destination-display.mjs';
 
 const WIDTH = 1024, HEIGHT = 240;
+const LEAF_COLOR = '#f3f3ef', INK_COLOR = '#101313';
 export function drawDestinationDisplay(c, display) {
-  // Cream ink on charcoal-painted metal, with shallow pressed edge lips.
-  c.fillStyle = '#202727'; c.fillRect(0, 0, WIDTH, HEIGHT);
-  c.fillStyle = '#303735'; c.fillRect(0, 2, WIDTH, 2); c.fillRect(0, 122, WIDTH, 2);
-  c.fillStyle = '#111616'; c.fillRect(0, 117, WIDTH, 3); c.fillRect(0, 237, WIDTH, 3);
-  c.fillStyle = '#ded8c3'; c.textBaseline = 'middle'; c.textAlign = 'left';
+  // Black ink on white-painted metal, with shallow pressed edge lips.
+  c.fillStyle = LEAF_COLOR; c.fillRect(0, 0, WIDTH, HEIGHT);
+  c.fillStyle = '#ffffff'; c.fillRect(0, 2, WIDTH, 2); c.fillRect(0, 122, WIDTH, 2);
+  c.fillStyle = '#b7bcb8'; c.fillRect(0, 117, WIDTH, 3); c.fillRect(0, 237, WIDTH, 3);
+  c.fillStyle = INK_COLOR; c.textBaseline = 'middle'; c.textAlign = 'left';
   if (display.mode === 'departures') {
     display.rows.forEach((row, index) => {
       const y = 60 + index * 120;
@@ -27,9 +28,9 @@ export function drawDestinationDisplay(c, display) {
       const x = front - trainWidth + car * (carWidth + gap), cab = car === display.cars - 1;
       c.beginPath(); c.moveTo(x + 3, 149); c.lineTo(x + carWidth - (cab ? 16 : 3), 149);
       c.lineTo(x + carWidth, 167); c.lineTo(x + carWidth, 189); c.lineTo(x, 189); c.lineTo(x, 155); c.closePath(); c.fill();
-      c.fillStyle = '#202727';
+      c.fillStyle = LEAF_COLOR;
       for (let window = 0; window < 4; window++) c.fillRect(x + 9 + window * (carWidth - 23) / 4, 158, (carWidth - 36) / 4, 13);
-      c.fillStyle = '#ded8c3';
+      c.fillStyle = INK_COLOR;
       for (const wheel of [x + 18, x + carWidth - 18]) { c.beginPath(); c.arc(wheel, 191, 5, 0, Math.PI * 2); c.fill(); }
       if (car < display.cars - 1) c.fillRect(x + carWidth, 180, gap, 4);
     }
