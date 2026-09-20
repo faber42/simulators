@@ -12,7 +12,7 @@
     <canvas id="view" aria-label="Dreidimensionale Fahrt durch Tunnel und U-Bahnhöfe"></canvas>
     <header class="overlay">
       <a class="identity" href="../" title="Zur Simulatorenübersicht"><span class="mark">M</span><span>METRO<span class="sub">METROPOLITAN TRANSIT</span></span></a>
-      <div class="camera"><span class="live-dot"></span> LIVE <span class="divider">/</span> ZUG 024 <span class="divider">/</span> FRONTKAMERA <span id="clock">00:00:00</span></div>
+      <div class="camera"><span class="live-dot"></span> LIVE <span class="divider">/</span> ZUG 024 <span class="divider">/</span> <span id="camera-label">FRONTKAMERA</span> <span id="clock">00:00:00</span></div>
     </header>
     <div id="loading"><span class="mark">M</span><p>Frontkamera wird verbunden<span class="ellipsis"> …</span></p><small>Automatischer Betrieb · Linie U8</small></div>
     <section id="doors" class="door-status" aria-live="polite" hidden><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 27V5h22v22M14 6v20M18 6v20M2 27h28"/></svg><div><span id="door-title">Türen werden geöffnet</span><small id="door-side">Bahnsteig links</small></div><span class="door-pulse"></span></section>
@@ -21,7 +21,7 @@
       <div class="telemetry"><span id="phase">SIGNALHALT</span><span class="divider">/</span><span><b id="speed">00</b> <small>km/h</small></span><span class="auto"><i></i> ATO</span></div>
     </footer>
     <div id="pause-indicator" hidden>ÜBERTRAGUNG PAUSIERT</div>
-    <aside id="diagnostics" hidden aria-label="Leistungsdiagnose"><div class="diag-heading">RENDER-DIAGNOSE <span>D zum Ausblenden</span><button id="diag-close" type="button" aria-label="Diagnose schließen" title="Diagnose schließen">×</button></div><div class="diag-main"><strong id="diag-fps">—</strong><span>FPS</span><div><b id="diag-below">—</b><small>Zeit unter 30 FPS · letzte 60 s</small></div></div><canvas id="diag-chart" width="288" height="64" aria-label="Bildrate während der letzten 60 Sekunden"></canvas><div id="diag-detail"></div><small class="diag-explanation">30-FPS-Takt mit 2 ms Messtoleranz. Verborgene Tabs werden nicht mitgezählt.</small></aside>
+    <aside id="diagnostics" hidden aria-label="Leistungsdiagnose"><div class="diag-heading">RENDER-DIAGNOSE <span>D zum Ausblenden</span><button id="diag-close" type="button" aria-label="Diagnose schließen" title="Diagnose schließen">×</button></div><div class="diag-main"><strong id="diag-fps">—</strong><span>FPS</span><div><b id="diag-below">—</b><small>Zeit unter 30 FPS · letzte 60 s</small></div></div><canvas id="diag-chart" width="288" height="64" aria-label="Bildrate während der letzten 60 Sekunden"></canvas><div id="diag-detail"></div><small class="diag-explanation">30-FPS-Takt mit 2 ms Messtoleranz. Verborgene Tabs werden nicht mitgezählt.</small><label class="diag-toggle"><input id="diag-door-view" type="checkbox" aria-label="Türansicht" aria-describedby="diag-door-status"><span>Türansicht<small id="diag-door-status">Automatisch beim Türwechsel</small></span></label></aside>
     <div id="hint">P / Leertaste Pause &nbsp;·&nbsp; F Vollbild &nbsp;·&nbsp; H Einblendungen &nbsp;·&nbsp; D Diagnose</div>
   </main>
   <script type="module" src="app.js"></script>

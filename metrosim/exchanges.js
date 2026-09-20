@@ -47,7 +47,7 @@ export class PassengerExchange {
         p.person.position.set(world[0] - trackX(train.s), .945, world[2] + train.s);
         p.person.rotation.y = pose.yaw - trackAngle(pose.s);
         p.shadow.position.set(p.person.position.x, .95, p.person.position.z);
-        const walking = pose.amount, phase = pose.distance * 6.6;
+        const walking = pose.amount, phase = pose.stridePhase;
         p.body.position.y = p.hipHeight + Math.abs(Math.sin(phase)) * .014 * walking;
         p.body.rotation.z = Math.sin(train.time * .9 + p.slot + p.ordinal) * .009 * (1 - walking);
         p.head.rotation.y = pose.walking ? .025 * Math.sin(phase) : Math.sin(train.time * .35 + p.slot + p.ordinal) * .14;

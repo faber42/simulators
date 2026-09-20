@@ -65,6 +65,10 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   steigen ein. Die Anzahl variiert nach Station, Tür und Fahrtrichtung des Wechsels.
   Getrennte Laufwege und Warteschlangen halten Abstand. Alle Übergänge sind
   innerhalb der acht Sekunden Offenzeit und vor dem Schließen beendet.
+  Einsteiger haben unterschiedliche Warteabstände, Reaktionszeiten, Tempi und
+  Schrittfolgen. Wer auf seinen Vordermann aufläuft, passt sein Tempo an.
+  Die Variation ist pro Station und Person fest, damit Pause und Zeitvorsprünge
+  keine neuen Bewegungen auswürfeln.
   Der tatsächliche Stationshalt startet diesen Ablauf; der letzte Zentimeter
   beim Bremsen und ein späterer Signalhalt vertauschen oder ersetzen keine Figuren.
   Ausgestiegene des vorausfahrenden Zugs bleiben am Bahnsteig und treten aus
@@ -160,6 +164,15 @@ Zusätzlich erscheinen das 95. Perzentil der Framezeit, der längste Frame und d
 Zahl der Zeichenaufrufe der 3D-Szene. Pausen und verborgene Tabs werden nicht
 mitgezählt. Während einer Pause zeigt die Diagnose 0 FPS und „Rendering
 angehalten“. Beim Fortsetzen beginnt die Zeitmessung ohne künstlichen langen Frame.
+
+Die standardmäßig ausgeschaltete Checkbox **Türansicht** aktiviert eine reine
+Diagnosekamera. Sie zeigt die erste Tür auf der Bahnsteigseite frontal und aus
+der Nähe, ab 0,45 Sekunden vor der Öffnung bis 0,3 Sekunden nach dem Schließen.
+Danach kehrt die Hauptansicht automatisch zur Frontkamera zurück; am nächsten
+Halt gilt die Auswahl wieder. Abwählen stellt die Frontkamera sofort wieder her.
+Das Diagnose-Overlay lässt sich mit D oder × ausblenden, während die Auswahl
+aktiv bleibt. P pausiert auch die Türansicht. Ein Kamerawechsel während einer
+Pause zeichnet nur ein neues Standbild und startet kein dauerhaftes Rendering.
 
 ## Technik
 
@@ -259,6 +272,9 @@ gebauten Bahnsteigsäulen vorbei. Fahrgasttests prüfen Türpositionen, getrennt
 und die Reihenfolge von Ausstieg, Einstieg und Türschluss.
 Zusätzliche Tests prüfen die Dreiergruppen samt Abstand und vollständigem
 Fahrgastwechsel vor Türschluss sowie das Ausschwenken vor dem seitlichen Gleiten.
+Die Türkamera wird auf beiden Bahnsteigseiten, gekrümmten Stationen und schmalen
+Bildformaten geprüft. Tests sichern ihre Umschaltzeiten sowie die individuellen
+Tempi, Abstände und Schrittfolgen der Warteschlangen ab.
 Regressionstests prüfen den letzten Bremszentimeter, den abgeschlossenen Wechsel
 beim Signalhalt, den Abstand der Monitorrückwand und das durchgehende Livebild.
 

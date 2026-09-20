@@ -5,6 +5,7 @@ import { World } from './world.js';
 import { point, trackX, branchAt, station } from './route.mjs';
 import { updatePedestrians } from './pedestrians.mjs';
 import { DOOR_OFFSETS } from './traffic.mjs';
+import { DoorInspection } from './door-inspection.js';
 
 // Exercise the actual merged scenery, without needing a WebGL context. The
 // canvas stub only supplies the crowd's texture data during construction.
@@ -30,6 +31,13 @@ test('platform structures leave the dispatch mirror sightlines to every door cle
     }
     world.vehicles.place(world.vehicles.own, st.stop, st.stop, 1, st.side);
     world.mirror.update({ s: st.stop }); scene.updateMatrixWorld(true);
+    const inspection = new DoorInspection().update(true, { next: index, phase: 'open', timer: 1 }, world.vehicles.own, 1.2);
+    for (const z of [-6.65, -5.4, -4.15]) for (const y of [1, 2.9]) {
+      const target = new T.Vector3(st.side * 1.51, y, z).applyMatrix4(world.vehicles.own.cars[0].matrixWorld);
+      const delta = target.sub(inspection.position);
+      const ray = new T.Raycaster(inspection.position, delta.clone().normalize(), .1, delta.length() - .05);
+      assert.equal(ray.intersectObjects(meshes, false).length, 0, 'platform columns must not hide the frontal diagnostic view');
+    }
     for (let door = 0; door < DOOR_OFFSETS.length; door++) {
       const car = world.vehicles.own.cars[Math.floor(door / 3)];
       const target = new T.Vector3(st.side * 1.51, 2.1, [-5.4, 0, 5.4][door % 3]).applyMatrix4(car.matrixWorld);

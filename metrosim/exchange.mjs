@@ -3,15 +3,38 @@ import { DOOR_OFFSETS, EXCHANGE_DOORS, ease } from './traffic.mjs';
 export const MAX_EXCHANGE_PASSENGERS = 3;
 export const exchangeCount = (station, slot, outgoing) => 1 + (station.index * (outgoing ? 7 : 5) + slot * (outgoing ? 5 : 4) + 2) % MAX_EXCHANGE_PASSENGERS;
 
-// Constant walking speed with short acceleration/deceleration at the ends.
-// Followers retain their spacing instead of each easing over a different path.
-function travel(time, length) {
-  const speed = 1.45, ramp = .2, duration = length / speed + ramp;
+function variation(station, slot, ordinal, salt) {
+  const n = Math.sin((station.index + 1) * 127.1 + slot * 311.7 + ordinal * 74.7 + salt * 19.3) * 43758.5453;
+  return n - Math.floor(n);
+}
+
+function travel(time, length, speed = 1.45, ramp = .2) {
+  const duration = length / speed + ramp;
   const t = Math.max(0, Math.min(duration, time));
   const distance = t < ramp ? speed * t * t / (2 * ramp)
     : t > duration - ramp ? length - speed * (duration - t) ** 2 / (2 * ramp)
       : speed * (t - ramp / 2);
   return { distance, duration, amount: Math.min(1, t / ramp, (duration - t) / ramp) };
+}
+
+function boardingMotion(station, slot, ordinal, age) {
+  let length = 2.81, leader = Infinity, leaderVelocity = 0, result;
+  for (let i = 0; i <= ordinal; i++) {
+    const random = salt => variation(station, slot, i, salt);
+    if (i) length += .94 + .26 * random(1);
+    const delay = 3.85 + slot * .08 + i * .04 + .08 * random(2), ramp = .16 + .14 * random(3);
+    const speed = Math.max(1.34 + .3 * random(4), length / (7.72 - delay - ramp / 2));
+    // Continue the virtual walk inside the car, so followers are released
+    // smoothly when their leader disappears into the vestibule.
+    const free = travel(age - delay, length + 3, speed, ramp);
+    const limit = leader - (.9 + .04 * random(5));
+    const coordinate = Math.min(free.distance - length, limit);
+    const velocity = coordinate < free.distance - length ? leaderVelocity : free.amount * speed;
+    const distance = Math.max(0, Math.min(length, coordinate + length));
+    result = { length, delay, distance, amount: distance > 0 && distance < length ? Math.min(1, velocity / 1.45) : 0 };
+    leader = coordinate; leaderVelocity = velocity;
+  }
+  return result;
 }
 
 function along(path, distance) {
@@ -29,11 +52,12 @@ export function exchangePose(station, slot, outgoing, age, previousService = fal
   const door = EXCHANGE_DOORS[slot], s = station.stop - DOOR_OFFSETS[door];
   // Alighters use one lane and fan out along the platform, furthest person
   // first. Boarders follow a spaced queue from the other side of the opening.
+  const boarding = outgoing ? null : boardingMotion(station, slot, ordinal, age);
   const path = outgoing ? [[.28, .82], [.28, 3.3], [2.35 - ordinal * .9, 3.3]]
-    : [[-.9 - ordinal, 2.95], [-.28, 2.95], [-.28, .76]];
-  const length = path.slice(1).reduce((sum, p, i) => sum + Math.hypot(p[0] - path[i][0], p[1] - path[i][1]), 0);
-  const delay = slot * .08 + (outgoing ? ordinal * .72 : 3.85);
-  const motion = travel(age - delay, length), progress = motion.distance / length;
+    : [[1.91 - boarding.length, 2.95], [-.28, 2.95], [-.28, .76]];
+  const length = boarding?.length ?? path.slice(1).reduce((sum, p, i) => sum + Math.hypot(p[0] - path[i][0], p[1] - path[i][1]), 0);
+  const delay = outgoing ? slot * .08 + ordinal * .72 : boarding.delay;
+  const motion = boarding || travel(age - delay, length), progress = Math.min(1, motion.distance / length);
   const position = along(path, motion.distance), ahead = along(path, Math.min(length, motion.distance + .16));
   const behind = along(path, Math.max(0, motion.distance - .16));
   // Earlier alighters continue clear of all three places used by our service.
@@ -47,5 +71,7 @@ export function exchangePose(station, slot, outgoing, age, previousService = fal
   return { s: s + position[0] + 3.2 * stepAside, x: station.side * position[1],
     visible: ordinal < exchangeCount(station, slot, outgoing) && (outgoing ? age >= delay : progress < 1),
     walking, yaw, amount: movingAside ? Math.sin(Math.PI * stepAside) ** .4 : motion.amount,
+    stridePhase: (motion.distance + 3.2 * stepAside) * (5.9 + 1.2 * variation(station, slot, ordinal, outgoing ? 6 : 7))
+      + variation(station, slot, ordinal, outgoing ? 8 : 9) * Math.PI * 2,
     distance: motion.distance + 3.2 * stepAside, progress, door, outgoing };
 }

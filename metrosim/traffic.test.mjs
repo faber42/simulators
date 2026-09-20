@@ -106,7 +106,7 @@ test('earlier alighters remain present and leave room for passengers from the fo
 
 test('one to three passengers per door queue without intersections and finish inside the dwell window', () => {
   const seenCounts = new Set();
-  for (let index = 0; index < 6; index++) for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
+  for (let index = 0; index < 36; index++) for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
     const st = station(index), doorS = st.stop - DOOR_OFFSETS[EXCHANGE_DOORS[slot]];
     const counts = [true, false].map(outgoing => exchangeCount(st, slot, outgoing));
     counts.forEach(count => { seenCounts.add(count); assert.ok(count >= 1 && count <= 3); });
@@ -135,4 +135,19 @@ test('one to three passengers per door queue without intersections and finish in
     assert.ok(lastOut < firstIn, 'the last alighter clears before the queue starts boarding');
   }
   assert.deepEqual([...seenCounts].sort(), [1, 2, 3]);
+});
+
+test('boarding queues vary spacing, pace, reaction time and stride without frame-dependent randomness', () => {
+  const st = station(0), poses = age => [0, 1, 2].map(i => exchangePose(st, 0, false, age, false, i));
+  const waiting = poses(-1), moving = poses(4.4), later = poses(4.5);
+  const gaps = [waiting[0].s - waiting[1].s, waiting[1].s - waiting[2].s];
+  assert.ok(Math.abs(gaps[0] - gaps[1]) > .04, 'queue members do not wait at equal intervals');
+  const speeds = later.map((p, i) => (p.distance - moving[i].distance) * 10);
+  assert.ok(Math.max(...speeds) - Math.min(...speeds) > .1, 'individual walking speeds differ');
+  const starts = [0, 1, 2].map(i => {
+    for (let frame = 3.8 * 120; frame < 4.5 * 120; frame++) if (poses(frame / 120)[i].walking) return frame;
+  });
+  assert.equal(new Set(starts).size, 3, 'the queue does not start marching at once');
+  assert.equal(new Set(moving.map(p => Math.round(p.stridePhase * 100))).size, 3, 'independent leg phases');
+  poses(7); assert.deepEqual(poses(4.4), moving, 'pause, seeking and rendering order do not change the motion');
 });

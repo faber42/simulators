@@ -7,6 +7,7 @@ import { FrameDiagnostics } from './diagnostics.mjs';
 import { FrameCadence } from './cadence.mjs';
 import { Escalator } from './escalator.js';
 import { RenderLoop } from './render-loop.mjs';
+import { DoorInspection } from './door-inspection.js';
 
 const $ = id => document.getElementById(id);
 const loading = $('loading');
@@ -16,6 +17,8 @@ async function start() {
   const scene = new T.Scene(); scene.background = new T.Color('#030607');
   scene.fog = new T.FogExp2('#050909', .016);
   const camera = new T.PerspectiveCamera(57, 1, .06, 225);
+  const doorInspection = new DoorInspection();
+  let doorViewActive = false;
   const ambient = new T.HemisphereLight('#b8cace', '#484236', .52); scene.add(ambient);
   const headlights = new T.SpotLight('#e8e6d8', 95, 88, .62, .9, 1.55);
   headlights.position.set(0, 1.15, -.3); scene.add(headlights); scene.add(headlights.target);
@@ -88,6 +91,7 @@ async function start() {
   }
   function syncUI() {
     document.body.classList.toggle('paused', train.paused);
+    document.body.classList.toggle('door-inspection', doorViewActive);
     const st = train.stop;
     $('destination').textContent = st.name;
     $('destination-label').textContent = train.doors || ['settling', 'dispatch'].includes(train.phase) ? 'AKTUELLER HALT' : 'NÄCHSTER HALT';
@@ -98,6 +102,9 @@ async function start() {
     $('door-side').textContent = `Bahnsteig ${st.side < 0 ? 'links' : 'rechts'} · ${st.name}`;
     $('clock').textContent = new Date().toLocaleTimeString('de-DE');
     $('pause-indicator').hidden = !train.paused || inspect;
+    $('camera-label').textContent = doorViewActive ? 'TÜRANSICHT · DIAGNOSE' : 'FRONTKAMERA';
+    $('diag-door-status').textContent = doorViewActive ? 'Türkamera aktiv' : 'Automatisch beim Türwechsel';
+    $('view').dataset.camera = doorViewActive ? 'door' : 'front';
     $('view').dataset.diagnostics = JSON.stringify({ ...train.snapshot(), ...world.stats(), fps: Math.round(fps), below30Percent: perf.below30Percent, observedSeconds: perf.observedSeconds, p95FrameMs: perf.p95FrameMs, maxFrameMs: perf.maxFrameMs, drawCalls: output.sceneDrawCalls, geometries: output.renderer.info.memory.geometries, textures: output.renderer.info.memory.textures, slowFrames: perf.slowFrames });
   }
   function draw(dt = 0, interpolate = false) {
@@ -131,7 +138,9 @@ async function start() {
       exposure += (targetExposure - exposure) * (1 - Math.exp(-dt * .65));
       ambient.intensity += ((st ? .48 : .3) - ambient.intensity) * (1 - Math.exp(-dt * .8));
     }
-    output.render(scene, camera, pose.time, exposure, world.mirror);
+    const inspectionCamera = doorInspection.update($('diag-door-view').checked, pose, world.vehicles.own, camera.aspect);
+    doorViewActive = !!inspectionCamera;
+    output.render(scene, inspectionCamera || camera, pose.time, exposure, world.mirror);
     $('view').dataset.renderedFrames = String(++renderedFrames);
   }
   function fail(error) {
@@ -163,9 +172,11 @@ async function start() {
     if (!document.hidden) loop.invalidate();
   });
   $('diag-close').addEventListener('click', () => { $('diagnostics').hidden = true; });
+  $('diag-door-view').addEventListener('change', () => { if (ready) loop.invalidate(); });
   document.addEventListener('keydown', event => {
-    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) return;
-    if (event.code === 'Space' && event.target.tagName === 'BUTTON') return;
+    const checkbox = event.target.tagName === 'INPUT' && event.target.type === 'checkbox';
+    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || /TEXTAREA|SELECT/.test(event.target.tagName) || event.target.tagName === 'INPUT' && !checkbox) return;
+    if (event.code === 'Space' && (event.target.tagName === 'BUTTON' || checkbox)) return;
     if (event.code === 'Space' || event.code === 'KeyP') { event.preventDefault(); setPaused(!train.paused); }
     if (event.key.toLowerCase() === 'h') document.body.classList.toggle('clean');
     if (event.key.toLowerCase() === 'd') { $('diagnostics').hidden = !$('diagnostics').hidden; syncDiagnostics(performance.now()); }
