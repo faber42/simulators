@@ -1,0 +1,69 @@
+import * as T from '../pinsim/three.module.min.js';
+import { point, trackX, trackAngle } from './route.mjs';
+import { random } from './materials.js';
+import { exchangePose } from './exchange.mjs';
+import { EXCHANGE_DOORS } from './traffic.mjs';
+
+export class PassengerExchange {
+  constructor(scene, crowd, shadowMaterial) {
+    this.scene = scene; this.crowd = crowd; this.shadowMaterial = shadowMaterial;
+    this.groups = new Map(); this.obstacles = []; this.boarding = 0; this.alighting = 0;
+    this.shadowGeometry = new T.PlaneGeometry(.85, .65);
+    // Prepare both exchange groups during loading. Entering the next station
+    // only repositions existing skeletons instead of building eight at once.
+    this.pool = [this.createGroup(21), this.createGroup(94)];
+  }
+  createGroup(seed) {
+    const group = new T.Group(), people = [];
+    for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) for (const outgoing of [true, false]) {
+      const p = this.crowd.create(random(seed * 97 + slot * 139 + (outgoing ? 8102 : 3361)), { phone: false });
+      p.person.scale.setScalar(p.height); group.add(p.person);
+      const shadow = new T.Mesh(this.shadowGeometry, this.shadowMaterial); shadow.rotation.x = -Math.PI / 2; group.add(shadow);
+      people.push({ ...p, slot, outgoing, shadow });
+    }
+    group.visible = false; this.scene.add(group); return { group, people, station: null };
+  }
+  create(key, st) {
+    const entry = this.pool.pop(); entry.station = st; entry.group.visible = true;
+    this.groups.set(key, entry); return entry;
+  }
+  update(train, services) {
+    const alive = new Set(services.map(service => service.key)); this.obstacles = []; this.boarding = this.alighting = 0;
+    for (const [key, entry] of this.groups) if (!alive.has(key)) {
+      entry.group.visible = false; this.pool.push(entry); this.groups.delete(key);
+    }
+    for (const { key, station: st, age, previousService = false } of services) {
+      const entry = this.groups.get(key) || this.create(key, st);
+      for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
+        const lane = exchangePose(st, slot, false, -1);
+        this.obstacles.push({ s: lane.s + .28, x: st.side * 2.65, height: 1, phase: 0, pace: 1 });
+        this.obstacles.push({ s: lane.s + 1.18, x: st.side * 3.18, height: 1, phase: 0, pace: 1 });
+        this.obstacles.push({ s: lane.s + 2.06, x: st.side * 3.18, height: 1, phase: 0, pace: 1 });
+      }
+      for (const p of entry.people) {
+        const pose = exchangePose(st, p.slot, p.outgoing, age, previousService);
+        p.person.visible = p.shadow.visible = pose.visible;
+        if (!pose.visible) continue;
+        const world = point(pose.s, pose.x, .945);
+        p.person.position.set(world[0] - trackX(train.s), .945, world[2] + train.s);
+        p.person.rotation.y = (pose.alongPlatform ? Math.PI : pose.direction * Math.PI / 2) - trackAngle(pose.s);
+        p.shadow.position.set(p.person.position.x, .95, p.person.position.z);
+        const walking = pose.walking ? Math.sin(Math.PI * pose.strideProgress) ** .4 : 0, phase = pose.distance * 6.6;
+        p.body.position.y = p.hipHeight + Math.abs(Math.sin(phase)) * .014 * walking;
+        p.body.rotation.z = Math.sin(train.time * .9 + p.slot) * .009 * (1 - walking);
+        p.head.rotation.y = pose.walking ? .025 * Math.sin(phase) : Math.sin(train.time * .35 + p.slot) * .14;
+        p.head.rotation.x = pose.walking ? .04 : 0;
+        for (let i = 0; i < 2; i++) {
+          const stride = Math.sin(phase + i * Math.PI);
+          p.legs[i].pivot.rotation.x = stride * .43 * walking;
+          p.legs[i].shin.rotation.x = Math.max(0, -stride) * .5 * walking;
+          p.arms[i].pivot.rotation.x = -stride * .25 * walking;
+          p.arms[i].forearm.rotation.x = -.13;
+        }
+        if (pose.walking) { if (p.outgoing) this.alighting++; else this.boarding++; }
+        if (Math.abs(pose.x) > 1.7) this.obstacles.push({ s: pose.s, x: pose.x, height: p.height, phase: 0, pace: 1 });
+      }
+    }
+  }
+  stats() { return { boardingTrain: this.boarding, alightingTrain: this.alighting }; }
+}

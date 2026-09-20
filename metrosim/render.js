@@ -52,9 +52,10 @@ export class CameraRenderer {
     this.extract.uniforms.texel.value.set(1 / this.width, 1 / this.height);
   }
   pass(material, target) { this.quad.material = material; this.renderer.setRenderTarget(target); this.renderer.render(this.scene, this.camera); }
-  render(scene, camera, time, exposure) {
+  render(scene, camera, time, exposure, mirror) {
     const start = performance.now();
     this.renderer.info.autoReset = false; this.renderer.info.reset();
+    mirror?.render(this.renderer);
     this.renderer.setRenderTarget(this.sceneTarget); this.renderer.render(scene, camera);
     this.sceneDrawCalls = this.renderer.info.render.calls; this.triangles = this.renderer.info.render.triangles;
     this.pass(this.extract, this.bloomA);

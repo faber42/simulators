@@ -4,6 +4,7 @@ import * as T from '../pinsim/three.module.min.js';
 import { World } from './world.js';
 import { point, trackX, branchAt, station } from './route.mjs';
 import { updatePedestrians } from './pedestrians.mjs';
+import { DOOR_OFFSETS } from './traffic.mjs';
 
 // Exercise the actual merged scenery, without needing a WebGL context. The
 // canvas stub only supplies the crowd's texture data during construction.
@@ -17,6 +18,27 @@ function fixture() {
     posters: Array(6).fill(material) }, { get: (o, key) => o[key] ?? material });
   return { scene, world: new World(scene, materials) };
 }
+
+test('platform structures leave the dispatch mirror sightlines to every door clear', () => {
+  for (const index of [0, 1, 2, 3, 4, 5, 7]) {
+    const { scene, world } = fixture(), st = station(index), meshes = [];
+    for (let base = st.start; base < st.end; base += 24) {
+      for (const _ of world.build(base)) { /* actual platform geometry */ }
+      const chunk = world.chunks.get(base);
+      chunk.group.position.set(trackX(base) - trackX(st.stop), 0, st.stop - base);
+      chunk.group.traverse(o => { if (o.isMesh && !o.isSkinnedMesh) meshes.push(o); });
+    }
+    world.vehicles.place(world.vehicles.own, st.stop, st.stop, 1, st.side);
+    world.mirror.update({ s: st.stop }); scene.updateMatrixWorld(true);
+    for (let door = 0; door < DOOR_OFFSETS.length; door++) {
+      const car = world.vehicles.own.cars[Math.floor(door / 3)];
+      const target = new T.Vector3(st.side * 1.51, 2.1, [-5.4, 0, 5.4][door % 3]).applyMatrix4(car.matrixWorld);
+      const eye = world.mirror.camera.position, delta = target.sub(eye);
+      const ray = new T.Raycaster(eye, delta.clone().normalize(), .1, delta.length() - .18);
+      assert.equal(ray.intersectObjects(meshes, false).length, 0, `station ${index}, door ${door}: columns/walls must not obstruct the mirror`);
+    }
+  }
+});
 test('both portal openings and the rail paths are free of stray tunnel faces', () => {
   for (const index of [0, 1, 5, 18]) {
     const { scene, world } = fixture(), split = station(index).start - 102;

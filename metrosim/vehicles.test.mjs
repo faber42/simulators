@@ -1,0 +1,72 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as T from '../pinsim/three.module.min.js';
+import { Vehicles } from './vehicles.js';
+import { PlatformMirror } from './mirrors.js';
+import { station, point, trackX } from './route.mjs';
+import { CAR_COUNT, DOOR_OFFSETS } from './traffic.mjs';
+import { Crowd } from './crowd.js';
+import { PassengerExchange } from './exchanges.js';
+
+const material = new T.MeshStandardMaterial();
+const materials = { dark: material, steel: material, sign: () => material };
+
+test('only platform-side door leaves move and all cars remain articulated along the route', () => {
+  const vehicles = new Vehicles(new T.Scene(), materials), matrix = new T.Matrix4();
+  for (const index of [0, 1, 2, 5]) {
+    const st = station(index);
+    vehicles.place(vehicles.own, st.stop, st.stop, 0, st.side);
+    const closed = vehicles.own.leaves.map(mesh => [...mesh.instanceMatrix.array]);
+    vehicles.place(vehicles.own, st.stop, st.stop, 1, st.side);
+    assert.equal(vehicles.own.cars.length, CAR_COUNT);
+    for (let car = 0; car < CAR_COUNT; car++) for (let leaf = 0; leaf < 12; leaf++) {
+      vehicles.own.leaves[car].getMatrixAt(leaf, matrix);
+      const side = leaf < 6 ? -1 : 1, offset = leaf * 16;
+      assert.ok(Math.abs(Math.abs(matrix.elements[14] - closed[car][offset + 14]) - (side === st.side ? .66 : 0)) < 1e-5);
+      if (side !== st.side) assert.deepEqual([...matrix.elements], closed[car].slice(offset, offset + 16));
+    }
+    vehicles.own.group.traverse(o => assert.equal(o.layers.mask, 2, 'own cab is visible only in the mirror camera'));
+  }
+});
+
+test('station mirrors frame every door on both platform sides, including curved platforms', () => {
+  const scene = new T.Scene(), mirror = new PlatformMirror(scene, materials), vehicles = new Vehicles(scene, materials);
+  for (let index = 0; index < 36; index++) {
+    const st = station(index), train = { s: st.stop };
+    vehicles.place(vehicles.own, st.stop, st.stop, 1, st.side);
+    mirror.update(train); scene.updateMatrixWorld(true); mirror.camera.updateMatrixWorld(true);
+    assert.equal(mirror.active, true);
+    for (const offset of DOOR_OFFSETS) {
+      const p = point(st.stop - offset, st.side * 1.5, 1.95);
+      const image = new T.Vector3(p[0] - trackX(train.s), p[1], train.s + p[2]).project(mirror.camera);
+      assert.ok(Math.abs(image.x) < 1 && Math.abs(image.y) < 1 && image.z > -1 && image.z < 1,
+        `station ${index}, door ${offset}: ${image.toArray()}`);
+    }
+    for (let door = 0; door < DOOR_OFFSETS.length; door++) {
+      const car = Math.floor(door / 3);
+      const target = new T.Vector3(st.side * 1.51, 2.1, [-5.4, 0, 5.4][door % 3]).applyMatrix4(vehicles.own.cars[car].matrixWorld);
+      const delta = target.sub(mirror.camera.position);
+      const ray = new T.Raycaster(mirror.camera.position, delta.clone().normalize(), .1, delta.length() - .18); ray.layers.set(1);
+      const blockers = vehicles.own.cars.filter((_, i) => i !== car).map(c => c.children[0]);
+      assert.equal(ray.intersectObjects(blockers, false).length, 0, `station ${index}, door ${door}: nearer cars must not hide the rear doors`);
+    }
+  }
+});
+
+test('endless passenger exchanges reuse a fixed pair of prebuilt groups', () => {
+  const crowd = Object.create(Crowd.prototype); crowd.material = material;
+  const scene = new T.Scene(), exchange = new PassengerExchange(scene, crowd, material);
+  const geometry = new Set(); scene.traverse(o => { if (o.isSkinnedMesh) geometry.add(o.geometry); });
+  assert.equal(geometry.size, 16);
+  for (let index = 0; index < 30; index++) {
+    const st = station(index), train = { s: st.stop, time: index * 80 };
+    for (const age of [-1, 1, 5, 12]) exchange.update(train, [
+      { key: `previous-${index}`, station: st, age: 12, previousService: true },
+      { key: `own-${index}`, station: st, age },
+    ]);
+    assert.equal(exchange.groups.size + exchange.pool.length, 2);
+    scene.traverse(o => { if (o.isSkinnedMesh) assert.ok(geometry.has(o.geometry)); });
+    exchange.update(train, []);
+    assert.equal(exchange.groups.size, 0); assert.equal(exchange.pool.length, 2);
+  }
+});

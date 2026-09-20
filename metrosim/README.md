@@ -12,7 +12,7 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
 
 - Zu Beginn steht der Zug vor einem roten Signal. Nach 5,5 Sekunden erfolgt die
   Freigabe; 1,25 Sekunden später beschleunigt der Zug bis auf 60 km/h.
-- Zwei weitere Signale liegen auf dem Weg zur ersten Station. Die Kamera folgt
+- Zwei Tunnelsignale und ein Einfahrsignal liegen auf dem Weg zur ersten Station. Die Kamera folgt
   der Strecke mit sehr dezenter, geschwindigkeitsabhängiger Vibration.
 - Der Zug bremst bis zum Halt neun Meter vor dem Bahnsteigende. Im letzten
   langsamen Abschnitt wird die Bremskraft sanft zurückgenommen. Der Wagenkasten
@@ -38,7 +38,28 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
 - Auch ausgewählte Tunnelsignale sind zunächst rot. Sie wechseln kurz vor dem
   herannahenden Zug auf Grün. Der Zug berücksichtigt sie vorher in seiner
   Bremskurve. Die Freigaben simulieren wechselnden Abstand zu einem vorausfahrenden
-  Zug; ein vollständiger Verkehr mehrerer Züge wird noch nicht berechnet.
+  Zug. Zusätzlich gibt es sichtbare vorausfahrende Züge an ausgewählten Stationen.
+- Gelegentlich ist die Station noch belegt: Ein fünfteiliger, 89,6 m langer
+  U8-Zug beendet den Fahrgastwechsel oder wartet bereits mit geschlossenen Türen
+  vor seinem Ausfahrsignal. Der eigene Zug hält am Einfahrsignal acht Meter vor
+  dem Bahnsteig. Dieses bleibt rot, bis das **gesamte Fahrzeug** die Station
+  verlassen hat und sein Zugschluss zwei Meter hinter dem Bahnsteigende liegt.
+  Danach gelten auch hier Reaktionszeit und sanfter Anlauf. Die erste Begegnung
+  findet am Westhafen statt; spätere Begegnungen wechseln zwischen beiden Abläufen.
+- Jeder Bahnsteig hat am vorderen Ende einen Abfertigungsspiegel. Eine zweite
+  Kamera rendert dieselbe Szene entlang der eigenen Türenreihe, horizontal
+  gespiegelt und mit einer dezenten Weitwinkelverzeichnung. Die Wagen folgen
+  einzeln der Gleiskrümmung. Die Stationskurven bleiben so sanft, dass vordere
+  Wagen und Säulen die Sicht auf die hinteren Türen nicht verdecken.
+  Linien- und Zielanzeigen, Drehgestelle, Kupplungen,
+  Türdichtungen und Schlusslichter gehören zum Modell. Die Fenster sind opak
+  getönt; hinter den Türöffnungen liegen einfache beleuchtete Vorräume.
+  Nur die Türen auf der Bahnsteigseite öffnen sich, synchron zur Türanzeige.
+  An vier über den Zug verteilten Türen steigen zunächst Fahrgäste aus,
+  anschließend steigen andere ein. Alle Übergänge sind vor dem Schließen beendet.
+  Ausgestiegene des vorausfahrenden Zugs bleiben am Bahnsteig und treten aus
+  der Türgasse, damit die nächste Abfertigung Platz hat.
+  Das Ausfahrsignal steht gegenüber dem Spiegel und bleibt dadurch sichtbar.
 - Sechs Stationsvarianten wiederholen sich entlang einer endlos erzeugten
   Strecke: Rathaus, Museum, Westhafen, Opernplatz, Botanischer Garten und
   Zentralbahnhof. Farben, Krümmung, Bahnsteigseite und Zugänge variieren.
@@ -96,8 +117,8 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   bleiben die Beteiligten an ihrer letzten sicheren Position stehen und gehen
   in die Wartehaltung über. Auch sich kreuzende Wege und längere Frameabstände
   werden berücksichtigt. Es gibt kein Umplanen oder Ausweichen um andere herum.
-  Die Simulation zeigt das Annähern; ein Einsteigen in unsichtbare Waggons wird
-  nicht dargestellt.
+  Für den sichtbaren Ein- und Ausstieg bleiben eigene Türgassen frei. Die übrigen
+  Gehwege berücksichtigen diese Gassen und die Fahrgäste dort als Hindernisse.
 
 ## Tastatur
 
@@ -149,6 +170,13 @@ angehalten“. Beim Fortsetzen beginnt die Zeitmessung ohne künstlichen langen 
   wird nach Material zusammengefasst. Neue Abschnitte entstehen schrittweise
   in kleinen Arbeitsportionen vor dem Zug. Jeder Fahrgast benötigt einen
   Zeichenaufruf für seinen Körper statt vieler einzelner Körperteile.
+  In Stationen bleiben zusätzlich 96 m hinter der Frontkamera erhalten, damit
+  der Spiegel auch den letzten Wagen, Bahnsteig und Fahrgäste zeigt. Sein
+  768×512-HDR-Renderziel wird wiederverwendet und in der Nähe mit demselben
+  30-FPS-Takt aktualisiert; in Pause wird auch der Spiegel nicht neu gerendert.
+  Eigener Zug, vorausfahrender Zug und Spiegel werden als feste Pools wiederverwendet.
+  Zusammengefasste Wagenkörper und instanzierte Türflügel begrenzen Zeichenaufrufe.
+  Auch die beiden Gruppen für den Fahrgastwechsel werden vorab gebaut und wiederverwendet.
   Ein festes, pro Fragment berechnetes Lichtfeld beleuchtet Tunnelwände und
   Bahnsteige auch in der Ferne. Es hängt ausschließlich von der Infrastruktur
   ab, nicht von der Kameraposition. 16 ergänzende Punktlichter für Figuren und
@@ -175,7 +203,7 @@ angehalten“. Beim Fortsetzen beginnt die Zeitmessung ohne künstlichen langen 
 
 ## Prüfung und Diagnose
 
-`node --test metrosim/route.test.mjs metrosim/diagnostics.test.mjs metrosim/crowd.test.mjs metrosim/presentation.test.mjs metrosim/tunnel.test.mjs metrosim/boarding.test.mjs metrosim/pedestrians.test.mjs metrosim/platform-life.test.mjs metrosim/render-loop.test.mjs` prüft Freigabe,
+`node --test metrosim/*.test.mjs` prüft Freigabe,
 Bremsen, Türverriegelung, Pause, Stationsübergänge, Weichenabschnitte und eine
 Stunde durchgehenden Betrieb. Die Diagnoseprüfungen decken konstante FPS,
 lange Hänger, die gleitende Fenstergrenze und ausgeblendete Tabs ab. Die
@@ -205,12 +233,24 @@ Pause, Ankunft am Wartepunkt und sichtbare Bewegung während einer Zug-Einfahrt.
 Die Sitz- und Rolltreppentests kontrollieren Fußkontakt bei verschiedenen
 Körpergrößen, feste Sitzplätze, unterschiedliche Blickreaktionen, tatsächliche
 Stufenbewegung, Umlauf und eingefrorene Stufen bei unveränderter Simulationszeit.
+Verkehrstests kontrollieren die Freigabe erst hinter dem Zugschluss, beide
+Belegungsvarianten, Zugabstand, Türverriegelung und Pause. Fahrzeugtests prüfen
+die richtige Türseite und den Spiegelausschnitt für sämtliche Türen über
+36 Stationen. Strahltests prüfen zusätzlich die freie Sicht an Wagen und
+gebauten Bahnsteigsäulen vorbei. Fahrgasttests prüfen Türpositionen, getrennte Gehspuren
+und die Reihenfolge von Ausstieg, Einstieg und Türschluss.
 
 In der Browser-Konsole: `METROSIM.snapshot()`, `METROSIM.pause()`,
 `METROSIM.setSpeed(4)`, `METROSIM.advance(60)`, `METROSIM.inspectStation(1, 20)`
 und `METROSIM.restart()`.
 
 Reproduzierbare Ansichten für visuelle QA:
+
+- `?time=58`: erster Halt mit Spiegel, Türöffnung und Fahrgastwechsel.
+- `?time=143`: entsprechender Ablauf am rechten, gekrümmten Bahnsteig Museum.
+- `?time=203`: Annäherung an die belegte Station Westhafen und Einfahrsignal.
+- `?time=207&paused=1`: rotes Einfahrsignal und noch stehender vorausfahrender Zug.
+- `?view=mirror&time=67&paused=1`: vergrößerte, ungespiegelte zweite Kamera für Tür- und Fahrgastprüfung.
 
 - `?view=station&station=0&offset=18`: linker Bahnsteig mit massiver Treppe.
 - `?view=station&station=1&offset=60`: rechter, gekrümmter Bahnsteig mit Aufzug.

@@ -58,7 +58,7 @@ test('complete endless service: stops at every station, interlocks doors, repeat
     assert.ok(Math.abs(train.ride.heave) < .006 && Math.abs(train.ride.surge) < .005 && Math.abs(train.ride.pitch) < .003, 'body motion stays subtle throughout service');
     previousS = train.s; previousV = train.speed; previousVisit = train.visits;
   }
-  assert.equal(visited.size, 6); assert.ok(train.visits > 40);
+  assert.equal(visited.size, 6); assert.ok(train.visits >= 38, 'service continues despite occupied-station waits');
   assert.deepEqual(phases, new Set(['signal', 'depart', 'running', 'settling', 'opening', 'open', 'closing', 'dispatch', 'waiting']));
 });
 
@@ -208,7 +208,7 @@ test('exit blocks release before, during and after departure without bypassing d
 test('tunnel signals can enter view red and clear on approach; no red signal is passed', () => {
   const train = new Train(), approaches = new Map();
   let cleared = 0;
-  for (let i = 0; i < 600 * 60; i++) {
+  for (let i = 0; i < 720 * 60; i++) {
     const ahead = signalSpecs(train.s, train.s + 160);
     for (const signal of ahead) if (signal.kind === 'block' && !train.signals.isGreen(signal, train.time)) approaches.set(signal.id, signal);
     train.step(1 / 60);

@@ -119,6 +119,10 @@ async function start() {
       camera.position.set(eye[0] - trackX(pose.s), eye[1], eye[2] + pose.s);
       look.set(target[0] - trackX(pose.s), target[1], target[2] + pose.s); camera.lookAt(look);
     }
+    if (query.get('view') === 'mirror') {
+      camera.copy(world.mirror.camera); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+      world.mirror.rig.traverse(object => object.layers.set(2));
+    }
     const headPoint = point(pose.s + 33, 0, .65); headlights.target.position.set(headPoint[0] - trackX(pose.s), .65, -33);
     const st = stationAt(pose.s + 8);
     const targetExposure = st ? .89 : 1.14;
@@ -127,7 +131,7 @@ async function start() {
       exposure += (targetExposure - exposure) * (1 - Math.exp(-dt * .65));
       ambient.intensity += ((st ? .48 : .3) - ambient.intensity) * (1 - Math.exp(-dt * .8));
     }
-    output.render(scene, camera, pose.time, exposure);
+    output.render(scene, camera, pose.time, exposure, world.mirror);
     $('view').dataset.renderedFrames = String(++renderedFrames);
   }
   function fail(error) {
@@ -186,7 +190,9 @@ async function start() {
   warmup.position.set(1000, 0, 0); scene.add(warmup);
   const treadWarmup = new Escalator(0, 1, 0, materials.escalatorSteps).mesh;
   treadWarmup.position.set(1000, 0, 0); scene.add(treadWarmup);
+  camera.layers.enable(1); // Warm the own-train bodies and instanced door shaders, too.
   await output.renderer.compileAsync(scene, camera);
+  camera.layers.disable(1);
   draw(0);
   output.renderer.getContext().finish(); // One startup sync, never in the frame loop.
   scene.remove(warmup); warmup.traverse(o => { if (o.isSkinnedMesh) { o.geometry.dispose(); o.skeleton.dispose(); } });

@@ -8,6 +8,10 @@ import { updatePedestrians } from './pedestrians.mjs';
 import { DistantLights } from './distant-lights.js';
 import { Escalator, escalatorHeight } from './escalator.js';
 import { seatedPose, SEAT_TOP, SEAT_X } from './seating.js';
+import { Vehicles } from './vehicles.js';
+import { PlatformMirror } from './mirrors.js';
+import { PassengerExchange } from './exchanges.js';
+import { doorOpening, exchangeAge, DOOR_OFFSETS, EXCHANGE_DOORS } from './traffic.mjs';
 
 const box = new T.BoxGeometry(1, 1, 1).toNonIndexed();
 const plane = new T.PlaneGeometry(1, 1).toNonIndexed();
@@ -288,6 +292,8 @@ export class World {
     this.lightPool = Array.from({ length: 16 }, () => { const light = new T.PointLight('#e4ece0', 0, 27, 1.65); scene.add(light); return light; });
     this.crowd = new Crowd(); this.pending = null; this.lastBase = null;
     this.shadowMaterial = new T.MeshBasicMaterial({ map: materials.shadow, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
+    this.vehicles = new Vehicles(scene, materials); this.mirror = new PlatformMirror(scene, materials);
+    this.exchange = new PassengerExchange(scene, this.crowd, this.shadowMaterial);
   }
   *build(base) {
     const group = new T.Group(); const b = new Batch(base), sideBore = new Batch(base), m = this.m, rng = random(base + 907);
@@ -464,7 +470,8 @@ export class World {
     this.scene.add(group); this.chunks.set(base, chunk); return chunk;
   }
   signal(chunk, b, spec) {
-    const { s } = spec, m = this.m, j = junctionAt(s), x = j && Math.abs(j.branchX) > 1 ? -j.side * 2.23 : 2.23;
+    const { s } = spec, m = this.m, j = junctionAt(s);
+    const x = spec.kind === 'exit' ? -station(spec.stationIndex).side * 2.23 : j && Math.abs(j.branchX) > 1 ? -j.side * 2.23 : 2.23;
     b.box(m.steel, s, x, 1.16, .07, 2.1, .07);
     b.box(m.dark, s, x, 2.17, .39, .76, .27);
     b.box(m.dark, s - .13, x, 2.6, .47, .05, .38);
@@ -481,8 +488,14 @@ export class World {
     chunk.signals.push({ ...spec, lights, glow });
   }
   person(chunk, s, x, rng, options = {}) {
+    const st = stationAt(s);
+    // Reserve the exchange lanes beside the selected doors. Ordinary walkers
+    // also see the boarding/alighting passengers as pedestrian obstacles.
+    const reserved = at => st && EXCHANGE_DOORS.some(i => {
+      const relative = at - (st.stop - DOOR_OFFSETS[i]); return relative > -1.2 && relative < 2.7;
+    });
     const neighbours = [...this.chunks.values(), chunk].flatMap(c => c.people);
-    for (let attempt = 0; !options.seated && attempt < 8 && neighbours.some(p => Math.hypot(p.s - s, p.x - x) < .86); attempt++) s += .86;
+    for (let attempt = 0; !options.seated && attempt < 12 && (reserved(s) || neighbours.some(p => Math.hypot(p.s - s, p.x - x) < .86)); attempt++) s += .86;
     const p = this.crowd.create(rng, options);
     p.person.scale.setScalar(p.height);
     p.rootY = .945;
@@ -510,22 +523,36 @@ export class World {
   update(train) {
     const start = performance.now();
     const base = Math.floor(train.s / 24) * 24;
+    this.mirror.update(train);
+    const st = this.mirror.station, nearPlatform = train.s > st.start - 24 && train.s < st.end + 14;
+    const rear = nearPlatform ? 96 : 24;
+    const ownStation = stationAt(train.s), ownSide = ownStation?.side || 0;
+    this.vehicles.update(train, doorOpening(train.phase, train.timer), ownSide);
+    const exchanges = [];
+    if (st.start - train.s < 150 && train.s < st.end + 14) {
+      const lead = train.traffic.pose(st.index, train.time);
+      if (lead && !train.traffic.services.get(st.index).waiting)
+        exchanges.push({ key: `lead-${st.index}`, station: st, age: lead.exchange, previousService: true });
+      if (!lead || lead.clear || train.traffic.services.get(st.index).waiting) exchanges.push({ key: `own-${st.index}`, station: st,
+        age: train.s >= st.stop - .01 ? exchangeAge(train.phase, train.timer) : -1 });
+    }
+    this.exchange.update(train, exchanges);
     if (this.lastBase === null || Math.abs(base - this.lastBase) > 48) {
       this.pending?.iterator.return(); this.pending = null;
-      for (let b = base - 24; b <= base + 216; b += 24) if (!this.chunks.has(b)) for (const _ of this.build(b)) { /* initial load / diagnostic teleport */ }
+      for (let b = base - rear; b <= base + 216; b += 24) if (!this.chunks.has(b)) for (const _ of this.build(b)) { /* initial load / diagnostic teleport */ }
     } else {
       if (!this.pending) {
-        for (let b = base - 24; b <= base + 216; b += 24) if (!this.chunks.has(b)) { this.pending = { base: b, iterator: this.build(b) }; break; }
+        for (let b = base - rear; b <= base + 216; b += 24) if (!this.chunks.has(b)) { this.pending = { base: b, iterator: this.build(b) }; break; }
       }
       const deadline = performance.now() + 2.5;
       while (this.pending && performance.now() < deadline) if (this.pending.iterator.next().done) this.pending = null;
     }
     this.lastBase = base;
     this.buildMs = performance.now() - start;
-    const people = [...this.chunks.values()].filter(c => c.base >= base - 24 && c.base <= base + 216).flatMap(c => c.people);
-    updatePedestrians(people, train);
+    const people = [...this.chunks.values()].filter(c => c.base >= base - rear && c.base <= base + 216).flatMap(c => c.people);
+    updatePedestrians([...people, ...this.exchange.obstacles], train);
     for (const [key, chunk] of this.chunks) {
-      if (key < base - 24 || key > base + 216) {
+      if (key < base - rear || key > base + 216) {
         this.scene.remove(chunk.group);
         chunk.group.traverse(o => { if (o.isMesh && ![box, plane, sphere].includes(o.geometry)) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); if (o.isSkinnedMesh) o.skeleton.dispose(); if (o.isSprite) o.material.dispose(); });
         this.chunks.delete(key); continue;
@@ -543,7 +570,7 @@ export class World {
         p.boardingMoving = !!p.journey && motion.moving;
         p.boardingDistance = p.journey ? motion.distance : 0;
         const walkS = motion.s, walkX = motion.x;
-        p.person.visible = walkS - train.s < 140 && walkS - train.s > -18;
+        p.person.visible = walkS - train.s < 140 && walkS - train.s > (nearPlatform ? -96 : -18);
         p.shadow.visible = p.person.visible;
         if (!p.person.visible) continue;
         if (p.seated) { seatedPose(p, train.s, train.time); continue; }
@@ -595,6 +622,7 @@ export class World {
   stats() {
     const people = [...this.chunks.values()].flatMap(c => c.people);
     return { chunks: this.chunks.size, passengers: people.length,
+      ...this.vehicles.stats(), ...this.exchange.stats(), mirrorActive: this.mirror.active,
       seatedPassengers: people.filter(p => p.seated).length,
       seatedPhones: people.filter(p => p.seated && p.phone).length,
       escalators: [...this.chunks.values()].reduce((n, c) => n + c.escalators.length, 0),

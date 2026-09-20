@@ -1,4 +1,5 @@
 import { Suspension } from './suspension.mjs';
+import { Traffic } from './traffic.mjs';
 
 // Metres and seconds. The train uses a fixed integration step in app.js.
 export const BLOCK = 528;
@@ -59,8 +60,11 @@ export function trackX(s) {
   const st = station(i);
   const t = (s - st.start) / BLOCK;
   const base = 6 * Math.sin((s + 70) / 190);
+  // Inner-curved platforms need a shallow bend to keep the entire train flank
+  // in the dispatch mirror's line of sight. Outer curves can remain broader.
+  const platformBend = st.side * st.curve > 0 ? .45 : 1.5;
   const local = t < PLATFORM_LENGTH / BLOCK
-    ? st.curve * 3 * Math.sin(Math.PI * (s - st.start) / PLATFORM_LENGTH) ** 2
+    ? st.curve * platformBend * Math.sin(Math.PI * (s - st.start) / PLATFORM_LENGTH) ** 2
     : 20 * Math.sin(Math.PI * (s - st.end) / (BLOCK - PLATFORM_LENGTH)) ** 2;
   // Both ends have zero slope, so curved tunnels meet platforms continuously.
   return base + local + itineraryOffset(s);
@@ -90,10 +94,11 @@ export function branchAt(s) {
   return j?.fork && s >= j.split && s <= j.split + 300 ? j : null;
 }
 export function exitSignal(index) { return { id: `exit-${index}`, kind: 'exit', s: station(index).end + 1, stationIndex: index }; }
+export function entrySignal(index) { return { id: `entry-${index}`, kind: 'entry', s: station(index).start - 8, stationIndex: index }; }
 export function signalSpecs(from, to) {
   const result = [{ id: 'initial', kind: 'initial', s: 11 }];
   for (let i = Math.max(0, Math.floor((from - FIRST_STATION) / BLOCK) - 1); i <= Math.ceil((to - FIRST_STATION) / BLOCK); i++) {
-    const st = station(i); result.push(exitSignal(i));
+    const st = station(i); result.push(exitSignal(i), entrySignal(i));
     for (let slot = 0; slot < 2; slot++) result.push({ id: `block-${i}-${slot}`, kind: 'block', s: st.start - 172 + slot * 96, stationIndex: i, slot });
   }
   return result.filter(signal => signal.s >= from && signal.s <= to).sort((a, b) => a.s - b.s);
@@ -120,11 +125,16 @@ function brakingArrival(speed, distance) {
   return elapsed;
 }
 export class BlockSignals {
-  constructor() { this.releases = new Map(); }
+  constructor(traffic) { this.releases = new Map(); this.traffic = traffic; }
   isGreen(signal, time) {
     if (signal.kind === 'initial') return time >= 5.5;
+    if (signal.kind === 'entry') return this.traffic.entryGreen(signal.stationIndex, time);
     const release = this.releases.get(signal.id);
     if (release) return time + 1e-8 >= release.at;
+    if (signal.kind === 'exit') {
+      const preceding = this.traffic.pose(signal.stationIndex, time);
+      if (preceding) return preceding.exitGreen;
+    }
     return signal.kind === 'block' && (signal.stationIndex * 2 + signal.slot) % 3 !== 0;
   }
   arrive(index, time) {
@@ -144,7 +154,7 @@ export class BlockSignals {
 export class Train {
   constructor() {
     this.s = 0; this.speed = 0; this.time = 0; this.phase = 'signal'; this.timer = 0;
-    this.next = 0; this.paused = false; this.visits = 0; this.signals = new BlockSignals();
+    this.next = 0; this.paused = false; this.visits = 0; this.traffic = new Traffic(); this.signals = new BlockSignals(this.traffic);
     this.pendingSignal = null; this.signalWaits = 0; this.signalReadyAt = null;
     this.ride = new Suspension(); this.tractionAt = null; this.brakeReleaseAt = null; this.brakeReleased = false;
   }
@@ -155,7 +165,7 @@ export class Train {
   step(dt) {
     if (this.paused) return;
     const previousSpeed = this.speed;
-    this.time += dt; this.timer += dt; this.signals.update(this);
+    this.time += dt; this.timer += dt; this.traffic.update(this, brakingArrival); this.signals.update(this);
     this.advanceMotion(dt);
     if (this.brakeReleaseAt !== null && !this.brakeReleased && this.time + 1e-8 >= this.brakeReleaseAt) {
       this.brakeReleased = true; this.ride.release();
