@@ -101,21 +101,25 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   Kachelformate und Kopfwandgestaltung passen zur jeweiligen Variante.
 - Die Bahnsteige haben Säulen, Bänke, taktile Sicherheitsstreifen, abstrakte
   Werbeplakate, Stationsnamen und zwei doppelseitige Fahrzielanzeiger.
-  Vor der Einfahrt zeigen diese drei Züge: zuerst **U8 Waldheim · 1 Min**, danach
-  U3 Lindenau und U6 Falkenried mit drei bzw. sechs Minuten Wartezeit. Die beiden
-  Folgezeilen wechseln je nach Station ihre Reihenfolge. Beim Einfahren wird die
+  Vor der Einfahrt zeigen diese zwei Züge: oben **U8 Waldheim · 1 Min**, darunter
+  je nach Station U3 Lindenau oder U6 Falkenried mit drei Minuten Wartezeit. Beim Einfahren wird die
   Anzeige zur großen Linien- und Zielansicht mit fünf gekuppelten Wagensymbolen
   über den Bahnsteigabschnitten A–E. Der Zug ist passend zu seiner Länge und
   Halteposition eingezeichnet; Zwischenziele werden nicht angezeigt.
   Der bisherige Inhalt bleibt bis einen Meter hinter dem Einfahrsignal stehen.
-  Danach klappen die einzelnen Anzeigefelder versetzt über ihre horizontalen
-  Scharniere um. Der Wechsel läuft anfangs schneller über die Anzeige, sodass
-  schon vor dem ersten Schild auch die Zielfelder sichtbar umklappen.
+  Danach blättert die gesamte Anzeige achtmal über eine gemeinsame horizontale
+  Mittelachse. Eine durchgehende obere Metallhälfte fällt als echte 3D-Fläche
+  nach unten; ihre Rückseite trägt die neue untere Hälfte. Die Bewegung zeigt
+  Beschleunigung, einen weichen Schatten und leichtes Nachfedern beim Aufschlag.
+  Dazwischen erscheinen andere bedruckte Zielblätter, bevor das letzte Blatt
+  die richtige Anzeige erreicht. Matte Kohlefarbe, cremeweiße Druckschrift,
+  ein tieferes Gehäuse und sichtbare Lager ersetzen die bisherige LED-Optik.
+  Schon vor dem ersten Schild ist ein vollständiger Blattwechsel sichtbar.
   Die Faltblattanimation endet, wenn das zweite Schild fünf Meter
   vor dem Zug steht. Alle Schildseiten wechseln synchron; Pause hält auch die
   Animation an. Bei belegter Station zeigt die große Ansicht zunächst Linie
   und Ziel des vorausfahrenden Zugs und wechselt direkt zur eigenen großen
-  Ansicht, ohne zwischenzeitlich zur Dreizeilenliste zurückzukehren.
+  Ansicht, ohne zwischenzeitlich zur Abfahrtsliste zurückzukehren.
   Stirn-, Heck- und Seitenanzeigen der Fahrzeuge verwenden dieselben Ziele.
   Jede Station
   besitzt eine feste, massive Treppe sowie eine Rolltreppe oder einen Aufzug.
@@ -244,7 +248,9 @@ Pause zeichnet nur ein neues Standbild und startet kein dauerhaftes Rendering.
   Auch die beiden Gruppen für den Fahrgastwechsel mit je 32 möglichen Figuren
   werden vorab gebaut und wiederverwendet; nicht benötigte Personen bleiben unsichtbar.
   Fahrzielanzeiger verwenden fünf wiederverwendete, vorgefilterte Texturen.
-  Die Faltblätter werden im Shader animiert; während der Fahrt werden dafür
+  Die obere Hälfte wird im Vertexshader um ihre reale Mittelachse gedreht;
+  Grundplatte und beide Blattseiten teilen sich die vorgefertigten Druckbilder.
+  Während der Fahrt werden dafür
   keine Canvasbilder neu gezeichnet oder hochgeladen. Das Shaderprogramm wird
   beim Laden vorbereitet und zwischen Stationen behalten.
   Ein festes, pro Fragment berechnetes Lichtfeld beleuchtet Tunnelwände und
@@ -326,9 +332,10 @@ halten sie an. Sichtstrahlen vom Abfertigungsmonitor prüfen, dass der gesamte
 Körper hinter Wänden verdeckt ist, bevor die Figur aus der Szene entfernt wird.
 Regressionstests prüfen den letzten Bremszentimeter, den abgeschlossenen Wechsel
 beim Signalhalt, den Abstand der Monitorrückwand und das durchgehende Livebild.
-Anzeigentests prüfen Dreizeilenliste, abweichende Vorgängerlinie, Zugbeschilderung,
+Anzeigentests prüfen Zweizeilenliste, abweichende Vorgängerlinie, Zugbeschilderung,
 Signalpassage und die vollständige Umschaltung fünf Meter vor dem zweiten Schild.
-Sie decken Signalhalte, Pause und begrenzten Material-/Texturspeicher ab.
+Sie decken Signalhalte, Pause, acht vollständige Blattwechsel, die gemeinsame
+Achse und begrenzten Material-/Texturspeicher ab.
 
 In der Browser-Konsole: `METROSIM.snapshot()`, `METROSIM.pause()`,
 `METROSIM.setSpeed(4)`, `METROSIM.advance(60)`, `METROSIM.inspectStation(1, 20)`
@@ -353,8 +360,8 @@ Reproduzierbare Ansichten für visuelle QA:
 - `?view=access&station=2&kind=escalator`: entsprechender Blick die Rolltreppe hinauf.
 - `?view=access&station=2&kind=escalator&time=0.2`: Stufenphase; mit `time=0.45` vergleichen.
 - `?view=seating&station=0`: Nahansicht von Sitzgruppe, Kopfbewegung und Smartphone.
-- `?view=display&station=0&offset=-8`: Nahansicht der Dreizeilenanzeige beim Einfahrsignal.
-- `?view=display&station=0&offset=29`: angehaltene Faltblattanimation während der Einfahrt.
+- `?view=display&station=0&offset=-8`: Nahansicht der zweizeiligen Faltblattanzeige beim Einfahrsignal.
+- `?view=display&station=0&offset=-0.63`: fallendes Blatt während des ersten Umschlags.
 - `?view=display&station=0&offset=65.8`: fertige große Zielanzeige mit Wagenstand.
 - `?view=display&station=2&offset=-8`: große Vorgängeranzeige U3 Lindenau.
 - `?time=40.8&rate=0.25`: langsame erste Einfahrt mit Wechsel der Fahrzielanzeiger.

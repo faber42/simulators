@@ -418,9 +418,19 @@ export class World {
         }
         if (BOARD_ANCHORS.includes(rel)) {
           const boardS = boardPosition(st, BOARD_ANCHORS.indexOf(rel)), display = this.displays.material(st);
-          b.box(m.dark, boardS, side * 3.2, 3.86, 2.55, .68, .12);
-          panel(b, display, boardS - .075, side * 3.2, 3.86, 2.45, .57);
-          panel(b, display, boardS + .075, side * 3.2, 3.86, 2.45, .57, Math.PI);
+          b.box(m.dark, boardS, side * 3.2, 3.86, 2.61, .73, .34);
+          for (const face of [-1, 1]) {
+            const rotation = face > 0 ? 0 : Math.PI, faceS = boardS - face * .181;
+            panel(b, display, faceS, side * 3.2, 3.86, 2.45, .57, rotation);
+            const leaf = this.displays.createFlap(st), p = point(boardS - face * .194, side * 3.2, 3.86), origin = point(base);
+            leaf.position.set(p[0] - origin[0], p[1], p[2] - origin[2]); leaf.rotation.y = -trackAngle(faceS) + rotation;
+            group.add(leaf);
+            // Recessed painted casing, a continuous spindle and bearing caps.
+            for (const dx of [-1.267, 1.267]) b.box(m.rubber, boardS - face * .195, side * 3.2 + dx, 3.86, .045, .66, .044);
+            for (const dy of [-.314, .314]) b.box(m.rubber, boardS - face * .195, side * 3.2, 3.86 + dy, 2.55, .035, .044);
+            b.box(m.dark, boardS - face * .208, side * 3.2, 3.86, 2.47, .012, .026);
+            for (const dx of [-1.237, 1.237]) b.box(m.steel, boardS - face * .208, side * 3.2 + dx, 3.86, .052, .037, .05);
+          }
           for (const x of [2.3, 4.1]) b.box(m.steel, boardS, side * x, 4.52, .04, .63, .04);
           panel(b, m.sign('↑  Ausgang', 'exit'), s + 8, side * 5.6, 4.05, 1.75, .43);
         }

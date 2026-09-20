@@ -211,6 +211,8 @@ async function start() {
   treadWarmup.position.set(1000, 0, 0); scene.add(treadWarmup);
   const displayWarmup = new T.Mesh(new T.PlaneGeometry(1, 1), world.displays.warmupMaterial(station(train.next)));
   displayWarmup.position.set(1000, 0, 0); scene.add(displayWarmup);
+  const flapWarmup = world.displays.createFlap(station(train.next));
+  flapWarmup.position.set(1000, 0, 0); scene.add(flapWarmup);
   camera.layers.enable(1); // Warm the own-train bodies and instanced door shaders, too.
   await output.renderer.compileAsync(scene, camera);
   camera.layers.disable(1);
@@ -219,6 +221,7 @@ async function start() {
   scene.remove(warmup); warmup.traverse(o => { if (o.isSkinnedMesh) { o.geometry.dispose(); o.skeleton.dispose(); } });
   scene.remove(treadWarmup); treadWarmup.geometry.dispose(); treadWarmup.dispose();
   scene.remove(displayWarmup); displayWarmup.geometry.dispose();
+  scene.remove(flapWarmup); flapWarmup.geometry.dispose();
   ready = true; resetTiming(); syncDiagnostics(last); syncUI(); loading.style.display = 'none'; loop.setState(!train.paused, !document.hidden);
 }
 start().catch(error => {
