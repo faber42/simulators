@@ -14,9 +14,12 @@ export function departuresDisplay(station) {
 }
 
 export function displayTransition(station, train) {
-  const start = entrySignal(station.index).s + 4;
+  const start = entrySignal(station.index).s + 1;
   const finish = boardPosition(station, 1) - 5;
-  const progress = Math.max(0, Math.min(1, (train.s - start) / (finish - start)));
+  const distance = Math.max(0, Math.min(1, (train.s - start) / (finish - start)));
+  // Reach the destination fields while the first board is still ahead: the
+  // leftmost U8 cells alone barely reveal a change between the two layouts.
+  const progress = 1 - (1 - distance) ** 3;
   // An occupied platform retains its previous service even after that train
   // has left. Our arrival replaces it directly, without an intermediate list.
   const from = occupiedService(station.index) ? arrivalDisplay(precedingService(station.index)) : departuresDisplay(station);

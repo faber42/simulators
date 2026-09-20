@@ -16,7 +16,9 @@ test('three upcoming services switch to the own train with its full five-car sto
   assert.equal(new Set(list.rows.map(row => row.line)).size, 3);
   for (let index = 0; index < 60; index++) {
     const st = station(index), entry = entrySignal(index);
-    for (const s of [entry.s - 60, entry.s, entry.s + 4]) assert.equal(displayTransition(st, { s }).progress, 0);
+    for (const s of [entry.s - 60, entry.s, entry.s + 1]) assert.equal(displayTransition(st, { s }).progress, 0);
+    const firstBoard = displayTransition(st, { s: boardPosition(st, 0) - 5 });
+    assert.ok(firstBoard.progress > .4 && firstBoard.progress < 1, 'the destination fields already flip before the first board');
     const midway = displayTransition(st, { s: st.start + 30 });
     assert.ok(midway.progress > 0 && midway.progress < 1);
     const final = displayTransition(st, { s: boardPosition(st, 1) - 5 });

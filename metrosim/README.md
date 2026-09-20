@@ -103,9 +103,11 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   Anzeige zur großen Linien- und Zielansicht mit fünf gekuppelten Wagensymbolen
   über den Bahnsteigabschnitten A–E. Der Zug ist passend zu seiner Länge und
   Halteposition eingezeichnet; Zwischenziele werden nicht angezeigt.
-  Der bisherige Inhalt bleibt bis vier Meter hinter dem Einfahrsignal stehen.
+  Der bisherige Inhalt bleibt bis einen Meter hinter dem Einfahrsignal stehen.
   Danach klappen die einzelnen Anzeigefelder versetzt über ihre horizontalen
-  Scharniere um. Die Faltblattanimation endet, wenn das zweite Schild fünf Meter
+  Scharniere um. Der Wechsel läuft anfangs schneller über die Anzeige, sodass
+  schon vor dem ersten Schild auch die Zielfelder sichtbar umklappen.
+  Die Faltblattanimation endet, wenn das zweite Schild fünf Meter
   vor dem Zug steht. Alle Schildseiten wechseln synchron; Pause hält auch die
   Animation an. Bei belegter Station zeigt die große Ansicht zunächst Linie
   und Ziel des vorausfahrenden Zugs und wechselt direkt zur eigenen großen
