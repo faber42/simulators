@@ -69,7 +69,13 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   zunächst vom Zug weg und wenden sich während des Gehens zur festen Treppe:
   Je nach Tür laufen sie längs des Bahnsteigs nach vorn oder nach hinten,
   innerhalb der Säulenreihe. Die Tür wird vor dem Einstieg freigegeben;
-  Ausgestiegene dürfen währenddessen weiter Richtung Ausgang gehen.
+  Ausgestiegene gehen ohne Zwischenhalt weiter Richtung Ausgang, auch während
+  des Türschließens, der Abfertigung und eines späteren Signalhalts. Ihre eigene
+  Zeitmessung läuft unabhängig von den Türphasen weiter und pausiert mit der
+  Simulation. Die Wege führen um den Treppenfuß herum und in den Aufgang.
+  Figuren werden erst im vollständig verdeckten oberen Treppenraum entfernt;
+  sie bleiben nicht sichtbar im Monitor stehen und verschwinden nicht offen
+  auf dem Bahnsteig. Das gilt auch für den vorausfahrenden Zug.
   Alle Einsteiger sind innerhalb der acht Sekunden Offenzeit im Zug.
   Warteabstände, Reaktionszeiten, Tempi und Schrittfolgen unterscheiden sich
   deutlich; auch zwischen den Aussteigenden wechseln kurze und längere Pausen.
@@ -79,8 +85,8 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   keine neuen Bewegungen auswürfeln.
   Der tatsächliche Stationshalt startet diesen Ablauf; der letzte Zentimeter
   beim Bremsen und ein späterer Signalhalt vertauschen oder ersetzen keine Figuren.
-  Ausgestiegene des vorausfahrenden Zugs bleiben am Bahnsteig und treten aus
-  der Türgasse, damit die nächste Abfertigung Platz hat.
+  Ausgestiegene des vorausfahrenden Zugs setzen ihren Weg zum Ausgang fort,
+  während die nächste Abfertigung beginnt.
   Das Ausfahrsignal steht gegenüber dem Monitor und bleibt dadurch sichtbar.
 - Sechs Stationsvarianten wiederholen sich entlang einer endlos erzeugten
   Strecke: Rathaus, Museum, Westhafen, Opernplatz, Botanischer Garten und
@@ -287,6 +293,10 @@ Weitere Prüfungen kontrollieren diagonale Einstiege, kontinuierliche Drehungen,
 die Laufrichtung zur Treppe und freie gebogene Laufwege zwischen den übrigen
 Fahrgästen. Tausend Stationsvarianten prüfen, dass auch bei langsamen Vorderleuten
 alle Nachfolgenden vor Türschluss einsteigen.
+Die Aussteiger werden bis zum oberen Treppenraum auf Abstand geprüft. Ihre
+Animation läuft kontinuierlich über Türschluss und Abfahrt hinweg; Pausen
+halten sie an. Sichtstrahlen vom Abfertigungsmonitor prüfen, dass der gesamte
+Körper hinter Wänden verdeckt ist, bevor die Figur aus der Szene entfernt wird.
 Regressionstests prüfen den letzten Bremszentimeter, den abgeschlossenen Wechsel
 beim Signalhalt, den Abstand der Monitorrückwand und das durchgehende Livebild.
 

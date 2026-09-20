@@ -6,6 +6,7 @@ import { point, trackX, branchAt, station } from './route.mjs';
 import { updatePedestrians } from './pedestrians.mjs';
 import { DOOR_OFFSETS } from './traffic.mjs';
 import { DoorInspection } from './door-inspection.js';
+import { exchangePose } from './exchange.mjs';
 
 // Exercise the actual merged scenery, without needing a WebGL context. The
 // canvas stub only supplies the crowd's texture data during construction.
@@ -149,10 +150,10 @@ test('actual platform crowds keep their separation while some boarders stop for 
     for (let base = Math.floor(st.start / 24) * 24; base < st.end; base += 24)
       for (const _ of world.build(base)) { /* real passenger distributions */ }
     const people = [...world.chunks.values()].flatMap(c => c.people);
-    for (let frame = 0; frame < 30 * 35; frame++) {
+    for (let frame = 0; frame < 30 * 90; frame++) {
       const time = frame / 30;
       const train = { time, s: Math.min(st.stop, st.start - 42 + time * 10) };
-      world.exchange.update(train, [{ key: 'own', station: st, age: time < 25 ? -1 : Math.min(8, time - 25) }]);
+      world.exchange.update(train, [{ key: 'own', station: st, age: time < 25 ? -1 : time - 25 }]);
       updatePedestrians([...people, ...world.exchange.obstacles], train);
       for (let i = 0; i < people.length; i++) for (let j = i + 1; j < people.length; j++) {
         const a = people[i], b = people[j];
@@ -162,7 +163,7 @@ test('actual platform crowds keep their separation while some boarders stop for 
       for (const p of people) for (const entry of world.exchange.groups.values()) for (const other of entry.people) {
         if (!other.person.visible) continue;
         const at = point(p.motion.s, p.motion.x, .945);
-        assert.ok(Math.hypot(at[0] - trackX(train.s) - other.person.position.x, at[2] + train.s - other.person.position.z) > .62,
+        assert.ok(Math.hypot(at[0] - trackX(train.s) - other.person.position.x, at[2] + train.s - other.person.position.z, at[1] - other.person.position.y) > .62,
           `station ${index}, time ${time}: ordinary platform walkers leave the curved exchange paths clear`);
       }
     }
@@ -172,4 +173,28 @@ test('actual platform crowds keep their separation while some boarders stop for 
   }
   assert.ok(blocked > 0, 'crowded routes actually trigger waiting');
   assert.ok(travelled > 0, 'unobstructed passengers still approach the train');
+});
+
+test('the access structure hides departing passengers before they leave the scene', () => {
+  for (const index of [0, 1, 2, 3, 4, 5]) {
+    const { scene, world } = fixture(), st = station(index), meshes = [];
+    for (let base = st.start; base < st.end; base += 24) {
+      for (const _ of world.build(base)) { /* actual platform geometry */ }
+      const chunk = world.chunks.get(base);
+      chunk.group.position.set(trackX(base) - trackX(st.stop), 0, st.stop - base);
+      chunk.group.traverse(o => { if (o.isMesh && !o.isSkinnedMesh) meshes.push(o); });
+    }
+    world.mirror.update({ s: st.stop }); scene.updateMatrixWorld(true);
+    for (let slot = 0; slot < 4; slot++) {
+      const end = exchangePose(st, slot, true, 90);
+      for (const ds of [-.3, .3]) for (const dx of [-.3, .3]) for (const height of [.1, 1.9]) {
+        const at = point(end.s + ds, end.x + dx, end.y + height);
+        const target = new T.Vector3(at[0] - trackX(st.stop), at[1], at[2] + st.stop);
+        const eye = world.mirror.camera.position, delta = target.sub(eye);
+        const ray = new T.Raycaster(eye, delta.clone().normalize(), .1, delta.length() - .1);
+        assert.ok(ray.intersectObjects(meshes, false).length, 'the entire figure must be behind solid architecture, not just its centre');
+      }
+    }
+    scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); if (o.isSkinnedMesh) o.skeleton.dispose(); });
+  }
 });

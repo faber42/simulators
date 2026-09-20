@@ -155,6 +155,7 @@ export class Train {
   constructor() {
     this.s = 0; this.speed = 0; this.time = 0; this.phase = 'signal'; this.timer = 0;
     this.next = 0; this.paused = false; this.visits = 0; this.traffic = new Traffic(); this.signals = new BlockSignals(this.traffic);
+    this.lastExchange = null;
     this.pendingSignal = null; this.signalWaits = 0; this.signalReadyAt = null;
     this.ride = new Suspension(); this.tractionAt = null; this.brakeReleaseAt = null; this.brakeReleased = false;
   }
@@ -186,6 +187,7 @@ export class Train {
       if (this.timer + 1e-8 >= duration) {
         if (this.phase === 'settling') this.signals.arrive(this.next, this.time);
         if (phase === 'dispatch') this.prepareDeparture(this.time + 1.4);
+        if (phase === 'open') this.lastExchange = { index: this.next, at: this.time };
         if (this.phase === 'dispatch') this.next++;
         this.phase = phase; this.timer = 0;
       }

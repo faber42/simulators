@@ -40,10 +40,10 @@ export class PassengerExchange {
       reserved.add(st.index);
       for (const p of entry.people) {
         const pose = exchangePose(st, p.slot, p.outgoing, age, previousService, p.ordinal);
-        p.person.visible = p.shadow.visible = pose.visible;
+        p.person.visible = pose.visible; p.shadow.visible = pose.visible && pose.y < .96;
         if (!pose.visible) continue;
-        const world = point(pose.s, pose.x, .945);
-        p.person.position.set(world[0] - trackX(train.s), .945, world[2] + train.s);
+        const world = point(pose.s, pose.x, pose.y);
+        p.person.position.set(world[0] - trackX(train.s), pose.y, world[2] + train.s);
         p.person.rotation.y = pose.yaw - trackAngle(pose.s);
         p.shadow.position.set(p.person.position.x, .95, p.person.position.z);
         const walking = pose.amount, phase = pose.stridePhase;

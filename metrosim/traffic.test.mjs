@@ -53,7 +53,7 @@ test('boarders keep their identity through final braking and exchanges never res
         assert.equal(age, -1, 'approaching passengers must still be waiting');
         if (train.s >= st.stop - .01) finalBraking++;
       }
-      if (train.next > index && train.phase === 'waiting') { exitWait++; assert.equal(age, 12); }
+      if (train.next > index && train.phase === 'waiting') { exitWait++; assert.ok(age > 12); }
       for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
         const out = exchangePose(st, slot, true, age), into = exchangePose(st, slot, false, age);
         if (age < 0) {
@@ -61,7 +61,7 @@ test('boarders keep their identity through final braking and exchanges never res
           assert.equal(into.visible, true, 'the same boarder stays visible');
           assert.equal(into.progress, 0);
         }
-        if (train.next > index) { assert.equal(out.visible, true); assert.equal(into.visible, false); }
+        if (train.next > index) { assert.ok(out.visible || out.progress === 1); assert.equal(into.visible, false); }
       }
     }
   }
@@ -89,18 +89,19 @@ test('passengers cross actual door centres, clear the exit before boarding, and 
     }
     assert.ok(lastOut < firstIn);
     assert.equal(exchangePose(st, slot, false, 8).visible, false);
-    assert.equal(exchangePose(st, slot, true, 8).walking, false);
+    assert.equal(exchangePose(st, slot, true, 8).walking, true);
   }
   assert.equal(doorOpening('opening', 0), 0); assert.equal(doorOpening('opening', 2), 1);
   assert.equal(doorOpening('closing', 0), 1); assert.equal(doorOpening('closing', 2.8), 0);
 });
 
-test('earlier alighters remain present and leave room for passengers from the following train', () => {
+test('earlier alighters continue towards the exit and leave room for the following train', () => {
   for (const index of [0, 1, 2, 5]) for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
-    const st = station(index), earlier = exchangePose(st, slot, true, 12, true), next = exchangePose(st, slot, true, 8);
-    assert.equal(earlier.visible, true); assert.equal(earlier.walking, false);
-    assert.ok(Math.hypot(earlier.s - next.s, earlier.x - next.x) > 1.4);
-    assert.ok(Math.abs(earlier.x) > 2.5 && Math.abs(earlier.x) < 3.4);
+    const st = station(index), earlier = exchangePose(st, slot, true, 32, true), next = exchangePose(st, slot, true, 8);
+    if (earlier.visible) {
+      assert.equal(earlier.walking, true);
+      assert.ok(Math.hypot(earlier.s - next.s, earlier.x - next.x, earlier.y - next.y) > 1.4);
+    }
   }
 });
 
@@ -117,7 +118,7 @@ test('one to three passengers per door queue without intersections and finish in
         const pose = exchangePose(st, slot, outgoing, age, false, ordinal);
         if (ordinal >= exchangeCount(st, slot, outgoing)) { assert.equal(pose.visible, false); continue; }
         if (age < 0) assert.equal(pose.visible, !outgoing, 'boarders already wait before opening');
-        if (age === 8) { assert.equal(pose.visible, outgoing); assert.equal(pose.walking, false); }
+        if (age === 8) { assert.equal(pose.visible, outgoing); assert.equal(pose.walking, outgoing); }
         if (!pose.visible) continue;
         if (Math.abs(pose.x) < 1.8) assert.ok(Math.abs(pose.s - doorS) < .35, 'all passengers cross the actual door opening');
         if (outgoing && Math.abs(pose.x) < 2.1) lastOut = age;
@@ -128,8 +129,8 @@ test('one to three passengers per door queue without intersections and finish in
         assert.ok(Math.hypot(people[a].s - people[b].s, people[a].x - people[b].x) >= .62,
           `station ${index}, door ${slot}, age ${age}: passengers retain personal space`);
       for (let ordinal = 0; ordinal < counts[0]; ordinal++) {
-        const earlier = exchangePose(st, slot, true, 12, true, ordinal);
-        for (const person of people) assert.ok(Math.hypot(earlier.s - person.s, earlier.x - person.x) > 1.3,
+        const earlier = exchangePose(st, slot, true, 32, true, ordinal);
+        if (earlier.visible) for (const person of people) assert.ok(Math.hypot(earlier.s - person.s, earlier.x - person.x, earlier.y - person.y) > 1.3,
           'earlier alighters leave room for the whole next group');
       }
     }
@@ -174,7 +175,7 @@ test('boarding is diagonal and alighters follow continuous bends towards the sta
       assert.ok(diagonal > 15, 'a sustained diagonal approach/bend replaces the L-shaped path');
       if (outgoing) {
         assert.ok(direction * (previous.s - doorS) > 2, 'continue along the platform towards the stairs');
-        assert.ok(Math.abs(previous.x) > 3.2 && Math.abs(previous.x) < 3.5, 'walk away from the edge, inside the column line');
+        assert.ok(Math.abs(previous.x) > 3.2 && Math.abs(previous.x) <= 5.75, 'walk away from the edge towards the stairs');
       }
     }
   }
@@ -186,7 +187,7 @@ test('preceding-service alighters keep variable intervals throughout their longe
     for (let frame = 0; frame <= 12 * 60; frame++) {
       const poses = Array.from({ length: count }, (_, i) => exchangePose(st, slot, true, frame / 60, true, i)).filter(p => p.visible);
       for (let i = 1; i < poses.length; i++) assert.ok(Math.hypot(poses[i].s - poses[i - 1].s, poses[i].x - poses[i - 1].x) > .62);
-      if (frame === 12 * 60) assert.ok(poses.every(p => !p.walking));
+      if (frame === 12 * 60) assert.ok(poses.every(p => p.walking), 'the platform walk continues after the doors close');
     }
   }
   const st = station(0), times = [0, 1, 2].map(i => {
@@ -201,5 +202,52 @@ test('variable queues leave sufficient time for all followers even over a thousa
     for (let i = 0; i < exchangeCount(st, slot, false); i++)
       assert.equal(exchangePose(st, slot, false, 7.9, false, i).visible, false,
         `station ${index}, door ${slot}: a slower leader cannot strand a follower at door closure`);
+  }
+});
+
+test('alighters keep walking through closing, dispatch and exit waits; pause freezes their clock', () => {
+  const train = new Train(); let previous = null, checked = 0, paused = false;
+  for (let frame = 0; frame < 600 * 60; frame++) {
+    train.step(1 / 60);
+    const st = station(Math.max(0, train.visits - 1)), age = ownExchangeAge(train, st);
+    if (age < 0) continue;
+    const pose = exchangePose(st, 0, true, age);
+    if (previous?.index === st.index) {
+      assert.ok(Math.abs(age - previous.age - 1 / 60) < 1e-7, 'phase changes must not jump or freeze the exchange clock');
+      if (age > 5 && pose.visible && train.s < st.end + 14) {
+        assert.ok(pose.distance > previous.pose.distance, 'no standing still in the monitor during the station stop');
+        assert.ok(pose.walking); checked++;
+      }
+    }
+    if (!paused && train.phase === 'closing') {
+      train.paused = true;
+      for (let i = 0; i < 120; i++) train.step(1 / 60);
+      assert.equal(ownExchangeAge(train, st), age);
+      assert.deepEqual(exchangePose(st, 0, true, ownExchangeAge(train, st)), pose);
+      train.paused = false; paused = true;
+    }
+    previous = { index: st.index, age, pose };
+  }
+  assert.ok(checked > 1000 && paused);
+});
+
+test('all door groups keep their separation until they reach the enclosed upper stair landing', () => {
+  for (let index = 0; index < 36; index++) {
+    const st = station(index);
+    for (let frame = 0; frame <= 90 * 30; frame++) {
+      const people = [];
+      for (let slot = 0; slot < 4; slot++) for (let ordinal = 0; ordinal < exchangeCount(st, slot, true); ordinal++) {
+        const p = exchangePose(st, slot, true, frame / 30, false, ordinal);
+        if (p.visible) people.push(p);
+        if (p.progress === 1) {
+          assert.equal(p.visible, false);
+          assert.ok(p.y > 4.7 && p.s > st.start + 43 && Math.abs(p.x) > 5, 'only retire passengers inside the upper access enclosure');
+        }
+      }
+      for (let a = 0; a < people.length; a++) for (let b = a + 1; b < people.length; b++)
+        assert.ok(Math.hypot(people[a].s - people[b].s, people[a].x - people[b].x, people[a].y - people[b].y) > .62,
+          `station ${index}, time ${frame / 30}: different door groups must not walk through each other at the stairs`);
+      if (frame === 90 * 30) assert.equal(people.length, 0);
+    }
   }
 });
