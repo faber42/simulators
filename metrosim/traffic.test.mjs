@@ -157,7 +157,9 @@ test('boarders wait on both sides and alternate at the threshold while alighters
       }
       for (let ordinal = 0; ordinal < exchangeCount(st, slot, true); ordinal++) {
         const p = exchangePose(st, slot, true, frame / 60, false, ordinal);
-        if (Math.abs(p.x) <= 2.9) assert.ok(Math.abs(p.s - doorS) < 1e-6, 'walk several steps straight past the waiting groups');
+        if (Math.abs(p.x) <= 2.46) assert.ok(Math.abs(p.s - doorS) < .03, 'stay centred while passing between both waiting groups');
+        if (p.visible) for (const wait of waiting) assert.ok(Math.hypot(p.s - wait.s, p.x - wait.x) > .75,
+          'the broad turn clears the waiting positions even before boarders leave them');
       }
     }
     assert.deepEqual(crossed, waiting.map((_, i) => i), 'door crossings follow the alternating side order');
@@ -201,7 +203,8 @@ test('boarding is diagonal and alighters follow continuous bends towards the sta
           const walkDirection = outgoing ? direction : Math.sign(doorS - exchangePose(st, slot, false, -1, false, ordinal).s);
           assert.ok(walkDirection * ds >= -1e-8, 'walk towards the door or the stairs without reversing sideways');
           if (Math.abs(ds) > .006 && Math.abs(dx) > .003) diagonal++;
-          if (outgoing) assert.ok(dx >= -1e-8); else assert.ok(dx <= 1e-8);
+          if (outgoing) assert.ok(dx >= -1e-8 || Math.abs(p.x) > 3.25, 'only make small lane adjustments after clearing the queues');
+          else assert.ok(dx <= 1e-8);
         }
         previous = p;
       }
@@ -227,6 +230,36 @@ test('preceding-service alighters keep variable intervals throughout their longe
     for (let frame = 0; frame < 240; frame++) if (exchangePose(st, 0, true, frame / 60, false, i).visible) return frame / 60;
   });
   assert.ok(Math.abs((times[1] - times[0]) - (times[2] - times[1])) > .1, 'alighters do not leave at a fixed cadence');
+});
+
+test('alighters distribute their turn over several steps and take individual, repeatable bends', () => {
+  const bendProfiles = [];
+  for (let index = 0; index < 36; index++) for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
+    const st = station(index), doorS = st.stop - DOOR_OFFSETS[EXCHANGE_DOORS[slot]];
+    for (let ordinal = 0; ordinal < exchangeCount(st, slot, true); ordinal++) {
+      let previous = exchangePose(st, slot, true, 0, false, ordinal), start = null, end = null, crossing = null;
+      for (let frame = 1; frame <= 6 * 60; frame++) {
+        const age = frame / 60, p = exchangePose(st, slot, true, age, false, ordinal);
+        if (p.visible && Math.abs(p.s - doorS) < 3.2) {
+          const turn = Math.atan2(Math.sin(p.yaw - previous.yaw), Math.cos(p.yaw - previous.yaw));
+          assert.ok(Math.abs(turn) * 60 < 2.5, 'the whole body must not whip around a tight corner');
+          const angle = Math.abs(Math.atan2(Math.sin(p.yaw - st.side * Math.PI / 2), Math.cos(p.yaw - st.side * Math.PI / 2)));
+          if (angle > .1 && start === null) start = age;
+          if (angle < Math.PI / 2 - .1) end = age;
+          if (Math.abs(p.x) >= 3.1 && crossing === null) crossing = Math.abs(p.s - doorS);
+          for (let column = st.start; column < st.end; column += 12)
+            assert.ok(Math.hypot(p.s - column, Math.abs(p.x) - 4.02) > .65, 'wider bends still leave room for the column and the body');
+        }
+        previous = p;
+      }
+      assert.ok(start !== null && end - start > .65, 'spread the main turn across more than one footfall');
+      if (slot === 0) bendProfiles.push(crossing);
+      const beforeSeek = exchangePose(st, slot, true, 2.5, false, ordinal);
+      exchangePose(st, slot, true, 15, false, ordinal);
+      assert.deepEqual(exchangePose(st, slot, true, 2.5, false, ordinal), beforeSeek);
+    }
+  }
+  assert.ok(Math.max(...bendProfiles) - Math.min(...bendProfiles) > .15, 'people do not trace one identical curve');
 });
 
 test('variable queues leave sufficient time for all followers even over a thousand station seeds', () => {

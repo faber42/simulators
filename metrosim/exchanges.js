@@ -49,7 +49,7 @@ export class PassengerExchange {
         const walking = pose.amount, phase = pose.stridePhase;
         p.body.position.y = p.hipHeight + Math.abs(Math.sin(phase)) * .014 * walking;
         p.body.rotation.z = Math.sin(train.time * .9 + p.slot + p.ordinal) * .009 * (1 - walking);
-        p.head.rotation.y = pose.walking ? .025 * Math.sin(phase) : Math.sin(train.time * .35 + p.slot + p.ordinal) * .14;
+        p.head.rotation.y = pose.walking ? pose.headYaw + .025 * Math.sin(phase) : Math.sin(train.time * .35 + p.slot + p.ordinal) * .14;
         p.head.rotation.x = pose.walking ? .04 : 0;
         for (let i = 0; i < 2; i++) {
           const stride = Math.sin(phase + i * Math.PI);

@@ -31,11 +31,28 @@ function entryPath(waitS, waitX) {
   return path;
 }
 
-function exitPath(stair, direction) {
-  // Walk straight through the gap between both waiting groups before turning.
-  const path = curve([[0, .82], [0, 1.5], [0, 2.2], [0, 2.9]]);
-  append(path, curve([[0, 2.9], [0, 3.1485], [direction * .2015, 3.35], [direction * .45, 3.35]]));
-  append(path, curve([[direction * .45, 3.35], [direction * 1.4, 3.35], [direction * 2.3, 3.35], [direction * 3.2, 3.35]]));
+function exitBend(start, lane, direction, skew) {
+  // Integrate a gradually changing heading: curvature begins and ends at zero,
+  // unlike a straight line joined to a tight quarter-circle. Each person's
+  // bend has a slightly different width and distribution of the turn.
+  const path = [{ s: 0, x: 0, distance: 0 }];
+  for (let i = 1; i <= 128; i++) {
+    const t = (i - .5) / 128, angle = ease(t + skew * t * (1 - t)) * Math.PI / 2;
+    const last = path.at(-1);
+    path.push({ s: last.s + Math.sin(angle) / 128, x: last.x + Math.cos(angle) / 128, distance: i / 128 });
+  }
+  const scale = (lane - start) / path.at(-1).x;
+  return path.map(p => ({ s: direction * p.s * scale, x: start + p.x * scale, distance: p.distance * scale }));
+}
+
+function exitPath(stair, direction, random) {
+  // Stay in the centre of the doorway, then gradually steer while clearing
+  // the waiting groups. The broad bend stays inside the column line.
+  const start = 2.14 + .18 * random(17), lane = 3.28 + .14 * random(18);
+  const path = curve([[0, .82], [0, 1.25], [0, 1.8], [0, start]]);
+  append(path, exitBend(start, lane, direction, (random(19) - .5) * .5));
+  const end = path.at(-1);
+  append(path, curve([[end.s, lane], [end.s + direction * .55, lane], [direction * 2.65, 3.35], [direction * 3.2, 3.35]]));
   if (direction < 0) {
     // Pass the foot of the stairs before making a broad turn into the flight.
     // This keeps the route clear of the solid side wall and the column at +36.
@@ -81,13 +98,13 @@ function plan(station, slot) {
   const s = station.stop - DOOR_OFFSETS[EXCHANGE_DOORS[slot]];
   const direction = Math.sign(station.start + 36 - s) || 1;
   const incoming = [], outgoing = [];
-  const path = exitPath(station.start + 36 - s, direction);
   let outDelay = slot * .035;
   for (let ordinal = 0; ordinal < MAX_EXCHANGE_PASSENGERS; ordinal++) {
     const random = salt => variation(station, slot, ordinal, salt);
+    const path = exitPath(station.start + 36 - s, direction, random);
     const longerPause = (variation(station, slot, 0, 14) > .5) === (ordinal === 1);
     outDelay += ordinal ? (longerPause ? .82 + .12 * random(11) : .6 + .08 * random(11)) : .12 * random(11);
-    outgoing.push({ length: path.at(-1).distance, delay: outDelay, ramp: .26 + .12 * random(12),
+    outgoing.push({ path, length: path.at(-1).distance, delay: outDelay, ramp: .26 + .12 * random(12),
       speed: Math.min(1.6 - ordinal * .045 + .06 * random(13), (outgoing.at(-1)?.speed ?? Infinity) - .015) });
   }
   const lastOut = outgoing[exchangeCount(station, slot, true) - 1];
@@ -115,7 +132,7 @@ function plan(station, slot) {
   }
   const tempo = Math.max(1, (finishAt - clearAt) / (7.75 - clearAt));
   for (const q of incoming) { q.delay = clearAt + (q.delay - clearAt) / tempo; q.speed *= tempo; q.ramp /= tempo; }
-  const result = { s, direction, incoming, outgoing, path };
+  const result = { s, direction, incoming, outgoing };
   plans.set(key, result);
   if (plans.size > 48) plans.delete(plans.keys().next().value);
   return result;
@@ -145,7 +162,7 @@ export function exchangeCorridors(station) {
   const points = [];
   for (let slot = 0; slot < EXCHANGE_DOORS.length; slot++) {
     const p = plan(station, slot);
-    const routes = [{ path: p.path, sign: 1, length: p.path.stairDistance },
+    const routes = [...p.outgoing.slice(0, exchangeCount(station, slot, true)).map(({ path }) => ({ path, sign: 1, length: path.stairDistance })),
       ...p.incoming.slice(0, exchangeCount(station, slot, false))];
     for (const { path, sign, length } of routes) {
       for (let distance = 0; distance <= length + .4; distance += .65) {
@@ -168,20 +185,28 @@ export function exchangePose(station, slot, outgoing, age, _previousService = fa
   // Alighters keep their pace until the upper landing hides them completely.
   if (outgoing) motion.distance = Math.min(length, motion.distance);
   const progress = Math.min(1, motion.distance / length), walking = motion.amount > .001;
-  const path = outgoing ? p.path : profile.path, coordinate = outgoing ? motion.distance : length - motion.distance;
+  const path = profile.path, coordinate = outgoing ? motion.distance : length - motion.distance;
   const position = along(path, coordinate), sign = outgoing ? 1 : profile.sign;
-  const a = along(path, Math.max(0, coordinate - .06)), b = along(path, coordinate + .06);
+  // Orient shoulders over roughly one step, rather than snapping the whole
+  // skeleton to the instantaneous tangent under its feet.
+  const a = along(path, Math.max(0, coordinate - (outgoing ? .22 : .06)));
+  const b = along(path, coordinate + (outgoing ? .34 : .06));
   const facing = outgoing ? 1 : -1;
   const routeYaw = Math.atan2(station.side * (b.x - a.x) * facing, -sign * (b.s - a.s) * facing);
   const waitingYaw = -station.side * Math.PI / 2;
   // Turn towards the actual diagonal walk, without an extra sideways step.
   const turn = ease((age - profile.delay + .4) / .5);
   const yaw = outgoing ? routeYaw : waitingYaw + Math.atan2(Math.sin(routeYaw - waitingYaw), Math.cos(routeYaw - waitingYaw)) * turn;
+  // The head looks a little into the bend before the shoulders follow. This
+  // remains a pure function of the route, including when paused or seeking.
+  const ahead = along(path, coordinate + .55);
+  const lookYaw = Math.atan2(station.side * (ahead.x - position.x), -(ahead.s - position.s));
+  const headYaw = outgoing ? Math.max(-.28, Math.min(.28, Math.atan2(Math.sin(lookYaw - yaw), Math.cos(lookYaw - yaw)))) : 0;
   const s = p.s + sign * position.s;
   const y = outgoing && coordinate > path.stairDistance ? .945 + Math.max(0, Math.min(1, (s - station.start - 35.8) / 7.25)) * 3.805 : .945;
   return { s, x: station.side * position.x, y,
     visible: ordinal < exchangeCount(station, slot, outgoing) && progress < 1 && (!outgoing || age >= profile.delay),
-    walking, yaw, amount: motion.amount,
+    walking, yaw, headYaw, amount: motion.amount,
     stridePhase: motion.distance * (5.9 + 1.2 * variation(station, slot, ordinal, outgoing ? 6 : 7))
       + variation(station, slot, ordinal, outgoing ? 8 : 9) * Math.PI * 2,
     distance: motion.distance, progress, door: EXCHANGE_DOORS[slot], outgoing };

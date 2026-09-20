@@ -69,8 +69,10 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   gehen von ihren unterschiedlich weit entfernten Warteplätzen diagonal zur Tür.
   Die Wege münden in einem weichen Bogen in die Türöffnung,
   ohne seitliche Zwischenschritte oder rechtwinklige Drehungen. Aussteiger gehen
-  zunächst gut zwei Meter geradeaus durch die freie Mitte an den Wartenden
-  vorbei und wenden sich erst danach während des Gehens zur festen Treppe:
+  zunächst durch die freie Mitte an den Wartenden vorbei und wenden sich
+  während des Gehens in einem weiten Bogen zur festen Treppe. Beginn, Breite
+  und Verlauf dieser Bögen variieren pro Person; die Drehung setzt sanft ein
+  und klingt ebenso sanft aus. Der Blick führt die Körperdrehung leicht an:
   Je nach Tür laufen sie längs des Bahnsteigs nach vorn oder nach hinten,
   innerhalb der Säulenreihe. Die Tür wird vor dem Einstieg freigegeben;
   Ausgestiegene gehen ohne Zwischenhalt weiter Richtung Ausgang, auch während
