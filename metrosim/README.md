@@ -160,7 +160,11 @@ Im Projektverzeichnis `npm start` ausführen, dann `http://localhost:3000/metros
   oder rechts. Es gibt sowohl Ausweichgleise mit Rückführung als auch
   Abzweigungen: Hinter einem doppelten Tunnelportal biegt das Nebengleis in
   einer eigenen Röhre weiter ab. Die ungewählte Röhre enthält Schienen, Kabel,
-  Laufstege und Leuchten und reicht 300 m hinter das Portal. Nach jeweils fünf,
+  Laufstege und Leuchten und reicht 300 m hinter das Portal. Neben den
+  Blocksignalen der eigenen Strecke stehen auf gleicher Höhe auch Signale
+  am ungewählten Gleis, jeweils außerhalb des Gleisprofils. Sie zeigen Rot
+  und gelten ausschließlich für diesen anderen Streckenast – auch wenn der
+  eigene Zug abbiegt und die Geradeausstrecke frei bleibt. Nach jeweils fünf,
   sechs oder sieben Stationen nimmt der Zug selbst den Abzweig. Seine Strecke
   führt kontinuierlich durch die gewählte Röhre bis zur nächsten Station.
   Die Auswahl des Streckenastes ist von der Geometrie getrennt und kann später

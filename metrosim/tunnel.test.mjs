@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as T from '../pinsim/three.module.min.js';
 import { World } from './world.js';
-import { point, trackX, branchAt, station } from './route.mjs';
+import { point, trackX, branchAt, station, junctionAt, signalSpecs, Train } from './route.mjs';
 import { updatePedestrians } from './pedestrians.mjs';
 import { DOOR_OFFSETS } from './traffic.mjs';
 import { DoorInspection } from './door-inspection.js';
@@ -17,6 +17,7 @@ globalThis.document = { createElement: () => ({ getContext: () => ({
 function fixture() {
   const scene = new T.Scene(), material = new T.MeshStandardMaterial();
   const materials = new Proxy({ shadow: new T.Texture(), glow: new T.Texture(), sign: () => material,
+    red: new T.MeshBasicMaterial({ color: '#ff361b' }), green: new T.MeshBasicMaterial({ color: '#72ffa0' }),
     palette: () => material, tunnel: () => material, stationWall: () => material,
     posters: Array(6).fill(material) }, { get: (o, key) => o[key] ?? material });
   return { scene, world: new World(scene, materials) };
@@ -67,6 +68,15 @@ test('both portal openings and the rail paths are free of stray tunnel faces', (
       assert.equal(sightline(point(split - 39, 0, 2.22), point(targetS, branchAt(targetS).branchX, 2.22)).length, 0,
         `junction ${index}: alternate portal must reveal ${depth} m of bore`);
     }
+    const signals = [...world.chunks.values()].flatMap(c => c.signals);
+    const alternate = signals.find(s => s.alternate && s.stationIndex === index && s.slot === 1);
+    assert.ok(alternate, `junction ${index}: the unselected bore has a signal`);
+    const lamp = alternate.lights[0].getWorldPosition(new T.Vector3());
+    for (const approach of [39, 24]) {
+      const eye = new T.Vector3(...point(split - approach, 0, 2.22)), delta = lamp.clone().sub(eye);
+      const obstacles = new T.Raycaster(eye, delta.clone().normalize(), 0, delta.length() - .12).intersectObjects(meshes, false);
+      assert.equal(obstacles.length, 0, `junction ${index}: the alternate signal is visible through its portal from ${approach} m away`);
+    }
     for (let s = split - 12; s < split + 70; s += 2) {
       assert.equal(sightline(point(s, 0, 2.22), point(s + 2, 0, 2.22)).length, 0, 'selected route remains traversable');
       if (s >= split) assert.equal(sightline(point(s, branchAt(s).branchX, 2.22), point(s + 2, branchAt(s + 2).branchX, 2.22)).length, 0,
@@ -75,6 +85,37 @@ test('both portal openings and the rail paths are free of stray tunnel faces', (
     const end = split + 300;
     assert.equal(sightline(point(end - 12, 0, 2.22), point(end + 6, 0, 2.22)).length, 0,
       'the end of the distant bore must not stretch back across the running track');
+    scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); if (o.isSkinnedMesh) o.skeleton.dispose(); });
+  }
+});
+
+test('parallel tracks have separate stop signals without adding red blocks to the selected route', () => {
+  for (const index of [0, 1, 2, 3, 5, 18]) {
+    const { scene, world } = fixture(), train = new Train(), st = station(index);
+    Object.assign(train, { s: st.start - 126, next: index, phase: 'running', time: 100 });
+    const route = signalSpecs(train.s - 72, train.s + 216);
+    for (const spec of route) train.signals.releases.set(spec.id, { s: spec.s, at: 0 });
+    // Keep the first signal's chunk loaded too: it lies before the double portal.
+    for (let base = Math.floor((train.s - 72) / 24) * 24; base < train.s; base += 24)
+      for (const _ of world.build(base)) { /* actual signal hardware */ }
+    const before = [...world.chunks.values()].flatMap(c => c.signals).filter(s => s.alternate);
+    assert.equal(before.length, 1, 'the shared chamber also signals the unused track');
+    world.update(train); scene.updateMatrixWorld(true);
+    const signals = [...world.chunks.values()].flatMap(c => c.signals);
+    for (const signal of signals.filter(s => s.alternate)) {
+      const main = signals.find(s => s.id === signal.id.replace('alternate-', ''));
+      assert.ok(main); assert.equal(signal.s, main.s, 'both masts share the block boundary');
+      const j = junctionAt(signal.s), expected = point(signal.s - .152, j.branchX + j.side * 2.23, 2.35);
+      const actual = signal.lights[0].getWorldPosition(new T.Vector3());
+      assert.ok(actual.distanceTo(new T.Vector3(expected[0] - trackX(train.s), expected[1], expected[2] + train.s)) < 1e-5);
+      assert.equal(signal.lights[0].material, world.m.red);
+      assert.equal(signal.lights[1].material, world.m.dark);
+      assert.equal(signal.glow.material.color.getHexString(), 'ff361b');
+      assert.equal(main.lights[1].material, world.m.green, 'the own route may clear independently');
+    }
+    assert.equal(signals.filter(s => s.alternate).length, junctionAt(st.start - 126).fork ? 1 : 0,
+      'no mast stands in the narrow merge after a passing loop');
+    assert.deepEqual(signalSpecs(train.s - 72, train.s + 216), route, 'scenery cannot change the train controller’s block list');
     scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); if (o.isSkinnedMesh) o.skeleton.dispose(); });
   }
 });

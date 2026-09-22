@@ -475,7 +475,14 @@ export class World {
       }
     }
     // Signals are placed independently of geometry sections, including stop signals.
-    for (const spec of signalSpecs(base, base + 24)) if (spec.s < base + 24) this.signal(chunk, b, spec);
+    for (const spec of signalSpecs(base, base + 24)) if (spec.s < base + 24) {
+      this.signal(chunk, b, spec);
+      const j = spec.kind === 'block' && junctionAt(spec.s);
+      // The route's block list only controls our train. The other track gets
+      // its own stop signal, including the through track when we take a fork.
+      if (j && Math.abs(j.branchX) > 3)
+        this.signal(chunk, j.separate ? sideBore : b, { ...spec, id: `alternate-${spec.id}`, alternate: true }, j.branchX + j.side * 2.23);
+    }
     yield* b.finish(group);
     // Separate bounds allow hidden parallel bores to be culled. Draw them after
     // the main opaque scene so its walls reject their covered fragments early.
@@ -483,17 +490,18 @@ export class World {
     distantLights.finish(group);
     this.scene.add(group); this.chunks.set(base, chunk); return chunk;
   }
-  signal(chunk, b, spec) {
+  signal(chunk, b, spec, lateral) {
     const { s } = spec, m = this.m, j = junctionAt(s);
-    const x = spec.kind === 'exit' ? -station(spec.stationIndex).side * 2.23 : j && Math.abs(j.branchX) > 1 ? -j.side * 2.23 : 2.23;
+    const x = lateral ?? (spec.kind === 'exit' ? -station(spec.stationIndex).side * 2.23 : j && Math.abs(j.branchX) > 1 ? -j.side * 2.23 : 2.23);
     b.box(m.steel, s, x, 1.16, .07, 2.1, .07);
     b.box(m.dark, s, x, 2.17, .39, .76, .27);
     b.box(m.dark, s - .13, x, 2.6, .47, .05, .38);
     // Camera travels toward -z, so front faces point toward +z.
-    panel(b, m.sign('S ' + String(Math.floor(s) % 24).padStart(2, '0')), s - .15, x, 1.68, .38, .17);
+    panel(b, m.sign('S ' + String(Math.floor(s) % 24).padStart(2, '0') + (spec.alternate ? ' B' : '')), s - .15, x, 1.68, .38, .17);
     const lights = [];
     for (let i = 0; i < 2; i++) {
-      const mesh = new T.Mesh(sphere, i === 0 ? m.red : m.green); mesh.scale.set(.103, .103, .035);
+      const mesh = new T.Mesh(sphere, i === 0 ? m.red : m.dark); mesh.scale.set(.103, .103, .035);
+      mesh.rotation.y = -trackAngle(s);
       const p = point(s - .152, x, 2.35 - i * .33), o = point(chunk.base);
       mesh.position.set(p[0] - o[0], p[1], p[2] - o[2]); chunk.group.add(mesh); lights.push(mesh);
     }
@@ -582,7 +590,7 @@ export class World {
       chunk.group.position.set(trackX(key) - trackX(train.s), 0, train.s - key);
       for (const conveyor of chunk.escalators) conveyor.update(train.time);
       for (const signal of chunk.signals) {
-        const green = train.signals.isGreen(signal, train.time);
+        const green = !signal.alternate && train.signals.isGreen(signal, train.time);
         signal.lights[0].material = green ? this.m.dark : this.m.red; signal.lights[1].material = green ? this.m.green : this.m.dark;
         signal.glow.position.copy(signal.lights[green ? 1 : 0].position); signal.glow.material.color.set(green ? '#72ffa0' : '#ff361b');
       }
