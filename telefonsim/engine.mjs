@@ -1,6 +1,7 @@
 // The exchange is independent of rendering. All delays use simulation time;
 // replacing the task queue on clear-down prevents late pulses or auto-answers.
-export const SOURCE = '010001';
+export const SOURCE = '210001';
+export const CAMERA_TRAVEL_SECONDS = 1.7;
 export const CONTACTS = [
   { number: '234567', name: 'Feinmechanische Werkstatt', kind: 'phone', note: 'Am Zielapparat selbst abheben' },
   { number: '618204', name: 'Wohnzimmer', kind: 'phone', note: 'Ein zweiter Bakelitapparat' },
@@ -9,6 +10,7 @@ export const CONTACTS = [
   { number: '119200', name: 'Kinoprogramm', kind: 'cinema', tape: 'program', note: 'Tonband 02 · Das heutige Programm' },
   { number: '119300', name: 'Wetterdienst', kind: 'weather', tape: 'program', note: 'Tonband 02 · Wetteransage' },
   { number: '234569', name: 'Besetzter Anschluss', kind: 'busy', note: 'Besetztprüfung ausprobieren' },
+  { number: '0', name: 'Fernamtsabgang', kind: 'external', note: 'Weitervermittlung außerhalb des dargestellten Amts' },
 ];
 export const TAPE_MACHINES = [
   { id: 'time', label: 'ZEITANSAGE', number: '119100', short: 'Band 01' },
@@ -24,9 +26,9 @@ export const STAGES = [
 ];
 export const pulsesFor = digit => digit === '0' ? 10 : Number(digit);
 export function resolveNumber(number) {
-  if (!/^\d{6}$/.test(number)) throw new Error('Eine Rufnummer hat genau sechs Ziffern.');
+  if (!/^(?:0\d{0,5}|[1-9]\d{5})$/.test(number)) throw new Error('Ortsrufnummern haben sechs Ziffern; 0 führt zum Fernamt.');
   if (number === SOURCE) return { number, name: 'Eigener Anschluss', kind: 'busy' };
-  if (number === '000000') return { number, name: 'Nicht beschaltet', kind: 'unavailable' };
+  if (number.startsWith('0')) return { number, name: 'Fernamt außerhalb der Darstellung', kind: 'external' };
   return CONTACTS.find(c => c.number === number) || { number, name: `Teilnehmer ${number}`, kind: 'phone', note: 'Freier Teilnehmeranschluss' };
 }
 
@@ -36,7 +38,7 @@ export class Exchange {
     this.state = 'idle'; this.offHook = false; this.targetOffHook = false;
     this.digits = ''; this.pending = []; this.tasks = []; this.activeTask = null;
     this.selectors = Array(6).fill(null); this.instances = new Map();
-    this.focus = 'source'; this.message = 'Hörer abheben, dann eine sechsstellige Nummer wählen.';
+    this.focus = 0; this.release = null; this.message = 'Hörer abheben, dann eine sechsstellige Nummer wählen.';
     this.pulse = 0; this.pulseTotal = 0; this.currentDigit = null;
     this.dialAngle = 0; this.time = 0; this.target = null; this.revision = 0;
     this.history = []; this.announcement = ''; this.answerAt = 0;
@@ -54,11 +56,11 @@ export class Exchange {
   task(duration, start = () => {}, update = null, end = () => {}) {
     this.tasks.push({ duration, start, update, end, elapsed: 0 });
   }
-  acquire(stage, prefix = '') {
-    const key = `${stage}:${prefix}`;
+  acquire(stage, prefix = '', slot = 0) {
+    const key = `${stage}:${prefix}:${slot}`;
     let selector = this.instances.get(key);
     if (!selector) {
-      selector = { key, stage, prefix, row: stage === 0 ? 1 : [...prefix].reduce((a, d) => a + Number(d), stage) % 3,
+      selector = { key, stage, prefix, slot,
         level: 0, rotary: 0, held: false, phase: 'frei' };
       this.instances.set(key, selector);
     }
@@ -72,20 +74,20 @@ export class Exchange {
     this.offHook = true; this.digits = ''; this.pending = []; this.target = null;
     this.announcement = ''; this.targetOffHook = false; this.playbackSeconds = 0; this.state = 'finding';
     const finder = this.acquire(0, SOURCE.slice(0, 4));
-    this.look(0); this.say('Schleife geschlossen. Der Anrufsucher sucht Anschluss 010001.');
-    this.task(.85);
+    this.look(0); this.say(`Schleife geschlossen. Der Anrufsucher sucht Anschluss ${SOURCE}.`);
+    this.task(CAMERA_TRAVEL_SECONDS);
     for (let n = 1; n <= 10; n++) this.task(.10, () => {
       finder.level = n; finder.phase = 'sucht'; this.emit('step', { stage: 0 });
     });
     this.task(.18, () => { finder.rotary = 1; this.emit('step', { stage: 0 }); });
-    this.task(.35, () => {
-      finder.phase = 'gehalten'; this.acquire(1); this.emit('route');
+    this.task(CAMERA_TRAVEL_SECONDS + .1, () => {
+      finder.phase = 'gehalten'; this.acquire(1); this.look(1); this.emit('route');
       this.say('Anschluss gefunden. Wählton – der erste Gruppenwähler ist bereit.');
     }, null, () => { this.state = 'ready'; this.look(1); this.nextDigit(); });
     return true;
   }
   enqueue(digit, prewound = false) {
-    if (!/^\d$/.test(String(digit)) || !this.offHook || ['releasing', 'ringing', 'connected', 'busy', 'unavailable'].includes(this.state)) return false;
+    if (!/^\d$/.test(String(digit)) || !this.offHook || ['releasing', 'ringing', 'connected', 'busy', 'unavailable', 'external'].includes(this.state)) return false;
     if (this.digits.length + this.pending.length + (this.currentDigit !== null ? 1 : 0) >= 6) return false;
     this.prewound = prewound && this.state === 'ready' && !this.pending.length;
     this.pending.push(String(digit)); this.emit('queue');
@@ -93,7 +95,7 @@ export class Exchange {
     return true;
   }
   dialNumber(number) {
-    if (!/^\d{6}$/.test(number) || !['idle', 'ready'].includes(this.state) || this.digits.length || this.pending.length) return false;
+    if (!/^(?:0\d{0,5}|[1-9]\d{5})$/.test(number) || !['idle', 'ready'].includes(this.state) || this.digits.length || this.pending.length) return false;
     if (this.state === 'idle') this.lift();
     for (const digit of number) this.enqueue(digit);
     return true;
@@ -132,8 +134,17 @@ export class Exchange {
         this.say(`${STAGES[stage].short}: Ebene ${count}. Freisuche im abgehenden Bündel.`);
       });
       for (let n = 1; n <= outlet; n++) this.task(.22, () => { selector.rotary = n; this.emit('step', { stage }); });
-      this.task(.3, () => {
-        selector.phase = 'gehalten'; this.acquire(stage + 1, this.digits); this.emit('route');
+      if (index === 0 && digit === '0') {
+        this.task(.3, () => {
+          selector.phase = 'Fernamtsabgang'; this.pending = []; this.state = 'external';
+          this.target = { number: '0', name: 'Fernamt außerhalb der Darstellung', kind: 'external' };
+          this.look('external'); this.emit('route');
+          this.say('Abgang 0 zum Fernamt geschaltet. Die weitere Vorwahl und Vermittlung erfolgen außerhalb dieses Modells. Zum Freigeben auflegen.');
+        });
+        return;
+      }
+      this.task(CAMERA_TRAVEL_SECONDS + .1, () => {
+        selector.phase = 'gehalten'; this.acquire(stage + 1, this.digits, outlet - 1); this.look(stage + 1); this.emit('route');
         this.say(`Gruppe ${this.digits}… verbunden. ${STAGES[stage + 1].name} übernimmt.`);
       }, null, () => { this.state = 'ready'; this.look(stage + 1); this.nextDigit(); });
     } else if (index === 4) {
@@ -148,7 +159,7 @@ export class Exchange {
     this.selectors[5].phase = 'gehalten';
     if (['busy', 'unavailable'].includes(this.target.kind)) {
       this.state = this.target.kind;
-      this.say(this.state === 'busy' ? `${this.digits} ist besetzt. Zum Freigeben bitte auflegen.` : '000000 ist nicht beschaltet. Bitte auflegen.');
+      this.say(this.state === 'busy' ? `${this.digits} ist besetzt. Zum Freigeben bitte auflegen.` : `${this.digits} ist nicht beschaltet. Bitte auflegen.`);
       return;
     }
     this.state = 'ringing'; this.look(this.target.tape ? 'tape' : 'target'); this.emit('route');
@@ -183,18 +194,34 @@ export class Exchange {
     this.offHook = false; this.targetOffHook = false; this.state = 'releasing';
     this.tasks = []; this.activeTask = null; this.pending = []; this.currentDigit = null;
     this.dialAngle = 0; this.announcement = ''; this.pulse = 0; this.pulseTotal = 0;
-    this.say('Schleife geöffnet. Die Wähler lösen aus und kehren in die Ruhelage zurück.');
-    for (let stage = 5; stage >= 0; stage--) {
-      const selector = this.selectors[stage];
-      if (!selector) continue;
-      this.task(.55, () => { this.look(stage); selector.phase = 'löst aus'; });
-      this.task(.25, () => { selector.rotary = 11; this.emit('release', { stage }); });
-      this.task(.3, () => { selector.level = 0; this.emit('step', { stage }); });
-      this.task(.28, () => { selector.rotary = 0; });
-      this.task(.2, () => { selector.held = false; selector.phase = 'frei'; this.selectors[stage] = null; this.emit('route'); });
-    }
-    this.task(.65, () => this.look('source'), null, () => {
-      this.state = 'idle'; this.digits = ''; this.target = null;
+    const selectors = this.selectors.filter(s => s?.held), last = selectors.at(-1);
+    this.release = { prefix: last?.stage >= 2 ? last.prefix.slice(0, 2) : '',
+      stages: selectors.map(s => s.stage), phase: 'overview' };
+    this.look('release');
+    this.say('Schleife geöffnet. Kamera 2 zeigt den Nummernblock, dann stellen alle belegten Wähler gleichzeitig zurück.');
+    // A single set of tasks drives every occupied selector. The pause before
+    // release is purely for the demonstration camera, not a relay delay.
+    this.task(CAMERA_TRAVEL_SECONDS + .35);
+    this.task(.45, () => {
+      this.release.phase = 'resetting';
+      for (const s of selectors) { s.rotary = 11; s.phase = 'löst aus'; }
+      this.emit('release', { stages: this.release.stages });
+      this.say(`${selectors.length} Wähler stellen gleichzeitig zurück.`);
+    });
+    this.task(.55, () => {
+      for (const s of selectors) { s.level = 0; s.phase = 'fällt ab'; }
+      this.emit('step', { stages: this.release.stages });
+    });
+    this.task(.45, () => {
+      for (const s of selectors) { s.rotary = 0; s.phase = 'dreht zurück'; }
+      this.emit('state');
+    });
+    this.task(.6, () => {
+      for (const s of selectors) { s.held = false; s.phase = 'frei'; this.selectors[s.stage] = null; }
+      this.release.phase = 'free'; this.emit('route');
+    });
+    this.task(CAMERA_TRAVEL_SECONDS, () => { this.release.phase = 'returning'; this.look(0); }, null, () => {
+      this.state = 'idle'; this.digits = ''; this.target = null; this.release = null;
       this.say('Alle Wähler in Ruhelage. Der Anschluss ist wieder frei.');
     });
     return true;
@@ -220,6 +247,7 @@ export class Exchange {
   snapshot() {
     return { state: this.state, offHook: this.offHook, digits: this.digits, pending: this.pending.join(''),
       focus: this.focus, pulse: this.pulse, target: this.target, targetOffHook: this.targetOffHook,
+      release: this.release ? { ...this.release, stages: [...this.release.stages] } : null,
       tapeRunning: this.tapeRunning, playbackSeconds: this.playbackSeconds,
       selectors: this.selectors.map(s => s ? { ...s } : null), allocated: this.instances.size,
       message: this.message, announcement: this.announcement };

@@ -1,11 +1,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Exchange, CONTACTS, pulsesFor, resolveNumber } from './engine.mjs';
+import { Exchange, CONTACTS, SOURCE, CAMERA_TRAVEL_SECONDS, pulsesFor, resolveNumber } from './engine.mjs';
 
 function runUntil(e, state, limit = 90) {
   for (let n = 0; n < limit * 100 && e.state !== state; n++) e.step(.01);
   assert.equal(e.state, state, e.message);
 }
+
+test('all occupied selectors release together after the block view, then return to the finder', () => {
+  const events = [], e = new Exchange((event, engine) => {
+    if (engine.state === 'releasing') events.push({ ...event, snapshot: engine.snapshot() });
+  });
+  assert.equal(e.focus, 0);
+  e.dialNumber('234567'); runUntil(e, 'ringing');
+  const selectors = [...e.selectors], levels = selectors.map(s => s.level), rotary = selectors.map(s => s.rotary);
+  e.hangup(); assert.equal(e.focus, 'release'); assert.equal(e.release.prefix, '23');
+  e.step(CAMERA_TRAVEL_SECONDS + .34);
+  assert.deepEqual(selectors.map(s => s.level), levels); assert.deepEqual(selectors.map(s => s.rotary), rotary);
+  e.step(.02);
+  assert.ok(selectors.every(s => s.rotary === 11 && s.held && s.phase === 'löst aus'));
+  const paused = e.snapshot(); e.step(0); assert.deepEqual(e.snapshot(), paused);
+  e.step(.45); assert.ok(selectors.every(s => s.level === 0 && s.phase === 'fällt ab'));
+  e.step(.55); assert.ok(selectors.every(s => s.rotary === 0 && s.phase === 'dreht zurück'));
+  e.step(.45); assert.ok(selectors.every(s => !s.held && s.phase === 'frei'));
+  assert.equal(e.focus, 'release'); assert.equal(e.release.phase, 'free'); assert.ok(e.selectors.every(s => s === null));
+  e.step(.6); assert.equal(e.focus, 0); assert.equal(e.release.phase, 'returning');
+  runUntil(e, 'idle'); assert.equal(e.focus, 0); assert.equal(e.release, null);
+  assert.deepEqual(events.filter(ev => ev.type === 'focus').map(ev => ev.snapshot.focus), ['release', 0]);
+  assert.equal(events.filter(ev => ev.type === 'release').length, 1);
+  assert.ok(events.every(ev => [0, 6].includes(ev.snapshot.selectors.filter(s => s?.held).length)), 'no sequential partial release');
+});
+
+test('release timing is independent of occupied stages and cancels pending dialing or tape answers', () => {
+  const duration = CAMERA_TRAVEL_SECONDS * 2 + .35 + .45 + .55 + .45 + .6;
+  for (const [number, elapsed] of [['234567', .01], ['234567', 8], ['234567', 60], ['0', 60], ['119100', 60]]) {
+    const small = new Exchange(), large = new Exchange();
+    for (const e of [small, large]) { e.dialNumber(number); e.step(elapsed); e.hangup(); }
+    assert.equal(small.tapeRunning, false);
+    const before = small.snapshot(); small.step(0); assert.deepEqual(small.snapshot(), before);
+    for (let i = 0; i < 56; i++) small.step(.1);
+    large.step(5.6); assert.deepEqual(small.snapshot(), large.snapshot());
+    assert.equal(large.state, 'releasing'); assert.equal(large.focus, 0);
+    for (const e of [small, large]) e.step(duration - 5.6 + .01);
+    assert.equal(large.state, 'idle'); assert.equal(large.tasks.length, 0);
+    assert.deepEqual(small.snapshot(), large.snapshot());
+    large.step(90); assert.equal(large.state, 'idle'); assert.equal(large.focus, 0);
+  }
+});
 
 test('six digits traverse four groups and the final selector keeps digit 5 as its level', () => {
   const pulses = [];
@@ -23,11 +64,11 @@ test('six digits traverse four groups and the final selector keeps digit 5 as it
   assert.ok([...e.instances.values()].every(s => !s.held && s.level === 0 && s.rotary === 0));
 });
 
-test('all zero digits generate ten pulses; leading zeros survive number input', () => {
+test('zero inside a local number still produces ten pulses and uses the local selectors', () => {
   const pulses = []; const e = new Exchange(event => { if (event.type === 'pulse') pulses.push(event); });
-  e.dialNumber('000010'); runUntil(e, 'ringing');
-  assert.equal(e.target.number, '000010'); assert.equal(pulses.length, 51);
-  assert.deepEqual(e.selectors.map(s => s.level), [10, 10, 10, 10, 10, 1]);
+  e.dialNumber('100010'); runUntil(e, 'ringing');
+  assert.equal(e.target.number, '100010'); assert.equal(pulses.length, 42);
+  assert.deepEqual(e.selectors.map(s => s.level), [10, 1, 10, 10, 10, 1]);
   assert.equal(e.selectors[5].rotary, 10); assert.equal(pulsesFor('0'), 10);
 });
 
@@ -52,13 +93,13 @@ test('hangup at every phase cancels queued digits and delayed answers', () => {
   }
 });
 
-test('manual digits, limits, invalid input, busy, self-call, and unavailable', () => {
+test('manual digits, limits, invalid input, busy and self-call', () => {
   const e = new Exchange(); assert.equal(e.enqueue('1'), false); assert.equal(e.dialNumber('12345'), false);
   e.lift(); runUntil(e, 'ready');
   for (const digit of '901208') { assert.equal(e.enqueue(digit), true); runUntil(e, digit === '8' ? 'ringing' : 'ready'); }
   assert.equal(e.target.number, '901208'); assert.equal(e.enqueue('9'), false);
   e.hangup(); runUntil(e, 'idle');
-  for (const [number, state] of [['234569', 'busy'], ['010001', 'busy'], ['000000', 'unavailable']]) {
+  for (const [number, state] of [['234569', 'busy'], [SOURCE, 'busy']]) {
     assert.equal(e.dialNumber(number), true); assert.equal(e.enqueue('2'), false); runUntil(e, state);
     assert.equal(e.answer(), false); e.hangup(); runUntil(e, 'idle');
   }
@@ -85,8 +126,40 @@ test('a dial wound with the mouse starts returning immediately and still emits t
   const e = new Exchange(); e.lift(); runUntil(e, 'ready');
   assert.equal(e.enqueue('0', true), true); assert.ok(e.dialAngle > 5);
   e.step(.05); assert.equal(e.pulse, 1); assert.ok(e.dialAngle < 11 * Math.PI / 6);
-  runUntil(e, 'ready'); assert.equal(e.digits, '0'); assert.equal(e.selectors[1].level, 10);
+  runUntil(e, 'external'); assert.equal(e.digits, '0'); assert.equal(e.selectors[1].level, 10);
   assert.equal(e.dialAngle, 0);
+});
+
+test('leading zero exits after the first group without allocating local destination selectors', () => {
+  for (const number of ['0', '012345', '000000']) {
+    assert.equal(resolveNumber(number).kind, 'external');
+    const pulses = [], e = new Exchange(event => { if (event.type === 'pulse') pulses.push(event); });
+    assert.equal(e.dialNumber(number), true); runUntil(e, 'external');
+    assert.equal(e.focus, 'external'); assert.equal(e.digits, '0'); assert.equal(e.pending.length, 0);
+    assert.equal(pulses.length, 10); assert.ok(pulses.every(p => p.stage === 1));
+    assert.equal(e.instances.size, 2); assert.ok(e.selectors.slice(2).every(s => s === null));
+    assert.equal(e.answer(), false); assert.equal(e.enqueue('4'), false); assert.equal(e.targetOffHook, false);
+    e.step(30); assert.equal(e.state, 'external');
+    e.hangup(); runUntil(e, 'idle'); assert.ok([...e.instances.values()].every(s => !s.held));
+    assert.equal(e.dialNumber('234567'), true); runUntil(e, 'ringing');
+  }
+  for (const time of [.2, 2, 4, 6, 8, 10]) {
+    const e = new Exchange(); e.dialNumber('012345'); e.step(time); e.hangup(); e.step(90);
+    assert.equal(e.state, 'idle'); assert.equal(e.target, null); assert.equal(e.tasks.length, 0);
+  }
+});
+
+test('mechanical work waits for the doubled camera travel at each new selector', () => {
+  let changedAt = 0, focus = 'source'; const checked = new Set();
+  const e = new Exchange((event, engine) => {
+    if (event.type === 'focus' && engine.focus !== focus) { focus = engine.focus; changedAt = engine.time; }
+    if (['pulse', 'step', 'release'].includes(event.type) && focus === event.stage) {
+      assert.ok(engine.time - changedAt >= CAMERA_TRAVEL_SECONDS - .02, `stage ${focus} started before camera arrived`);
+      checked.add(event.stage);
+    }
+  });
+  e.dialNumber('234567'); runUntil(e, 'ringing'); e.hangup(); runUntil(e, 'idle');
+  assert.equal(checked.size, 6);
 });
 
 test('announcement tapes run until the caller hangs up and never lift or ring a target handset', () => {

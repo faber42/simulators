@@ -1,5 +1,7 @@
 import * as THREE from '../pinsim/three.module.min.js';
-import { STAGES, TAPE_MACHINES } from './engine.mjs';
+import { STAGES, TAPE_MACHINES, SOURCE, CAMERA_TRAVEL_SECONDS } from './engine.mjs';
+import { SOURCE_POSITION, EXTERNAL_GATE_POSITION, selectorSite, targetPosition, subscriberHandoff, tapePosition, boundsOf, unionBounds, overviewFrame, releaseBlockView, WHOLE_OFFICE_BOUNDS } from './topology.mjs';
+import { OfficeScene } from './office-scene.js';
 
 const TAU = Math.PI * 2;
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -64,8 +66,8 @@ const iron = mat('#4c5147', .7), nickel = mat('#a5aaa0', .85, .29), dark = mat('
   bakelite = mat('#131a18', .2, .24), enamel = mat('#39493c', .55, .34), cloth = mat('#a4996c', .05, .9),
   redWire = mat('#714631', .1), tealWire = mat('#4d7a70', .1), paper = mat('#d2c7a2', .03, .83);
 
-function makeSelector(parent, stage, row) {
-  const group = new THREE.Group(); group.position.set((stage - 2.5) * 2.48, .42 + row * 2.55, 0); parent.add(group);
+function makeSelector(parent, stage) {
+  const group = new THREE.Group(); parent.add(group);
   box(group, 2.08, 2.35, .09, dark, 0, 1.17, -.92);
   box(group, 2.12, .14, 1.55, iron, 0, .08, .03);
   box(group, 2.12, .10, 1.12, iron, 0, 2.27, -.1);
@@ -126,9 +128,9 @@ function makeSelector(parent, stage, row) {
   batch(wipers, false); wipers.rotation.y = -.70;
   const lampMaterial = new THREE.MeshStandardMaterial({ color: '#605638', emissive: '#000000', roughness: .35 });
   const lamp = sphere(group, .065, lampMaterial, .77, 2.30, .67); lamp.userData.dynamic = true;
-  const tag = plaque(group, `${STAGES[stage].short} / ${String(row + 1).padStart(2, '0')}`, 0, .07, .82, 1.05, .20);
+  const tag = plaque(group, STAGES[stage].short, 0, .07, .82, 1.05, .20);
   tag.userData.dynamic = true;
-  return { group, carriage, wipers, lamp, tag, stage, row, y: 0, angle: -.70, boundKey: '', lastLabel: '' };
+  return { group, carriage, wipers, lamp, tag, stage, y: 0, angle: -.70, lastLabel: '' };
 }
 
 function makePhone(scene, position, color, number) {
@@ -180,7 +182,7 @@ function makePhone(scene, position, color, number) {
   }
   tube(root, cordPoints, .024, bakelite, 225);
   tube(root, [V(0, -.04, -.8), V(.3, -.07, -1.12), V(.72, -1.42, -1.48), V(1.6, -1.61, -2)], .021, cloth, 36);
-  const nameTag = plaque(root, number === '010001' ? 'TEILNEHMER 010001' : 'ZIELANSCHLUSS', 0, -.05, 1.18, 1.8, .22);
+  const nameTag = plaque(root, number === SOURCE ? `TEILNEHMER ${SOURCE}` : 'ZIELANSCHLUSS', 0, -.05, 1.18, 1.8, .22);
   nameTag.userData.dynamic = true;
   return { root, handset, handsetHit, dialMount, wheel, dialHits, nameTag, pickup: 0 };
 }
@@ -262,117 +264,186 @@ export class ExchangeScene {
     const warm = new THREE.DirectionalLight('#ffe2a6', 3.6); warm.position.set(-5, 12, 9); this.scene.add(warm);
     const fill = new THREE.DirectionalLight('#acd9db', 2.1); fill.position.set(8, 7, 5); this.scene.add(fill);
     const back = new THREE.DirectionalLight('#d6bc85', 2); back.position.set(0, 10, -8); this.scene.add(back);
-    box(this.scene, 65, .15, 50, mat('#222d25', .15, .83), 0, -1.79, 0);
-    box(this.scene, 45, 19, .16, mat('#2c382e', .15, .9), 0, 6, -5.5);
-    for (let i = -4; i <= 4; i++) box(this.scene, .016, .005, 34, mat('#3e483c', .1), i * 4, -1.707, 0);
-    const rack = new THREE.Group(); this.scene.add(rack);
-    for (let col = 0; col <= 6; col++) {
-      const x = (col - 3) * 2.48;
-      box(rack, .12, 8.9, .14, enamel, x, 3.65, .94);
-      box(rack, .12, 8.9, .14, enamel, x, 3.65, -.84);
-      for (const y of [-.65, 8.02]) box(rack, .18, .14, 1.95, enamel, x, y, .05);
+    box(this.scene, 1640, .15, 1500, mat('#101914', 0, 1), 0, -1.79, -500);
+    for (let column = 0; column <= 9; column++) box(this.scene, .20, .01, 1150, mat('#68745a', .1), -630 + column * 140, -1.70, -510);
+    for (let row = 0; row <= 10; row++) box(this.scene, 1260, .01, .20, mat('#68745a', .1), 0, -1.70, -22 - row * 112);
+    box(this.scene, 148, .025, 1170, mat('#1a2826', 0, 1), 725, -1.69, -535);
+    for (let n = 0; n < 60; n++) box(this.scene, .8, .03, 9, mat('#739794', .1), 650, -1.66, 40 - n * 20);
+    this.office = new OfficeScene(this.scene);
+    // The full mechanisms are render detail for permanent sites, never a
+    // substitute location for a prefix. Rack and site coordinates stay fixed.
+    this.devices = Array.from({ length: 6 }, (_, stage) => {
+      const d = makeSelector(this.scene, stage); d.group.userData.dynamic = true;
+      batch(d.group); d.group.visible = false; d.site = null; return d;
+    });
+    this.source = makePhone(this.scene, new THREE.Vector3(...SOURCE_POSITION), 'black', SOURCE);
+    this.target = makePhone(this.scene, new THREE.Vector3(...targetPosition('234567')), 'cream', 'ZIEL');
+    this.target.root.userData.dynamic = true; batch(this.target.root); this.target.root.visible = false;
+    this.handoff = new THREE.Group(); this.handoff.userData.dynamic = true; this.scene.add(this.handoff);
+    box(this.handoff, .9, 2.6, .7, enamel, 0, -1, 0);
+    plaque(this.handoff, 'TEILNEHMERLEITUNG →', 0, .5, .45, 6.8, .8);
+    batch(this.handoff); this.handoff.visible = false;
+    const external = new THREE.Group(); external.position.fromArray(EXTERNAL_GATE_POSITION); this.scene.add(external);
+    cyl(external, .12, 3.6, nickel, 0, -1.2, 0);
+    plaque(external, '← 0 · FERNAMT', 0, 1.1, .2, 12, 2.4);
+    plaque(external, 'WEITERE VERMITTLUNG AUSSERHALB', 0, -.7, .2, 12, .65);
+    this.tapes = Object.fromEntries(TAPE_MACHINES.map(descriptor => {
+      const tape = makeTapeMachine(this.scene, descriptor, 0);
+      tape.root.position.fromArray(tapePosition(descriptor.id));
+      tape.endpoint.copy(tape.root.position).add(V(-1.51, .40, .65));
+      return [descriptor.id, tape];
+    }));
+    const station = new THREE.Group(); station.position.fromArray(tapePosition('program')); this.scene.add(station);
+    station.position.y = 0;
+    for (const x of [-1.92, 1.92]) {
+      box(station, .12, 9.15, .16, enamel, x, 2.86, -.4);
+      box(station, .45, .13, 1.7, iron, x, -1.62, -.25);
     }
-    for (const y of [.34, 2.9, 5.45, 8.0]) { box(rack, 15.05, .15, 1.93, enamel, 0, y, .06); }
-    box(rack, 15.2, .30, 2.1, enamel, 0, -.67, .05);
-    for (let i = 0; i < 6; i++) {
-      plaque(rack, STAGES[i].short, (i - 2.5) * 2.48, 8.38, .98, 1.8, .36);
-      for (let j = 0; j < 6; j++) tube(rack, [V((i - 2.5) * 2.48 + j * .10, -.45, .4), V((i - 2.5) * 2.48 + j * .11, -.19, 1.03), V((i - 2.5) * 2.48 + .7, .26, .74)], .024, j % 2 ? cloth : dark, 10);
-    }
-    this.devices = Array.from({ length: 6 }, (_, stage) => Array.from({ length: 3 }, (_, row) => makeSelector(rack, stage, row)));
-    // Cable combs behind each bay, like the cotton-wrapped bundles in the references.
-    for (let stage = 0; stage < 6; stage++) for (let wire = 0; wire < 9; wire++) {
-      const x = (stage - 2.5) * 2.48 + wire * .065 - .27;
-      tube(rack, [V(x, -.5, -.8), V(x + .3, 1.2, -.85), V(x + .25, 4.5, -.85), V(x, 7.95, -.7)], .021, wire % 3 ? cloth : tealWire, 15);
-    }
-    this.source = makePhone(this.scene, V(-11, -.10, 5.4), 'black', '010001');
-    this.target = makePhone(this.scene, V(11, -.10, 5.4), 'cream', 'ZIEL');
-    this.tapes = Object.fromEntries(TAPE_MACHINES.map((descriptor, i) => [descriptor.id, makeTapeMachine(this.scene, descriptor, i === 0 ? 4.55 : .90)]));
-    for (const x of [8.23, 12.07]) {
-      box(this.scene, .12, 9.15, .16, enamel, x, 2.86, -.15);
-      box(this.scene, .45, .13, 1.7, iron, x, -1.62, .0);
-    }
-    for (const y of [.7, 4.35, 7.7]) box(this.scene, 3.96, .12, 1.22, enamel, 10.15, y, .1);
-    plaque(this.scene, 'ANSAGEDIENSTE', 10.15, 8.16, .48, 3.55, .35);
+    for (const y of [.7, 4.35, 7.7]) box(station, 3.96, .12, 1.22, enamel, 0, y, -.15);
+    plaque(station, 'ANSAGEDIENSTE · 11', 0, 8.16, .23, 3.55, .35);
     this.routeGroup = new THREE.Group(); this.routeGroup.userData.dynamic = true; this.scene.add(this.routeGroup);
-    this.routeMaterial = new THREE.MeshBasicMaterial({ color: '#edb961', transparent: true, opacity: .93, depthTest: false });
-    this.routeGlow = new THREE.MeshBasicMaterial({ color: '#e7b35c', transparent: true, opacity: .10, depthTest: false, depthWrite: false });
-    this.routeDots = [];
-    const lampGeo = new THREE.SphereGeometry(.065, 8, 6);
-    for (let i = 0; i < 10; i++) {
-      const dot = mesh(this.routeGroup, lampGeo, new THREE.MeshBasicMaterial({ color: '#fff4c6', depthTest: false }));
-      dot.renderOrder = 9; dot.visible = false; this.routeDots.push(dot);
-    }
-    this.routeLines = []; this.routePoints = []; this.routeKey = '';
+    this.routeMaterial = new THREE.MeshBasicMaterial({ color: '#edb961', depthTest: false, depthWrite: false });
+    this.routeGlow = new THREE.MeshBasicMaterial({ color: '#e7b35c', transparent: true, opacity: .14, depthTest: false, depthWrite: false });
+    this.subscriberMaterial = new THREE.MeshBasicMaterial({ color: '#85dcf3', depthTest: false, depthWrite: false });
+    this.segmentGeometry = new THREE.CylinderGeometry(1, 1, 1, 6);
+    this.dotGeometry = new THREE.SphereGeometry(1, 8, 6);
+    this.dotMaterial = new THREE.MeshBasicMaterial({ color: '#fff4c6', depthTest: false, depthWrite: false });
+    this.routeLines = []; this.routeDots = []; this.routeNodes = []; this.routeKey = '';
+    this.overviewMode = 'route'; this.overviewLook = new THREE.Vector3(); this.overviewStarted = false;
+    this.initialBounds = boundsOf([SOURCE_POSITION, [-3, 0, 80], [26, 7, 120]], 9);
+    this.callBounds = this.initialBounds;
+    this.overlay = document.getElementById('overview-labels');
     batch(this.scene);
     this.cameras = {
-      source: new THREE.PerspectiveCamera(39, 1, .05, 140),
-      follow: new THREE.PerspectiveCamera(42, 1, .05, 140),
-      overview: new THREE.PerspectiveCamera(37, 1, .05, 140),
+      source: new THREE.PerspectiveCamera(39, 1, .05, 10000),
+      follow: new THREE.PerspectiveCamera(42, 1, .05, 10000),
+      overview: new THREE.PerspectiveCamera(38, 1, .5, 10000),
     };
-    this.sourceLook = V(-11, .15, 5.4);
-    this.cameras.source.position.set(-11, 4.7, 9.75); this.cameras.source.lookAt(this.sourceLook);
-    this.cameras.follow.position.set(-10, 3.8, 10.4); this.followLook = this.sourceLook.clone();
-    this.goalPosition = this.cameras.follow.position.clone(); this.goalLook = this.followLook.clone(); this.cameraFocus = '';
+    const p = this.source.root.position;
+    this.sourceLook = p.clone().add(V(0, .25, 0));
+    this.cameras.source.position.copy(p).add(V(0, 4.8, 4.35)); this.cameras.source.lookAt(this.sourceLook);
+    this.finderSite = selectorSite(0, SOURCE.slice(0, 4));
+    const finder = new THREE.Vector3(...this.finderSite.position);
+    this.cameras.follow.position.copy(finder).add(V(2.45, 2.05, 4.55)); this.followLook = finder.clone().add(V(0, 1.16, .1));
+    this.cameraFocus = `0/${this.finderSite.id}`; this.flight = null;
     this.raycaster = new THREE.Raycaster(); this.pointer = new THREE.Vector2();
     this.width = 0; this.height = 0;
   }
+  setOverviewMode(mode) { this.overviewMode = mode; }
   focusFor(engine) {
-    if (engine.focus === 'source') return { position: V(-10, 3.8, 10.4), target: V(-11, .3, 5.4) };
-    if (engine.focus === 'target') return { position: V(11.6, 3.9, 10.4), target: V(11, .3, 5.4) };
+    if (engine.focus === 'release') {
+      const view = releaseBlockView(engine.release.prefix);
+      const frame = overviewFrame(view.bounds, this.cameras.follow.aspect, this.cameras.follow.fov);
+      return { position: new THREE.Vector3(...frame.position), target: new THREE.Vector3(...frame.target) };
+    }
+    if (engine.focus === 'external') {
+      const p = new THREE.Vector3(...EXTERNAL_GATE_POSITION);
+      return { position: p.clone().add(V(1, 4.5, 19)), target: p.clone().add(V(0, .5, 0)) };
+    }
+    if (engine.focus === 'source' || engine.focus === 'target') {
+      const p = engine.focus === 'source' ? this.source.root.position : this.target.root.position;
+      return { position: p.clone().add(V(.7, 4, 5)), target: p.clone().add(V(0, .4, 0)) };
+    }
     if (engine.focus === 'tape') {
       const p = this.tapes[engine.target.tape].root.position;
-      return { position: V(p.x + .55, p.y + 2.45, 6.8), target: V(p.x, p.y + 1.35, .4) };
+      return { position: p.clone().add(V(.55, 2.45, 6.55)), target: p.clone().add(V(0, 1.35, .15)) };
     }
-    const selector = engine.selectors[engine.focus];
-    const device = this.devices[engine.focus][selector?.row ?? 1];
-    const p = device.group.position;
-    return { position: V(p.x + 2.45, p.y + 2.05, 4.55), target: V(p.x, p.y + 1.16, .1) };
+    const p = this.devices[engine.focus].group.position;
+    return { position: p.clone().add(V(2.45, 2.05, 4.55)), target: p.clone().add(V(0, 1.16, .1)) };
   }
   route(engine) {
-    const key = `${engine.selectors.map(s => s?.held ? s.key : '-').join('|')}/${engine.state === 'connected'}/${['ringing', 'connected'].includes(engine.state)}/${engine.target?.tape || 'phone'}`;
+    const key = `${engine.selectors.map(s => s?.held ? s.key : '-').join('|')}/${engine.state === 'connected'}/${['ringing', 'connected', 'external'].includes(engine.state)}/${engine.target?.number || ''}`;
     if (key === this.routeKey) return;
     this.routeKey = key;
-    for (const line of this.routeLines) { line.geometry.dispose(); line.removeFromParent(); }
-    this.routeLines = []; this.routePoints = [];
+    this.routeGroup.clear(); this.routeLines = []; this.routeDots = []; this.routeNodes = [];
+    this.overlay?.replaceChildren();
+    this.leaders = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    this.leaders.classList.add('map-leaders'); this.overlay?.append(this.leaders);
     const held = engine.selectors.filter(s => s?.held);
+    const sites = held.map(s => selectorSite(s.stage, s.prefix, s.slot));
+    this.office.setHeld(sites, engine.state === 'connected');
     const color = engine.state === 'connected' ? '#a0e3bf' : '#edb961';
     this.routeMaterial.color.set(color); this.routeGlow.color.set(color);
-    if (!held.length) return;
-    const points = [V(-11, .1, 5.4), V(-9, -.1, 1.3)];
-    for (const s of held) {
-      const d = this.devices[s.stage][s.row].group.position;
-      points.push(V(d.x - .65, d.y + .23, 1.07), V(d.x, d.y + 1.15, 1.08), V(d.x + .7, d.y + .23, 1.07));
+    const nodes = [{ point: this.source.root.position.clone().add(V(0, .3, 0)), label: `☎ Quelle ${SOURCE}`, important: true }];
+    if (!held.length) { this.mapLabel(nodes[0]); this.routeNodes = nodes; return; }
+    for (const site of sites) nodes.push({ point: new THREE.Vector3(...site.position).add(V(0, 1.2, 1)), label: site.label, important: site.stage === 5 });
+    const subscriber = engine.target?.kind === 'phone' && ['ringing', 'connected'].includes(engine.state);
+    const subscriberStart = subscriber ? nodes.length : Infinity;
+    if (subscriber) nodes.push({ point: new THREE.Vector3(...subscriberHandoff(engine.target.number)), label: 'Teilnehmerleitung', subscriber: true });
+    if (['ringing', 'connected'].includes(engine.state)) nodes.push({
+      point: engine.target?.tape ? this.tapes[engine.target.tape].endpoint.clone() : this.target.root.position.clone().add(V(0, .3, 0)),
+      label: engine.target.tape ? engine.target.name : `☎ Ziel ${engine.target.number}`, important: true, subscriber,
+    });
+    if (engine.state === 'external') nodes.push({ point: new THREE.Vector3(...EXTERNAL_GATE_POSITION), label: '← 0 · Fernamt (außerhalb)', important: true });
+    const points = [nodes[0].point.clone()];
+    const lineTypes = [false];
+    for (let i = 1; i < nodes.length; i++) {
+      // Direct tracing avoids descending and climbing the same device twice,
+      // which looked like a reversal in the overview's compressed perspective.
+      points.push(nodes[i].point.clone());
+      lineTypes.push(i >= subscriberStart);
     }
-    if (['ringing', 'connected'].includes(engine.state)) {
-      if (engine.target?.tape) {
-        const end = this.tapes[engine.target.tape].endpoint;
-        points.push(V(7.9, end.y, 1.32), end.clone());
-      } else points.push(V(9, -.1, 1.3), V(11, .1, 5.4));
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1], b = points[i], length = a.distanceTo(b); if (length < .001) continue;
+      for (const glow of [true, false]) {
+        const line = mesh(this.routeGroup, this.segmentGeometry, glow ? this.routeGlow : lineTypes[i] ? this.subscriberMaterial : this.routeMaterial);
+        line.position.copy(a).add(b).multiplyScalar(.5);
+        line.quaternion.setFromUnitVectors(V(0, 1, 0), b.clone().sub(a).normalize());
+        line.userData = { length, glow, subscriber: lineTypes[i] }; line.renderOrder = glow ? 7 : 8; this.routeLines.push(line);
+      }
     }
-    const path = new THREE.CatmullRomCurve3(points, false, 'centripetal', .1);
-    for (const [r, m] of [[.024, this.routeMaterial], [.078, this.routeGlow]]) {
-      const line = mesh(this.routeGroup, new THREE.TubeGeometry(path, points.length * 10, r, 5, false), m);
-      line.renderOrder = 8; this.routeLines.push(line);
+    this.routePath = new THREE.CurvePath();
+    for (let i = 1; i < points.length; i++) this.routePath.add(new THREE.LineCurve3(points[i - 1], points[i]));
+    for (let i = 0; i < 12; i++) {
+      const dot = mesh(this.routeGroup, this.dotGeometry, this.dotMaterial); dot.renderOrder = 9; this.routeDots.push(dot);
     }
-    this.routePath = path; this.routePoints = points;
+    nodes.forEach(node => this.mapLabel(node));
+    this.routeNodes = nodes;
+    this.callBounds = unionBounds(this.callBounds, boundsOf(points.map(p => p.toArray()), 12));
+  }
+  mapLabel(node) {
+    const element = document.createElement('span'); element.className = `map-label${node.important ? ' endpoint-label' : ''}${node.subscriber ? ' subscriber-label' : ''}`;
+    element.textContent = node.label; this.overlay?.append(element); node.element = element;
+    node.leader = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    node.anchor = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    node.leader.setAttribute('stroke', node.subscriber ? '#85dcf3' : '#d4bc89');
+    node.anchor.setAttribute('fill', node.subscriber ? '#85dcf3' : '#d4bc89');
+    node.anchor.setAttribute('r', node.important ? '3' : '2');
+    this.leaders.append(node.leader, node.anchor);
   }
   update(engine, dt, dragAngle = null) {
+    this.dt = dt;
+    this.releaseView = engine.focus === 'release';
     const blend = 1 - Math.exp(-dt * 16);
-    for (const stages of this.devices) for (const d of stages) {
-      const state = engine.selectors[d.stage], active = state?.row === d.row && state.held;
+    for (const d of this.devices) {
+      const state = engine.selectors[d.stage], active = !!state?.held;
+      if (active) {
+        d.site = selectorSite(state.stage, state.prefix, state.slot);
+        d.group.position.fromArray(d.site.position);
+      } else {
+        d.site = d.stage === 0 ? this.finderSite : null;
+        if (d.site) d.group.position.fromArray(d.site.position);
+      }
       const y = active ? state.level * .045 : 0;
-      // Shaft motion and rotary wipers are separate, so the last selector can
-      // retain its level while responding to the final pulse train.
       const angle = active && state.rotary ? Math.PI * -.1 + (state.rotary - .5) / 10 * Math.PI * 1.2 : -.70;
       d.y += (y - d.y) * blend; d.angle += (angle - d.angle) * blend;
       d.carriage.position.y = d.y; d.wipers.rotation.y = d.angle;
       d.lamp.material.color.set(active ? engine.state === 'connected' ? '#a4ddb4' : '#e9bd6c' : '#514b31');
       d.lamp.material.emissive.set(active ? '#93632a' : '#000000');
       if (active) {
-        const text = state.stage === 0 ? 'AS · 010001' : `${STAGES[d.stage].short} ${state.prefix || 'AMT'}${state.prefix ? '…' : ''}`;
+        const text = `${STAGES[d.stage].short} ${state.prefix || 'AMT'} / ${state.slot + 1}`;
         if (text !== d.lastLabel) { d.tag.material = labelMaterial(text); d.lastLabel = text; }
       }
     }
+    if (engine.target?.kind === 'phone' && this.targetNumber !== engine.target.number) {
+      this.targetNumber = engine.target.number;
+      this.target.root.position.fromArray(targetPosition(engine.target.number));
+      this.handoff.position.fromArray(subscriberHandoff(engine.target.number));
+      this.target.nameTag.material = labelMaterial(`${engine.target.number} · TEILNEHMER`, '#e5dab8', '#29302a', 29);
+    }
+    this.target.root.visible = engine.target?.kind === 'phone';
+    this.subscriberActive = engine.target?.kind === 'phone' && ['ringing', 'connected'].includes(engine.state);
+    this.handoff.visible = this.subscriberActive;
     for (const [phone, up] of [[this.source, engine.offHook], [this.target, engine.targetOffHook]]) {
       phone.pickup += ((up ? 1 : 0) - phone.pickup) * blend;
       phone.handset.position.set(-phone.pickup * .18, .91 + phone.pickup * .55, -.46 - phone.pickup * .10);
@@ -397,23 +468,59 @@ export class ExchangeScene {
       }
     }
     this.source.wheel.rotation.y = -(dragAngle === null ? engine.dialAngle : dragAngle);
-    const focusKey = `${engine.focus}/${typeof engine.focus === 'number' ? engine.selectors[engine.focus]?.row : engine.target?.tape || ''}`;
+
+    const focusKey = `${engine.focus}/${typeof engine.focus === 'number' ? engine.selectors[engine.focus]?.key ?? (engine.focus === 0 ? this.finderSite.id : '') : engine.focus === 'release' ? engine.release.prefix : engine.target?.number || ''}`;
     if (focusKey !== this.cameraFocus) {
-      this.cameraFocus = focusKey; const shot = this.focusFor(engine);
-      this.goalPosition.copy(shot.position); this.goalLook.copy(shot.target);
+      this.cameraFocus = focusKey; const shot = this.focusFor(engine), from = this.cameras.follow.position.clone();
+      this.flight = { from, lookFrom: this.followLook.clone(), to: shot.position, lookTo: shot.target,
+        elapsed: 0, duration: CAMERA_TRAVEL_SECONDS, height: Math.min(90, from.distanceTo(shot.position) * .20) };
     }
-    const cameraBlend = 1 - Math.exp(-dt * 4.5);
-    this.cameras.follow.position.lerp(this.goalPosition, cameraBlend); this.followLook.lerp(this.goalLook, cameraBlend);
+    if (this.flight) {
+      const f = this.flight; f.elapsed = Math.min(f.duration, f.elapsed + dt);
+      const t = f.elapsed / f.duration, ease = t * t * (3 - 2 * t);
+      this.cameras.follow.position.lerpVectors(f.from, f.to, ease);
+      this.cameras.follow.position.y += Math.sin(t * Math.PI) * f.height;
+      this.followLook.lerpVectors(f.lookFrom, f.lookTo, ease);
+      if (t === 1) this.flight = null;
+    }
     this.cameras.follow.lookAt(this.followLook);
-    if (engine.target?.kind === 'phone' && this.targetNumber !== engine.target.number) {
-      this.targetNumber = engine.target.number;
-      this.target.nameTag.material = labelMaterial(`${engine.target.number} · ${engine.target.kind === 'phone' ? 'TEILNEHMER' : 'ANSCHLUSS'}`, '#e5dab8', '#29302a', 29);
-    }
     this.route(engine);
-    this.routeDots.forEach((dot, i) => {
-      dot.visible = !!this.routePoints.length;
-      if (dot.visible) dot.position.copy(this.routePath.getPoint((engine.time * .13 + i / 10) % 1));
-    });
+    if (engine.state === 'idle') this.callBounds = this.initialBounds;
+    this.routeDots.forEach((dot, i) => dot.position.copy(this.routePath.getPoint((engine.time * .13 + i / 12) % 1)));
+  }
+  updateOverview(camera) {
+    const frame = overviewFrame(this.overviewMode === 'whole' ? WHOLE_OFFICE_BOUNDS : this.callBounds, camera.aspect, camera.fov);
+    // View controls also work while the switching mechanism is paused.
+    const blend = this.overviewStarted ? 1 - Math.exp(-Math.max(this.dt, 1 / 60) * 3) : 1;
+    camera.position.lerp(new THREE.Vector3(...frame.position), blend);
+    this.overviewLook.lerp(new THREE.Vector3(...frame.target), blend);
+    camera.lookAt(this.overviewLook); camera.updateMatrixWorld();
+    this.overviewStarted = true;
+    const radius = Math.max(.035, camera.position.distanceTo(this.overviewLook) * .00125);
+    for (const line of this.routeLines) {
+      const r = radius * (line.userData.glow ? 3.5 : line.userData.subscriber ? 1.65 : 1);
+      line.scale.set(r, line.userData.length, r);
+    }
+    this.routeDots.forEach(dot => dot.scale.setScalar(radius * 2));
+    const rect = this.viewElements.overview.getBoundingClientRect(), occupied = [];
+    const priority = [...this.routeNodes].reverse().sort((a, b) => Number(!!b.important) - Number(!!a.important));
+    for (const node of priority) if (node.element) {
+      const p = node.point.clone().project(camera), w = Math.min(190, node.label.length * 6 + 18), h = 21;
+      const px = (p.x + 1) / 2 * rect.width, py = (1 - p.y) / 2 * rect.height;
+      // Place labels to either side before changing height. Leader lines keep
+      // their attachment unambiguous when the full hall compresses the entry.
+      const candidates = [[px + 9, py - 10], [px - w - 9, py - 10], [px + 9, py - 35], [px - w - 9, py + 16]];
+      const placement = candidates.map(([x, y]) => ({ x: Math.max(8, Math.min(rect.width - w - 8, x)), y: Math.max(this.subscriberActive ? 100 : 64, Math.min(rect.height - 60, y)) }))
+        .find(a => !occupied.some(b => a.x < b.x + b.w + 4 && a.x + w + 4 > b.x && a.y < b.y + b.h + 3 && a.y + h + 3 > b.y));
+      const visible = !!placement && p.z > -1 && p.z < 1;
+      node.element.hidden = !visible;
+      node.leader.style.display = node.anchor.style.display = visible ? '' : 'none';
+      if (visible) {
+        const { x, y } = placement; node.element.style.transform = `translate(${x}px,${y}px)`; occupied.push({ x, y, w, h });
+        for (const [key, value] of Object.entries({ x1: px, y1: py, x2: px < x ? x : Math.min(x + w, px), y2: y + h / 2 })) node.leader.setAttribute(key, value);
+        node.anchor.setAttribute('cx', px); node.anchor.setAttribute('cy', py);
+      }
+    }
   }
   render() {
     const bounds = this.canvas.getBoundingClientRect();
@@ -423,16 +530,15 @@ export class ExchangeScene {
     this.renderer.setScissorTest(false); this.renderer.setClearColor('#101716'); this.renderer.clear(); this.renderer.setScissorTest(true);
     for (const [name, element] of Object.entries(this.viewElements)) {
       const r = element.getBoundingClientRect(), camera = this.cameras[name];
-      const x = r.left - bounds.left, y = bounds.bottom - r.bottom;
-      this.renderer.setViewport(x, y, r.width, r.height); this.renderer.setScissor(x, y, r.width, r.height);
-      camera.aspect = r.width / r.height;
-      if (name === 'overview') {
-        const distance = Math.max(16.3, 33 / camera.aspect);
-        camera.position.set(2.6, 5.8, distance); camera.lookAt(2.2, 3.7, 0);
-      }
-      camera.updateProjectionMatrix();
-      // The illuminated overlay is the maintenance view's circuit tracing aid.
+      this.renderer.setViewport(r.left - bounds.left, bounds.bottom - r.bottom, r.width, r.height);
+      this.renderer.setScissor(r.left - bounds.left, bounds.bottom - r.bottom, r.width, r.height);
+      camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+      if (name === 'overview') this.updateOverview(camera);
       this.routeGroup.visible = name === 'overview';
+      const wide = name === 'overview' || (name === 'follow' && this.releaseView);
+      this.scene.fog.density = wide ? .00006 : .014;
+      this.office.prepare(camera, wide);
+      for (const d of this.devices) d.group.visible = !!d.site && camera.position.distanceTo(d.group.position) < 135;
       this.renderer.render(this.scene, camera);
     }
   }

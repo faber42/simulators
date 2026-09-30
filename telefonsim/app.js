@@ -1,8 +1,9 @@
 import { Exchange, STAGES, CONTACTS, TAPE_MACHINES, pulsesFor } from './engine.mjs';
 import { ExchangeScene } from './scene.js';
+import { selectorSite, releaseBlockView } from './topology.mjs';
 
 const $ = id => document.getElementById(id);
-const STATE_NAMES = { idle: 'Ruhelage', finding: 'Anrufsucher läuft', ready: 'Wählbereit', dialing: 'Impulswahl', hunting: 'Freisuche', ringing: 'Ruf zum Teilnehmer', connected: 'Sprechverbindung', busy: 'Besetzt', unavailable: 'Nicht beschaltet', releasing: 'Verbindung wird ausgelöst' };
+const STATE_NAMES = { idle: 'Ruhelage', finding: 'Anrufsucher läuft', ready: 'Wählbereit', dialing: 'Impulswahl', hunting: 'Freisuche', ringing: 'Ruf zum Teilnehmer', connected: 'Sprechverbindung', busy: 'Besetzt', unavailable: 'Nicht beschaltet', external: 'Fernamtsabgang 0', releasing: 'Verbindung wird ausgelöst' };
 
 class Sound {
   constructor() { this.enabled = false; this.context = null; }
@@ -53,7 +54,7 @@ async function main() {
   }
   for (const contact of CONTACTS) {
     const button = document.createElement('button'); button.className = 'directory-entry'; button.title = contact.note;
-    button.innerHTML = `<span class="entry-icon">${contact.kind === 'phone' || contact.kind === 'busy' ? '☎' : '◷'}</span><span class="entry-copy"><strong>${contact.name}</strong><small>${contact.number}</small></span><span class="entry-kind">${contact.kind === 'phone' ? 'APPARAT' : contact.kind === 'busy' ? 'BESETZT' : 'ANSAGE'}</span>`;
+    button.innerHTML = `<span class="entry-icon">${contact.kind === 'phone' || contact.kind === 'busy' ? '☎' : contact.kind === 'external' ? '↗' : '◷'}</span><span class="entry-copy"><strong>${contact.name}</strong><small>${contact.number}</small></span><span class="entry-kind">${contact.kind === 'phone' ? 'APPARAT' : contact.kind === 'busy' ? 'BESETZT' : contact.kind === 'external' ? 'FERNAMT' : 'ANSAGE'}</span>`;
     button.onclick = () => { $('target-number').value = contact.number; feedback(`${contact.name} ausgewählt. „Wählen“ startet den Anruf.`); };
     $('directory').append(button);
   }
@@ -70,15 +71,19 @@ async function main() {
     else feedback('Die Wähler kehren noch in die Ruhelage zurück.');
   }
   $('hook').onclick = hook;
+  for (const mode of ['route', 'whole']) $('overview-' + mode).onclick = () => {
+    scene.setOverviewMode(mode);
+    for (const option of ['route', 'whole']) $('overview-' + option).setAttribute('aria-pressed', String(option === mode));
+  };
   $('answer').onclick = () => { engine.answer(); };
   $('target-hangup').onclick = () => engine.targetHangup();
   $('number-form').onsubmit = event => {
     event.preventDefault();
     const number = $('target-number').value.trim();
-    if (!/^\d{6}$/.test(number)) { feedback('Bitte genau sechs Ziffern eingeben.'); return; }
+    if (!/^(?:0\d{0,5}|[1-9]\d{5})$/.test(number)) { feedback('Bitte sechs Ziffern für einen Ortsanschluss eingeben, oder 0 für das Fernamt.'); return; }
     if (paused) { feedback('Bitte die Simulation mit „Weiter“ fortsetzen.'); return; }
     if (!engine.dialNumber(number)) feedback('Bitte die aktuelle Verbindung zuerst auflegen und die Rückstellung abwarten.');
-    else feedback('Die Nummer wird Ziffer für Ziffer mit der Wählscheibe gewählt.');
+    else feedback(number.startsWith('0') ? 'Die erste 0 schaltet zum Fernamt. Weitere Ziffern werden dort außerhalb dieses Modells verarbeitet.' : 'Die Nummer wird Ziffer für Ziffer mit der Wählscheibe gewählt.');
   };
   $('target-number').addEventListener('input', event => { event.target.value = event.target.value.replace(/\D/g, '').slice(0, 6); feedback(''); });
   const speeds = [.5, 1, 2, 4];
@@ -145,14 +150,14 @@ async function main() {
     const tape = TAPE_MACHINES.find(t => t.id === engine.target?.tape);
     $('state-label').textContent = (tape && engine.state === 'ringing' ? 'Tonbandanlauf' : engine.tapeRunning ? 'Bandwiedergabe' : STATE_NAMES[engine.state]).toUpperCase(); $('status').textContent = engine.message;
     $('status-light').className = `status-light ${['busy', 'unavailable'].includes(engine.state) ? 'busy' : !['idle', 'connected'].includes(engine.state) ? 'working' : ''}`;
-    $('route-summary').textContent = `${engine.digits.length} / 6 Ziffern`;
+    $('route-summary').textContent = engine.state === 'external' ? '0 → Fernamt' : `${engine.digits.length} / 6 Ziffern`;
     $('queue-count').textContent = engine.pending.length ? `${engine.pending.length} vorgemerkt` : '';
     const number = engine.digits + (engine.currentDigit ?? '') + engine.pending.join('');
     $('number-display').replaceChildren(...Array.from({ length: 6 }, (_, i) => {
       const span = document.createElement('span'); span.textContent = number[i] ?? '—';
       if (i >= engine.digits.length) span.className = 'queued'; return span;
     }));
-    const allowDigit = engine.offHook && !['ringing', 'connected', 'busy', 'unavailable', 'releasing'].includes(engine.state) && number.length < 6;
+    const allowDigit = engine.offHook && !['ringing', 'connected', 'busy', 'unavailable', 'external', 'releasing'].includes(engine.state) && number.length < 6;
     document.querySelectorAll('[data-digit]').forEach(button => { button.disabled = !allowDigit; });
     routeElements.forEach((element, index) => {
       const selector = engine.selectors[index];
@@ -160,12 +165,37 @@ async function main() {
       element.querySelector('.digit').textContent = index === 0 ? selector ? '●' : '—' : index === 5 ? (engine.digits.slice(4) || '—') : (engine.digits[index - 1] || '—');
       element.querySelector('.stage-state').textContent = selector?.phase || 'frei';
     });
-    const s = typeof engine.focus === 'number' ? engine.selectors[engine.focus] : null;
-    $('focus-name').textContent = s ? STAGES[s.stage].name.toUpperCase() : ['target', 'tape'].includes(engine.focus) ? (engine.target?.name || 'ZIELAPPARAT').toUpperCase() : 'VERBINDUNG VERFOLGEN';
+    const s = typeof engine.focus === 'number' ? engine.selectors[engine.focus] ?? (engine.focus === 0 ? { stage: 0, prefix: '2100', slot: 0, level: 0, rotary: 0, phase: 'Ruhelage · wartet auf Abheben' } : null) : null;
+    $('focus-name').textContent = s ? STAGES[s.stage].name.toUpperCase() : engine.focus === 'external' ? '0 · FERNAMTSABGANG' : ['target', 'tape'].includes(engine.focus) ? (engine.target?.name || 'ZIELAPPARAT').toUpperCase() : 'VERBINDUNG VERFOLGEN';
     $('level').textContent = s ? `${s.level} / 10` : '—'; $('rotation').textContent = s ? `${s.rotary} / 10` : '—';
     $('pulses').textContent = engine.currentDigit !== null ? `${engine.pulse} / ${engine.pulseTotal}` : '—';
     $('mechanism-readout').hidden = !s;
-    $('focus-description').textContent = s ? `${s.stage === 0 ? 'Anschluss 010001' : `Gruppe ${s.prefix || 'alle Anschlüsse'}${s.prefix ? '…' : ''}`} · ${s.phase}` : engine.focus === 'tape' ? `${engine.digits} · ${engine.tapeRunning ? 'Band läuft bis zum Auflegen' : 'Tonbandgerät schaltet ein'}` : engine.focus === 'target' ? `${engine.digits} · ${engine.state === 'ringing' ? 'Rufstrom liegt an' : 'Zielanschluss'}` : 'Vom Apparat durch das Amt bis zum Ziel.';
+    const site = s ? selectorSite(s.stage, s.prefix, s.slot) : null;
+    $('focus-description').textContent = s ? `${site.rack} · Fach ${site.shelf + 1} / Wähler ${s.slot + 1} · ${s.phase}` : engine.focus === 'tape' ? `${engine.digits} · ${engine.tapeRunning ? 'Band läuft bis zum Auflegen' : 'Tonbandgerät schaltet ein'}` : engine.focus === 'target' ? `${engine.digits} · ${engine.state === 'ringing' ? 'Rufstrom liegt an' : 'Zielanschluss'}` : 'Vom Apparat durch das Amt bis zum Ziel.';
+    if (engine.focus === 'external') $('focus-description').textContent = 'Weitere Vorwahl und Vermittlung im nicht dargestellten Fernamt. Zum Freigeben auflegen.';
+    $('release-readout').hidden = engine.focus !== 'release';
+    if (engine.focus === 'release') {
+      const view = releaseBlockView(engine.release.prefix);
+      $('focus-name').textContent = view.label.toUpperCase();
+      const phase = engine.release.phase;
+      $('focus-description').textContent = phase === 'overview' ? 'Überblick vor der gemeinsamen Rückstellung'
+        : phase === 'free' ? 'Alle Wähler frei · zurück zum Anrufsucher' : 'Alle belegten Wähler stellen gleichzeitig zurück';
+      $('release-readout').replaceChildren(...engine.release.stages.map(stage => {
+        const element = document.createElement('span'), selector = engine.selectors[stage];
+        element.className = phase === 'free' ? 'released' : '';
+        const name = document.createElement('b'); name.textContent = STAGES[stage].short;
+        const state = document.createElement('small'); state.textContent = phase === 'overview' ? 'gehalten' : selector?.phase || 'frei';
+        element.append(name, state); return element;
+      }));
+    }
+    const last = engine.selectors.filter(v => v?.held).at(-1), prefix = last?.stage > 1 ? last.prefix : '';
+    $('office-location').textContent = prefix.length >= 2
+      ? `Zugang → Bereich ${prefix.slice(0, 2)}xxxx${prefix.length >= 3 ? ` → Gasse ${prefix.slice(0, 3)}xxx` : ''}${prefix.length >= 4 ? ` → Gruppe ${prefix.slice(0, 4)}xx` : ''}${engine.target?.tape && ['ringing', 'connected'].includes(engine.state) ? ' → Tonband' : ''}`
+      : prefix ? `Zugang → Hauptgruppe ${prefix}xxxxx` : 'Zugang · Anrufsucher und erste Gruppenwähler';
+    if (engine.state === 'external') $('office-location').textContent = 'Quellapparat → Anrufsucher → I. GW → 0 → Fernamt außerhalb';
+    const subscriber = engine.target?.kind === 'phone' && ['ringing', 'connected'].includes(engine.state);
+    $('subscriber-detail').hidden = !subscriber;
+    if (subscriber) $('subscriber-detail').textContent = `LW ${engine.digits.slice(0, 4)}xx → Teilnehmerleitung → ☎ ${engine.digits}`;
     $('follow-view').classList.toggle('tape-view', engine.focus === 'tape');
     $('tape-transport').hidden = engine.focus !== 'tape';
     $('tape-name').textContent = tape?.short.toUpperCase() || '';
