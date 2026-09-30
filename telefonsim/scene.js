@@ -1,7 +1,9 @@
 import * as THREE from '../pinsim/three.module.min.js';
-import { STAGES, TAPE_MACHINES, SOURCE, CAMERA_TRAVEL_SECONDS } from './engine.mjs';
-import { SOURCE_POSITION, EXTERNAL_GATE_POSITION, selectorSite, targetPosition, subscriberHandoff, tapePosition, boundsOf, unionBounds, overviewFrame, releaseBlockView, WHOLE_OFFICE_BOUNDS } from './topology.mjs';
+import { STAGES, TAPE_MACHINES, SOURCE, CAMERA_TRAVEL_SECONDS, resolveNumber } from './engine.mjs';
+import { SOURCE_POSITION, EXTERNAL_GATE_POSITION, selectorSite, targetPosition, subscriberHandoff, tapePosition, boundsOf, unionBounds, overviewFrame, releaseBlockView, WHOLE_OFFICE_BOUNDS, UPPER_FLOOR_Y, UPPER_FLOOR_CENTER } from './topology.mjs';
 import { OfficeScene } from './office-scene.js';
+import { UpperFloorTransition, upperFloorRequested } from './upper-floor.mjs';
+import { FrostedView } from './frosted-view.js';
 
 const TAU = Math.PI * 2;
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -267,8 +269,6 @@ export class ExchangeScene {
     box(this.scene, 1640, .15, 1500, mat('#101914', 0, 1), 0, -1.79, -500);
     for (let column = 0; column <= 9; column++) box(this.scene, .20, .01, 1150, mat('#68745a', .1), -630 + column * 140, -1.70, -510);
     for (let row = 0; row <= 10; row++) box(this.scene, 1260, .01, .20, mat('#68745a', .1), 0, -1.70, -22 - row * 112);
-    box(this.scene, 148, .025, 1170, mat('#1a2826', 0, 1), 725, -1.69, -535);
-    for (let n = 0; n < 60; n++) box(this.scene, .8, .03, 9, mat('#739794', .1), 650, -1.66, 40 - n * 20);
     this.office = new OfficeScene(this.scene);
     // The full mechanisms are render detail for permanent sites, never a
     // substitute location for a prefix. Rack and site coordinates stay fixed.
@@ -277,32 +277,43 @@ export class ExchangeScene {
       batch(d.group); d.group.visible = false; d.site = null; return d;
     });
     this.source = makePhone(this.scene, new THREE.Vector3(...SOURCE_POSITION), 'black', SOURCE);
-    this.target = makePhone(this.scene, new THREE.Vector3(...targetPosition('234567')), 'cream', 'ZIEL');
+    this.upperFloor = new THREE.Group(); this.upperFloor.userData.dynamic = true; this.scene.add(this.upperFloor);
+    this.floorTransition = new UpperFloorTransition(); this.frostedView = new FrostedView();
+    const glass = new THREE.MeshBasicMaterial({ color: '#90aba4', transparent: true, opacity: .24, depthWrite: false, side: THREE.DoubleSide });
+    box(this.upperFloor, 1320, .5, 1280, glass, 0, UPPER_FLOOR_Y, -500);
+    const trim = mat('#607f77', .3, .8);
+    for (const x of [-660, 660]) box(this.upperFloor, .9, .8, 1280, trim, x, UPPER_FLOOR_Y, -500);
+    for (const z of [-1140, 140]) box(this.upperFloor, 1320, .8, .9, trim, 0, UPPER_FLOOR_Y, z);
+    // A sparse floor grid gives the empty upper level a readable surface.
+    for (let x = -560; x <= 560; x += 140) box(this.upperFloor, .18, .05, 1280, glass, x, UPPER_FLOOR_Y + .3, -500);
+    for (let z = -1050; z <= 70; z += 112) box(this.upperFloor, 1320, .05, .18, glass, 0, UPPER_FLOOR_Y + .3, z);
+    this.target = makePhone(this.upperFloor, new THREE.Vector3(...targetPosition('234567')), 'cream', 'ZIEL');
     this.target.root.userData.dynamic = true; batch(this.target.root); this.target.root.visible = false;
-    this.handoff = new THREE.Group(); this.handoff.userData.dynamic = true; this.scene.add(this.handoff);
-    box(this.handoff, .9, 2.6, .7, enamel, 0, -1, 0);
-    plaque(this.handoff, 'TEILNEHMERLEITUNG →', 0, .5, .45, 6.8, .8);
-    batch(this.handoff); this.handoff.visible = false;
     const external = new THREE.Group(); external.position.fromArray(EXTERNAL_GATE_POSITION); this.scene.add(external);
     cyl(external, .12, 3.6, nickel, 0, -1.2, 0);
     plaque(external, '← 0 · FERNAMT', 0, 1.1, .2, 12, 2.4);
     plaque(external, 'WEITERE VERMITTLUNG AUSSERHALB', 0, -.7, .2, 12, .65);
     this.tapes = Object.fromEntries(TAPE_MACHINES.map(descriptor => {
-      const tape = makeTapeMachine(this.scene, descriptor, 0);
+      const tape = makeTapeMachine(this.upperFloor, descriptor, 0);
       tape.root.position.fromArray(tapePosition(descriptor.id));
       tape.endpoint.copy(tape.root.position).add(V(-1.51, .40, .65));
+      tape.root.userData.dynamic = true; batch(tape.root);
       return [descriptor.id, tape];
     }));
-    const station = new THREE.Group(); station.position.fromArray(tapePosition('program')); this.scene.add(station);
-    station.position.y = 0;
+    const station = new THREE.Group(); station.position.fromArray(tapePosition('program')); this.upperFloor.add(station);
+    station.position.y = UPPER_FLOOR_Y + 1.7;
     for (const x of [-1.92, 1.92]) {
       box(station, .12, 9.15, .16, enamel, x, 2.86, -.4);
       box(station, .45, .13, 1.7, iron, x, -1.62, -.25);
     }
     for (const y of [.7, 4.35, 7.7]) box(station, 3.96, .12, 1.22, enamel, 0, y, -.15);
-    plaque(station, 'ANSAGEDIENSTE · 11', 0, 8.16, .23, 3.55, .35);
+    plaque(station, 'ANSAGEDIENSTE · OBERGESCHOSS', 0, 8.16, .23, 3.55, .35);
+    box(this.upperFloor, 12, .15, 8, mat('#2f4540', .2), UPPER_FLOOR_CENTER[0], UPPER_FLOOR_Y + .35, UPPER_FLOOR_CENTER[2]);
+    batch(this.upperFloor);
+    this.upperFloor.traverse(o => o.layers.set(1)); this.upperFloor.visible = false;
+    this.scene.traverse(o => { if (o.isLight) o.layers.enable(1); });
     this.routeGroup = new THREE.Group(); this.routeGroup.userData.dynamic = true; this.scene.add(this.routeGroup);
-    this.routeMaterial = new THREE.MeshBasicMaterial({ color: '#edb961', depthTest: false, depthWrite: false });
+    this.routeMaterial = new THREE.MeshBasicMaterial({ color: '#edb961', transparent: true, depthTest: false, depthWrite: false });
     this.routeGlow = new THREE.MeshBasicMaterial({ color: '#e7b35c', transparent: true, opacity: .14, depthTest: false, depthWrite: false });
     this.subscriberMaterial = new THREE.MeshBasicMaterial({ color: '#85dcf3', depthTest: false, depthWrite: false });
     this.segmentGeometry = new THREE.CylinderGeometry(1, 1, 1, 6);
@@ -367,12 +378,12 @@ export class ExchangeScene {
     const nodes = [{ point: this.source.root.position.clone().add(V(0, .3, 0)), label: `☎ Quelle ${SOURCE}`, important: true }];
     if (!held.length) { this.mapLabel(nodes[0]); this.routeNodes = nodes; return; }
     for (const site of sites) nodes.push({ point: new THREE.Vector3(...site.position).add(V(0, 1.2, 1)), label: site.label, important: site.stage === 5 });
-    const subscriber = engine.target?.kind === 'phone' && ['ringing', 'connected'].includes(engine.state);
-    const subscriberStart = subscriber ? nodes.length : Infinity;
-    if (subscriber) nodes.push({ point: new THREE.Vector3(...subscriberHandoff(engine.target.number)), label: 'Teilnehmerleitung', subscriber: true });
+    const endpoint = ['ringing', 'connected'].includes(engine.state);
+    const subscriberStart = endpoint ? nodes.length : Infinity;
+    if (endpoint) nodes.push({ point: new THREE.Vector3(...subscriberHandoff(engine.target.number, engine.selectors[5].slot)), label: 'Steigleitung ↑ OG', subscriber: true, upper: true });
     if (['ringing', 'connected'].includes(engine.state)) nodes.push({
       point: engine.target?.tape ? this.tapes[engine.target.tape].endpoint.clone() : this.target.root.position.clone().add(V(0, .3, 0)),
-      label: engine.target.tape ? engine.target.name : `☎ Ziel ${engine.target.number}`, important: true, subscriber,
+      label: engine.target.tape ? `◉ ${engine.target.name} · OG` : `☎ Ziel ${engine.target.number} · OG`, important: true, subscriber: true, upper: true,
     });
     if (engine.state === 'external') nodes.push({ point: new THREE.Vector3(...EXTERNAL_GATE_POSITION), label: '← 0 · Fernamt (außerhalb)', important: true });
     const points = [nodes[0].point.clone()];
@@ -389,17 +400,20 @@ export class ExchangeScene {
         const line = mesh(this.routeGroup, this.segmentGeometry, glow ? this.routeGlow : lineTypes[i] ? this.subscriberMaterial : this.routeMaterial);
         line.position.copy(a).add(b).multiplyScalar(.5);
         line.quaternion.setFromUnitVectors(V(0, 1, 0), b.clone().sub(a).normalize());
-        line.userData = { length, glow, subscriber: lineTypes[i] }; line.renderOrder = glow ? 7 : 8; this.routeLines.push(line);
+        line.userData = { length, glow, subscriber: lineTypes[i] }; line.layers.set(2); line.renderOrder = glow ? 7 : 8; this.routeLines.push(line);
       }
     }
     this.routePath = new THREE.CurvePath();
     for (let i = 1; i < points.length; i++) this.routePath.add(new THREE.LineCurve3(points[i - 1], points[i]));
     for (let i = 0; i < 12; i++) {
-      const dot = mesh(this.routeGroup, this.dotGeometry, this.dotMaterial); dot.renderOrder = 9; this.routeDots.push(dot);
+      const dot = mesh(this.routeGroup, this.dotGeometry, this.dotMaterial); dot.layers.set(2); dot.renderOrder = 9; this.routeDots.push(dot);
     }
+    for (const tape of Object.values(this.tapes)) if (tape.descriptor.id !== engine.target?.tape) nodes.push({
+      point: tape.endpoint.clone(), label: `${tape.descriptor.short} · ${tape.descriptor.label}`, upper: true, subscriber: true,
+    });
     nodes.forEach(node => this.mapLabel(node));
     this.routeNodes = nodes;
-    this.callBounds = unionBounds(this.callBounds, boundsOf(points.map(p => p.toArray()), 12));
+    this.callBounds = unionBounds(this.callBounds, boundsOf(points.filter(p => p.y < UPPER_FLOOR_Y).map(p => p.toArray()), 12));
   }
   mapLabel(node) {
     const element = document.createElement('span'); element.className = `map-label${node.important ? ' endpoint-label' : ''}${node.subscriber ? ' subscriber-label' : ''}`;
@@ -414,6 +428,16 @@ export class ExchangeScene {
   update(engine, dt, dragAngle = null) {
     this.dt = dt;
     this.releaseView = engine.focus === 'release';
+    if (upperFloorRequested(engine) && this.floorTransition.elapsed === 0) {
+      this.floorShot = { position: this.cameras.overview.position.clone(), target: this.overviewLook.clone() };
+    }
+    this.floorTransition.update(upperFloorRequested(engine), dt);
+    if (this.floorTransition.elapsed === 0) this.floorShot = null;
+    this.viewElements.overview.dataset.floor = this.floorTransition.phase;
+    const floorLabel = document.getElementById('floor-label');
+    floorLabel.hidden = this.floorTransition.elapsed === 0;
+    floorLabel.textContent = this.floorTransition.reveal > 0 ? 'OG · TEILNEHMER & ANSAGEDIENSTE'
+      : engine.offHook ? 'WÄHLERSAAL SENKT SICH · OBERE ETAGE FOLGT' : 'ZURÜCK ZUM WÄHLERSAAL';
     const blend = 1 - Math.exp(-dt * 16);
     for (const d of this.devices) {
       const state = engine.selectors[d.stage], active = !!state?.held;
@@ -435,15 +459,15 @@ export class ExchangeScene {
         if (text !== d.lastLabel) { d.tag.material = labelMaterial(text); d.lastLabel = text; }
       }
     }
-    if (engine.target?.kind === 'phone' && this.targetNumber !== engine.target.number) {
-      this.targetNumber = engine.target.number;
-      this.target.root.position.fromArray(targetPosition(engine.target.number));
-      this.handoff.position.fromArray(subscriberHandoff(engine.target.number));
-      this.target.nameTag.material = labelMaterial(`${engine.target.number} · TEILNEHMER`, '#e5dab8', '#29302a', 29);
+    const destination = /^[1-9]\d{5}$/.test(engine.digits) ? engine.target || resolveNumber(engine.digits) : null;
+    const targetKey = `${destination?.number}/${engine.selectors[5]?.slot}`;
+    if (destination && !destination.tape && this.targetNumber !== targetKey) {
+      this.targetNumber = targetKey;
+      this.target.root.position.fromArray(targetPosition(destination.number, engine.selectors[5]?.slot || 0));
+      this.target.nameTag.material = labelMaterial(`${destination.number} · TEILNEHMER`, '#e5dab8', '#29302a', 29);
     }
-    this.target.root.visible = engine.target?.kind === 'phone';
-    this.subscriberActive = engine.target?.kind === 'phone' && ['ringing', 'connected'].includes(engine.state);
-    this.handoff.visible = this.subscriberActive;
+    this.target.root.visible = !!destination && !destination.tape;
+    this.subscriberActive = ['ringing', 'connected'].includes(engine.state);
     for (const [phone, up] of [[this.source, engine.offHook], [this.target, engine.targetOffHook]]) {
       phone.pickup += ((up ? 1 : 0) - phone.pickup) * blend;
       phone.handset.position.set(-phone.pickup * .18, .91 + phone.pickup * .55, -.46 - phone.pickup * .10);
@@ -489,19 +513,39 @@ export class ExchangeScene {
     this.routeDots.forEach((dot, i) => dot.position.copy(this.routePath.getPoint((engine.time * .13 + i / 12) % 1)));
   }
   updateOverview(camera) {
-    const frame = overviewFrame(this.overviewMode === 'whole' ? WHOLE_OFFICE_BOUNDS : this.callBounds, camera.aspect, camera.fov);
+    const { descent, reveal } = this.floorTransition;
+    let frameBounds = this.overviewMode === 'whole' ? WHOLE_OFFICE_BOUNDS : this.callBounds;
+    if (descent > 0) frameBounds = unionBounds(frameBounds, boundsOf([
+      ...Object.values(this.tapes).map(tape => tape.endpoint.toArray()),
+      ...(this.target.root.visible ? [this.target.root.position.toArray()] : []),
+    ], 15));
+    const frame = overviewFrame(frameBounds, camera.aspect, camera.fov);
+    const shift = descent * Math.max(UPPER_FLOOR_Y * .35, frame.distance * .085);
+    frame.position[1] += shift; frame.target[1] += shift;
     // View controls also work while the switching mechanism is paused.
     const blend = this.overviewStarted ? 1 - Math.exp(-Math.max(this.dt, 1 / 60) * 3) : 1;
-    camera.position.lerp(new THREE.Vector3(...frame.position), blend);
-    this.overviewLook.lerp(new THREE.Vector3(...frame.target), blend);
+    if (this.floorShot) {
+      // Complete the camera move before the reveal starts; a second smoothing
+      // filter here would let the floor appear while the hall was still moving.
+      camera.position.lerpVectors(this.floorShot.position, new THREE.Vector3(...frame.position), descent);
+      this.overviewLook.lerpVectors(this.floorShot.target, new THREE.Vector3(...frame.target), descent);
+    } else {
+      camera.position.lerp(new THREE.Vector3(...frame.position), blend);
+      this.overviewLook.lerp(new THREE.Vector3(...frame.target), blend);
+    }
     camera.lookAt(this.overviewLook); camera.updateMatrixWorld();
     this.overviewStarted = true;
+    this.routeMaterial.opacity = 1 - reveal * .8;
     const radius = Math.max(.035, camera.position.distanceTo(this.overviewLook) * .00125);
     for (const line of this.routeLines) {
       const r = radius * (line.userData.glow ? 3.5 : line.userData.subscriber ? 1.65 : 1);
       line.scale.set(r, line.userData.length, r);
+      line.visible = !line.userData.subscriber || reveal > .1;
     }
-    this.routeDots.forEach(dot => dot.scale.setScalar(radius * 2));
+    this.routeDots.forEach(dot => {
+      dot.scale.setScalar(radius * 2);
+      dot.visible = dot.position.y < UPPER_FLOOR_Y - 1 || reveal > .2;
+    });
     const rect = this.viewElements.overview.getBoundingClientRect(), occupied = [];
     const priority = [...this.routeNodes].reverse().sort((a, b) => Number(!!b.important) - Number(!!a.important));
     for (const node of priority) if (node.element) {
@@ -510,10 +554,11 @@ export class ExchangeScene {
       // Place labels to either side before changing height. Leader lines keep
       // their attachment unambiguous when the full hall compresses the entry.
       const candidates = [[px + 9, py - 10], [px - w - 9, py - 10], [px + 9, py - 35], [px - w - 9, py + 16]];
-      const placement = candidates.map(([x, y]) => ({ x: Math.max(8, Math.min(rect.width - w - 8, x)), y: Math.max(this.subscriberActive ? 100 : 64, Math.min(rect.height - 60, y)) }))
+      const placement = candidates.map(([x, y]) => ({ x: Math.max(8, Math.min(rect.width - w - 8, x)), y: Math.max(reveal > 0 ? 128 : this.subscriberActive ? 100 : 64, Math.min(rect.height - 60, y)) }))
         .find(a => !occupied.some(b => a.x < b.x + b.w + 4 && a.x + w + 4 > b.x && a.y < b.y + b.h + 3 && a.y + h + 3 > b.y));
-      const visible = !!placement && p.z > -1 && p.z < 1;
+      const visible = !!placement && p.z > -1 && p.z < 1 && (!node.upper || reveal > .2);
       node.element.hidden = !visible;
+      node.element.style.opacity = node.upper ? reveal : 1 - reveal * .7;
       node.leader.style.display = node.anchor.style.display = visible ? '' : 'none';
       if (visible) {
         const { x, y } = placement; node.element.style.transform = `translate(${x}px,${y}px)`; occupied.push({ x, y, w, h });
@@ -535,16 +580,22 @@ export class ExchangeScene {
       camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
       if (name === 'overview') this.updateOverview(camera);
       this.routeGroup.visible = name === 'overview';
+      this.upperFloor.visible = this.floorTransition.reveal > 0 && (name === 'overview' || (name === 'follow' && !this.releaseView));
       const wide = name === 'overview' || (name === 'follow' && this.releaseView);
       this.scene.fog.density = wide ? .00006 : .014;
       this.office.prepare(camera, wide);
       for (const d of this.devices) d.group.visible = !!d.site && camera.position.distanceTo(d.group.position) < 135;
-      this.renderer.render(this.scene, camera);
+      camera.layers.set(0); camera.layers.enable(1); camera.layers.enable(2);
+      if (name === 'overview' && this.floorTransition.reveal > 0) {
+        this.frostedView.render(this.renderer, this.scene, camera,
+          [r.left - bounds.left, bounds.bottom - r.bottom, r.width, r.height], this.floorTransition.reveal);
+      } else this.renderer.render(this.scene, camera);
     }
   }
   pick(viewName, clientX, clientY) {
     const r = this.viewElements[viewName].getBoundingClientRect();
     this.pointer.set((clientX - r.left) / r.width * 2 - 1, -(clientY - r.top) / r.height * 2 + 1);
+    this.raycaster.layers.set(viewName === 'follow' ? 1 : 0);
     this.raycaster.setFromCamera(this.pointer, this.cameras[viewName]);
     const phone = viewName === 'source' ? this.source : this.target;
     const hits = this.raycaster.intersectObjects([phone.handsetHit, ...phone.dialHits], false);

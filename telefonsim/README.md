@@ -21,7 +21,7 @@ Kein Build, kein CDN, keine Installation zusätzlicher Abhängigkeiten.
 - Im Telefonbuch einen Eintrag auswählen und „Wählen“ drücken.
 - Normale Teilnehmer: den Zielhörer in Kamera 02 anklicken oder den dortigen
   Abheben-Button drücken. Die Ansagedienste nehmen automatisch ab und führen
-  zu zwei Tonbandgeräten rechts neben Bereich 11: Band 01 für die
+  zu zwei Tonbandgeräten zentral auf der oberen Etage: Band 01 für die
   Zeitansage, Band 02 für Kinoprogramm und Wetterdienst. Die Kamera schwenkt
   zum richtigen Gerät; der Leitungsweg endet an dessen Anschlussbuchse.
 - Die Bandspulen, das Band und der Pegelzeiger bewegen sich während der
@@ -51,11 +51,16 @@ Kein Build, kein CDN, keine Installation zusätzlicher Abhängigkeiten.
   n0xxxx hinten; auch die Gassen und Hundertergruppen verwenden diese Folge.
   Die Ziffer 0 bedeutet zehn Impulse, nicht die mechanische Ruhestellung.
   Diese räumliche Sortierung ist didaktisch und kein historischer Gestellplan.
-- Zielapparate stehen außerhalb der rechten Saalgrenze. Die hellblaue
-  Teilnehmerleitung führt vom letzten Leitungswähler über die Übergabestelle
-  bis zum Telefon. Eine Telefonmarkierung und eine Anzeige „LW →
-  Teilnehmerleitung → Zielnummer“ machen den letzten Abschnitt auch aus
-  großer Entfernung sichtbar.
+- Erst nach der sechsten vollständig gewählten Ziffer senkt Kamera 3 den
+  Wählersaal optisch ab (1,2 Sekunden). Danach werden Zwischendecke und obere
+  Etage eingeblendet (0,8 Sekunden). Der Saal bleibt weich und gedämpft wie
+  hinter Milchglas erkennbar. Beim Auflegen verschwindet die obere Ebene
+  wieder vor der gemeinsamen Rückstellung; eine führende 0 blendet sie nie ein.
+- Zielapparate stehen unmittelbar über dem genutzten Leitungswähler, auf der
+  oberen Etage. Die hellblaue Teilnehmerleitung führt senkrecht hinauf.
+  Ansagerufe steigen ebenfalls dort hoch und führen oben zu den beiden
+  zentralen Tonbandgeräten. Kamera 2 zeigt das angewählte Gerät weiterhin
+  bedienbar aus der Nähe. Kamera 1 bleibt beim Quellapparat.
 - Die Fahrten von Kamera 2 dauern bei Tempo 1× etwa 1,7 Sekunden. Wahl und
   Rückstellung warten auf die Kamera; die Impulsfrequenz bleibt unverändert.
 - Ton ist optional und zunächst aus. Synthetische Schaltgeräusche und
@@ -105,9 +110,9 @@ Die Freisuche verwendet reproduzierbare Beispielbelegungen in fremden Bündeln.
 keine historische Kapazitätsberechnung. Vollständige Anrufsucherfelder für
 alle Quellanschlüsse und die Verkehrsdimensionierung eines Millionenamts
 werden nicht dargestellt. Die räumliche Anordnung erläutert die Hierarchie,
-nicht die Baugröße eines konkreten Amts. Ein Zielapparat wird als Vorführgerät
-außerhalb des Saals gezeigt; Ansagen haben eigene feste
-Tonbandstandorte in Bereich 11.
+nicht die Baugröße eines konkreten Amts. Die obere Etage mit den Vorführgeräten
+ist eine Darstellungshilfe; ihr Abstand zum Saal ist zur besseren Erkennbarkeit
+überhöht. Ansagen haben einen festen zentralen Tonbandstandort.
 Die farbige Leitung ist eine didaktische Einblendung in der Übersicht.
 Relais-Schaltungen, historische Ortsnetzregeln, Gebühren und die Sprachübertragung
 werden nicht elektrisch nachgebildet. Das Modell orientiert sich an allgemeinen
@@ -137,7 +142,10 @@ Das Modell vereinfacht historische Nummerierungs- und Fernwahlpläne.
 - Die Zeitansage liest bewusst die lokale Uhr; sie aktualisiert sich nicht
   während einer Pause. Alle anderen Abläufe verwenden ausschließlich `step(dt)`.
 - `window.TELEFONSIM.snapshot()` liefert einen Diagnosezustand ohne Mutation.
-- Tests: `node --test telefonsim/engine.test.mjs telefonsim/topology.test.mjs`.
+- `upper-floor.mjs` steuert die zweistufige Etagenanimation in Simulationszeit.
+  `frosted-view.js` zeichnet für Kamera 3 den unteren Saal in einen Texturpuffer,
+  verwischt ihn und legt die scharfen Geräte der oberen Etage darüber.
+- Tests: `node --test telefonsim/*.test.mjs`.
   Geprüft werden Schaltablauf, Fernamtsabgang, Freigabe, Ansagen, alle 100.010
   eindeutigen Wählerplätze, Reihenfolge des Zugangs und der Nummerngassen,
   Teilnehmerleitung, Kamerawartezeiten und Bildgrenzen bei mehreren Seitenverhältnissen.

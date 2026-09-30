@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Exchange } from './engine.mjs';
 import { OFFICE, AREA_PREFIXES, ENTRANCE_SITES, DIGIT_ORDER, aisleOrigin, releaseBlockView, sitesInArea, selectorSite, racksInArea,
-  areaOrigin, targetPosition, subscriberHandoff, tapePosition, SOURCE_POSITION, EXTERNAL_GATE_POSITION, boundsOf, overviewFrame, corners, WHOLE_OFFICE_BOUNDS } from './topology.mjs';
+  areaOrigin, targetPosition, subscriberHandoff, tapePosition, UPPER_FLOOR_Y, UPPER_FLOOR_CENTER, SOURCE_POSITION, EXTERNAL_GATE_POSITION, boundsOf, overviewFrame, corners, WHOLE_OFFICE_BOUNDS } from './topology.mjs';
 
 test('all nine local number branches have unique permanent equipment sites', () => {
   const ids = new Set(), positions = new Set(), counts = [0, 0, 0, 0, 0, 0];
@@ -74,16 +74,26 @@ test('entry proceeds forward, branches 1 through 9 run left to right, and zero h
   assert.ok(AREA_PREFIXES.every(p => !p.startsWith('0')));
   assert.throws(() => selectorSite(2, '0')); assert.throws(() => areaOrigin('00'));
   assert.throws(() => targetPosition('012345'));
-  for (const number of ['100010', '234567', '999999']) {
-    assert.ok(subscriberHandoff(number)[0] > areaOrigin('90')[0] + 64);
-    assert.ok(targetPosition(number)[0] - subscriberHandoff(number)[0] >= 60, 'last span is separate from the switching hall');
-  }
 });
 
-test('both announcement machines live to the right of area 11, separate from subscriber desks', () => {
-  const area = areaOrigin('11'), time = tapePosition('time'), program = tapePosition('program');
-  assert.ok(time[0] > area[0] + 64); assert.equal(time[0], program[0]); assert.notEqual(time[1], program[1]);
+test('both announcement machines share a central upper-floor station', () => {
+  const time = tapePosition('time'), program = tapePosition('program');
+  for (const p of [time, program]) {
+    assert.equal(p[0], UPPER_FLOOR_CENTER[0]); assert.equal(p[2], UPPER_FLOOR_CENTER[2]);
+    assert.ok(p[1] > UPPER_FLOOR_Y);
+  }
+  assert.notEqual(time[1], program[1]);
   assert.notDeepEqual(time, targetPosition('119100')); assert.notDeepEqual(program, targetPosition('119200'));
+});
+
+test('subscriber risers are vertical above the actual final selector outlet', () => {
+  for (const number of ['100010', '234567', '999999']) for (let slot = 0; slot < 10; slot++) {
+    const lw = selectorSite(5, number.slice(0, 4), slot).position;
+    const riser = subscriberHandoff(number, slot), phone = targetPosition(number, slot);
+    assert.equal(riser[0], lw[0]); assert.equal(riser[2], lw[2] + 1);
+    assert.equal(phone[0], riser[0]); assert.equal(phone[2], riser[2]);
+    assert.ok(riser[1] > WHOLE_OFFICE_BOUNDS.max[1]); assert.ok(phone[1] > riser[1]);
+  }
 });
 
 test('subgroups use pulse order 1 through 9 then 0, while equipment identities stay numeric', () => {

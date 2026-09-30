@@ -64,18 +64,18 @@ export const ENTRANCE_SITES = [
   ...Array.from({ length: 90 }, (_, i) => selectorSite(2, String(1 + Math.floor(i / 10)), i % 10)),
 ];
 export const WHOLE_OFFICE_BOUNDS = { min: [-760, -2, -1140], max: [800, 28, 175] };
+// The floor separation is exaggerated for the overview of this teaching model.
+export const UPPER_FLOOR_Y = 150;
+export const UPPER_FLOOR_CENTER = [0, UPPER_FLOOR_Y, -510];
 export function tapePosition(id) {
-  const [x, , z] = areaOrigin('11');
-  return [x + 73, id === 'time' ? 4.55 : .90, z + 7];
+  return [UPPER_FLOOR_CENTER[0], UPPER_FLOOR_Y + (id === 'time' ? 6.25 : 2.60), UPPER_FLOOR_CENTER[2]];
 }
-export function targetPosition(number) {
+export function targetPosition(number, slot = 0) {
   if (!/^[1-9]\d{5}$/.test(number)) throw new Error('Ungültige örtliche Zielnummer');
-  const [, , z] = aisleOrigin(number.slice(0, 3));
-  // The subscriber is outside the switching hall, with a visible line across
-  // the boundary. This display desk is not a second switching cabinet.
-  return [750, -.10, z + 6];
+  const [x, , z] = selectorSite(5, number.slice(0, 4), slot).position;
+  return [x, UPPER_FLOOR_Y + 1.8, z + 1];
 }
-export function subscriberHandoff(number) { const p = targetPosition(number); return [675, 1.6, p[2]]; }
+export function subscriberHandoff(number, slot = 0) { const p = targetPosition(number, slot); return [p[0], UPPER_FLOOR_Y + .2, p[2]]; }
 export function releaseBlockView(prefix) {
   if (/^[1-9]\d$/.test(prefix)) {
     const [x, , z] = areaOrigin(prefix);

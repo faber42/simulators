@@ -193,9 +193,9 @@ async function main() {
       ? `Zugang → Bereich ${prefix.slice(0, 2)}xxxx${prefix.length >= 3 ? ` → Gasse ${prefix.slice(0, 3)}xxx` : ''}${prefix.length >= 4 ? ` → Gruppe ${prefix.slice(0, 4)}xx` : ''}${engine.target?.tape && ['ringing', 'connected'].includes(engine.state) ? ' → Tonband' : ''}`
       : prefix ? `Zugang → Hauptgruppe ${prefix}xxxxx` : 'Zugang · Anrufsucher und erste Gruppenwähler';
     if (engine.state === 'external') $('office-location').textContent = 'Quellapparat → Anrufsucher → I. GW → 0 → Fernamt außerhalb';
-    const subscriber = engine.target?.kind === 'phone' && ['ringing', 'connected'].includes(engine.state);
+    const subscriber = ['ringing', 'connected'].includes(engine.state);
     $('subscriber-detail').hidden = !subscriber;
-    if (subscriber) $('subscriber-detail').textContent = `LW ${engine.digits.slice(0, 4)}xx → Teilnehmerleitung → ☎ ${engine.digits}`;
+    if (subscriber) $('subscriber-detail').textContent = `LW ${engine.digits.slice(0, 4)}xx ↑ OG → ${engine.target.tape ? engine.target.name : `☎ ${engine.digits}`}`;
     $('follow-view').classList.toggle('tape-view', engine.focus === 'tape');
     $('tape-transport').hidden = engine.focus !== 'tape';
     $('tape-name').textContent = tape?.short.toUpperCase() || '';
