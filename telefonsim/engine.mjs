@@ -5,10 +5,14 @@ export const CONTACTS = [
   { number: '234567', name: 'Feinmechanische Werkstatt', kind: 'phone', note: 'Am Zielapparat selbst abheben' },
   { number: '618204', name: 'Wohnzimmer', kind: 'phone', note: 'Ein zweiter Bakelitapparat' },
   { number: '405019', name: 'Bahnhofsbüro', kind: 'phone', note: 'Auch die Null macht zehn Schritte' },
-  { number: '119100', name: 'Zeitansage', kind: 'time', note: 'Beim nächsten Ton …' },
-  { number: '119200', name: 'Kinopalast', kind: 'cinema', note: 'Das heutige Programm' },
-  { number: '119300', name: 'Wetterdienst', kind: 'weather', note: 'Aussichten aus dem Ansagedienst' },
+  { number: '119100', name: 'Zeitansage', kind: 'time', tape: 'time', note: 'Tonband 01 · Beim nächsten Ton …' },
+  { number: '119200', name: 'Kinoprogramm', kind: 'cinema', tape: 'program', note: 'Tonband 02 · Das heutige Programm' },
+  { number: '119300', name: 'Wetterdienst', kind: 'weather', tape: 'program', note: 'Tonband 02 · Wetteransage' },
   { number: '234569', name: 'Besetzter Anschluss', kind: 'busy', note: 'Besetztprüfung ausprobieren' },
+];
+export const TAPE_MACHINES = [
+  { id: 'time', label: 'ZEITANSAGE', number: '119100', short: 'Band 01' },
+  { id: 'program', label: 'PROGRAMMANSAGEN', number: '119200 / 119300', short: 'Band 02' },
 ];
 export const STAGES = [
   { short: 'AS', name: 'Anrufsucher', digit: 'Leitung finden' },
@@ -36,7 +40,9 @@ export class Exchange {
     this.pulse = 0; this.pulseTotal = 0; this.currentDigit = null;
     this.dialAngle = 0; this.time = 0; this.target = null; this.revision = 0;
     this.history = []; this.announcement = ''; this.answerAt = 0;
+    this.playbackSeconds = 0;
   }
+  get tapeRunning() { return this.state === 'connected' && this.offHook && !!this.target?.tape; }
   emit(type, detail = {}) { this.revision++; this.onEvent({ type, ...detail }, this); }
   say(text) {
     this.message = text;
@@ -64,7 +70,7 @@ export class Exchange {
   lift() {
     if (this.state !== 'idle') return false;
     this.offHook = true; this.digits = ''; this.pending = []; this.target = null;
-    this.announcement = ''; this.targetOffHook = false; this.state = 'finding';
+    this.announcement = ''; this.targetOffHook = false; this.playbackSeconds = 0; this.state = 'finding';
     const finder = this.acquire(0, SOURCE.slice(0, 4));
     this.look(0); this.say('Schleife geschlossen. Der Anrufsucher sucht Anschluss 010001.');
     this.task(.85);
@@ -145,25 +151,29 @@ export class Exchange {
       this.say(this.state === 'busy' ? `${this.digits} ist besetzt. Zum Freigeben bitte auflegen.` : '000000 ist nicht beschaltet. Bitte auflegen.');
       return;
     }
-    this.state = 'ringing'; this.look('target'); this.emit('route');
-    this.say(`${this.target.name} · ${this.digits} wird gerufen.${this.target.kind === 'phone' ? ' Den Hörer in Kamera 02 anklicken.' : ' Der Ansagedienst nimmt automatisch ab.'}`);
+    this.state = 'ringing'; this.look(this.target.tape ? 'tape' : 'target'); this.emit('route');
+    this.say(this.target.tape
+      ? `${this.target.name} · ${this.digits}: Verbindung zum Tonbandgerät. Der Ansagedienst schaltet automatisch ein.`
+      : `${this.target.name} · ${this.digits} wird gerufen. Den Hörer in Kamera 02 anklicken.`);
     if (this.target.kind !== 'phone') this.task(2.1, () => {}, null, () => this.answer());
   }
   answer() {
     if (this.state !== 'ringing') return false;
-    this.state = 'connected'; this.targetOffHook = true; this.answerAt = this.time;
-    this.say(`${this.target.name} hat abgenommen. Sprechverbindung durchgeschaltet.`);
+    this.state = 'connected'; this.targetOffHook = this.target.kind === 'phone'; this.answerAt = this.time;
+    this.say(this.target.tape
+      ? `${this.target.name}: Tonband läuft. Die Ansage wiederholt sich, bis Sie den Hörer auflegen.`
+      : `${this.target.name} hat abgenommen. Sprechverbindung durchgeschaltet.`);
     this.announcement = this.serviceText(); this.emit('answer'); return true;
   }
   serviceText(date = new Date()) {
     if (!this.target) return '';
     if (this.target.kind === 'time') return `Beim nächsten Ton ist es ${date.getHours()} Uhr, ${String(date.getMinutes()).padStart(2, '0')} Minuten und ${String(date.getSeconds()).padStart(2, '0')} Sekunden. … Piep.`;
-    if (this.target.kind === 'cinema') return 'Im Kinopalast heute: „Die Reise zum Mond“ um 17 Uhr. Um 20 Uhr: „Eine Stadt am Draht“. Wir wünschen gute Unterhaltung!';
+    if (this.target.kind === 'cinema') return 'Das Kinoprogramm heute: „Die Reise zum Mond“ um 17 Uhr. Um 20 Uhr: „Eine Stadt am Draht“. Wir wünschen gute Unterhaltung!';
     if (this.target.kind === 'weather') return 'Wetter heute: heiter bis wolkig, am Nachmittag einzelne Schauer. Schwacher Westwind, 18 Grad. Eine gute Reise wünscht der Wetterdienst.';
     return `„Hallo, hier ist ${this.target.name}. Die Verbindung steht!“`;
   }
   targetHangup() {
-    if (this.state !== 'connected') return false;
+    if (this.state !== 'connected' || this.target?.kind !== 'phone') return false;
     this.targetOffHook = false; this.state = 'busy'; this.announcement = '';
     this.say('Der Zielapparat hat aufgelegt. Bitte auch den eigenen Hörer auflegen, um den Verbindungsweg freizugeben.');
     return true;
@@ -195,7 +205,10 @@ export class Exchange {
     let remaining = dt, guard = 0;
     while (remaining > 1e-8 && guard++ < 10000) {
       if (!this.activeTask) {
-        if (!this.tasks.length) break;
+        if (!this.tasks.length) {
+          if (this.tapeRunning) this.playbackSeconds += remaining;
+          break;
+        }
         this.activeTask = this.tasks.shift(); this.activeTask.start();
       }
       const task = this.activeTask, consumed = Math.min(remaining, task.duration - task.elapsed);
@@ -207,6 +220,7 @@ export class Exchange {
   snapshot() {
     return { state: this.state, offHook: this.offHook, digits: this.digits, pending: this.pending.join(''),
       focus: this.focus, pulse: this.pulse, target: this.target, targetOffHook: this.targetOffHook,
+      tapeRunning: this.tapeRunning, playbackSeconds: this.playbackSeconds,
       selectors: this.selectors.map(s => s ? { ...s } : null), allocated: this.instances.size,
       message: this.message, announcement: this.announcement };
   }

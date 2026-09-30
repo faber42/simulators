@@ -1,4 +1,4 @@
-import { Exchange, STAGES, CONTACTS, pulsesFor } from './engine.mjs';
+import { Exchange, STAGES, CONTACTS, TAPE_MACHINES, pulsesFor } from './engine.mjs';
 import { ExchangeScene } from './scene.js';
 
 const $ = id => document.getElementById(id);
@@ -28,7 +28,7 @@ class Sound {
     let volume = 0;
     if (this.enabled && !paused) {
       if (engine.state === 'ready' && !engine.digits.length) volume = .026;
-      if (engine.state === 'ringing' && engine.time % 4 < 1) volume = .045;
+      if (engine.state === 'ringing' && !engine.target?.tape && engine.time % 4 < 1) volume = .045;
       if (['busy', 'unavailable'].includes(engine.state) && engine.time % 1 < .5) volume = .03;
     }
     this.gain.gain.setTargetAtTime(volume, this.context.currentTime, .012);
@@ -142,7 +142,8 @@ async function main() {
   function updateUI() {
     $('hook').textContent = engine.offHook ? 'Hörer auflegen' : engine.state === 'releasing' ? 'Amt stellt zurück …' : 'Hörer abheben';
     $('hook').disabled = engine.state === 'releasing';
-    $('state-label').textContent = STATE_NAMES[engine.state].toUpperCase(); $('status').textContent = engine.message;
+    const tape = TAPE_MACHINES.find(t => t.id === engine.target?.tape);
+    $('state-label').textContent = (tape && engine.state === 'ringing' ? 'Tonbandanlauf' : engine.tapeRunning ? 'Bandwiedergabe' : STATE_NAMES[engine.state]).toUpperCase(); $('status').textContent = engine.message;
     $('status-light').className = `status-light ${['busy', 'unavailable'].includes(engine.state) ? 'busy' : !['idle', 'connected'].includes(engine.state) ? 'working' : ''}`;
     $('route-summary').textContent = `${engine.digits.length} / 6 Ziffern`;
     $('queue-count').textContent = engine.pending.length ? `${engine.pending.length} vorgemerkt` : '';
@@ -160,15 +161,20 @@ async function main() {
       element.querySelector('.stage-state').textContent = selector?.phase || 'frei';
     });
     const s = typeof engine.focus === 'number' ? engine.selectors[engine.focus] : null;
-    $('focus-name').textContent = s ? STAGES[s.stage].name.toUpperCase() : engine.focus === 'target' ? (engine.target?.name || 'ZIELAPPARAT').toUpperCase() : 'VERBINDUNG VERFOLGEN';
+    $('focus-name').textContent = s ? STAGES[s.stage].name.toUpperCase() : ['target', 'tape'].includes(engine.focus) ? (engine.target?.name || 'ZIELAPPARAT').toUpperCase() : 'VERBINDUNG VERFOLGEN';
     $('level').textContent = s ? `${s.level} / 10` : '—'; $('rotation').textContent = s ? `${s.rotary} / 10` : '—';
     $('pulses').textContent = engine.currentDigit !== null ? `${engine.pulse} / ${engine.pulseTotal}` : '—';
     $('mechanism-readout').hidden = !s;
-    $('focus-description').textContent = s ? `${s.stage === 0 ? 'Anschluss 010001' : `Gruppe ${s.prefix || 'alle Anschlüsse'}${s.prefix ? '…' : ''}`} · ${s.phase}` : engine.focus === 'target' ? `${engine.digits} · ${engine.state === 'ringing' ? 'Rufstrom liegt an' : 'Zielanschluss'}` : 'Vom Apparat durch das Amt bis zum Ziel.';
+    $('focus-description').textContent = s ? `${s.stage === 0 ? 'Anschluss 010001' : `Gruppe ${s.prefix || 'alle Anschlüsse'}${s.prefix ? '…' : ''}`} · ${s.phase}` : engine.focus === 'tape' ? `${engine.digits} · ${engine.tapeRunning ? 'Band läuft bis zum Auflegen' : 'Tonbandgerät schaltet ein'}` : engine.focus === 'target' ? `${engine.digits} · ${engine.state === 'ringing' ? 'Rufstrom liegt an' : 'Zielanschluss'}` : 'Vom Apparat durch das Amt bis zum Ziel.';
+    $('follow-view').classList.toggle('tape-view', engine.focus === 'tape');
+    $('tape-transport').hidden = engine.focus !== 'tape';
+    $('tape-name').textContent = tape?.short.toUpperCase() || '';
+    $('tape-mode').textContent = engine.tapeRunning ? 'WIEDERGABE · ENDLOSSCHLEIFE' : 'AUTOMATISCHER ANLAUF';
     $('answer').hidden = engine.state !== 'ringing' || engine.target?.kind !== 'phone';
     $('announcement').hidden = engine.state !== 'connected';
     $('announcement-type').textContent = engine.target?.kind === 'phone' ? 'SPRECHVERBINDUNG' : 'AUTOMATISCHER ANSAGEDIENST · SIMULIERTE ANSAGE';
     $('announcement-text').textContent = engine.announcement;
+    $('target-hangup').hidden = engine.target?.kind !== 'phone';
     $('dial-hint').textContent = engine.offHook ? engine.currentDigit !== null ? `Wählscheibe läuft zurück · Ziffer ${engine.currentDigit}` : 'Ziffer anklicken oder bis zum Anschlag drehen' : 'Hörer anklicken · dann Wählscheibe drehen';
     $('log').replaceChildren(...engine.history.map(item => { const li = document.createElement('li'); li.textContent = `${item.time.toFixed(1)} s · ${item.text}`; return li; }));
     dirty = false;
@@ -183,6 +189,11 @@ async function main() {
       if (seconds !== lastTimeAnnouncement && !paused) { lastTimeAnnouncement = seconds; engine.announcement = engine.serviceText(); dirty = true; }
     }
     if (dirty) updateUI();
+    if (engine.focus === 'tape') {
+      const seconds = Math.floor(engine.playbackSeconds);
+      const text = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+      if ($('tape-counter').textContent !== text) $('tape-counter').textContent = text;
+    }
     scene.update(engine, paused ? 0 : realDt * speed, drag?.angle ?? null); scene.render(); sound.update(engine, paused);
   }
   document.addEventListener('visibilitychange', () => { last = performance.now(); if (document.hidden) sound.update(engine, true); });

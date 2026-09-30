@@ -1,5 +1,5 @@
 import * as THREE from '../pinsim/three.module.min.js';
-import { STAGES } from './engine.mjs';
+import { STAGES, TAPE_MACHINES } from './engine.mjs';
 
 const TAU = Math.PI * 2;
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -185,6 +185,70 @@ function makePhone(scene, position, color, number) {
   return { root, handset, handsetHit, dialMount, wheel, dialHits, nameTag, pickup: 0 };
 }
 
+function makeTapeMachine(scene, descriptor, baseY) {
+  const root = new THREE.Group(); root.position.set(10.15, baseY, .25); scene.add(root);
+  const cream = mat('#b5b09a', .5, .5), tapeMaterial = mat('#51372a', .15, .8);
+  box(root, 3.65, 2.92, .82, enamel, 0, 1.4, -.1);
+  box(root, 3.46, 2.72, .08, cream, 0, 1.42, .36);
+  for (const x of [-1.68, 1.68]) {
+    box(root, .09, 2.7, .15, nickel, x, 1.4, .44);
+    for (const y of [.13, 2.69]) {
+      const screw = cyl(root, .041, .025, nickel, x, y, .49); screw.rotation.x = Math.PI / 2;
+      box(root, .051, .009, .009, dark, x, y, .51);
+    }
+  }
+  plaque(root, `${descriptor.short.toUpperCase()} · ${descriptor.label}`, 0, 2.63, .42, 2.98, .24);
+  plaque(root, descriptor.number, 0, .17, .42, 2.35, .20);
+  const reels = [];
+  for (const x of [-.85, .85]) {
+    const spindle = cyl(root, .095, .28, nickel, x, 1.81, .51); spindle.rotation.x = Math.PI / 2;
+    const reel = new THREE.Group(); reel.position.set(x, 1.81, .57); reel.userData.dynamic = true; root.add(reel);
+    const pack = cyl(reel, .48, .075, tapeMaterial, 0, 0, -.035, .48, 48); pack.rotation.x = Math.PI / 2;
+    const ring = mesh(reel, geo('tape-reel-rim', () => new THREE.TorusGeometry(.60, .034, 8, 64)), nickel, 0, 0, .048);
+    for (let spoke = 0; spoke < 3; spoke++) {
+      const angle = spoke * TAU / 3;
+      const arm = box(reel, .47, .105, .035, nickel, Math.cos(angle) * .34, Math.sin(angle) * .34, .05);
+      arm.rotation.z = angle;
+    }
+    const hub = cyl(reel, .15, .09, nickel, 0, 0, .07, .15, 24); hub.rotation.x = Math.PI / 2;
+    const lock = box(reel, .20, .048, .045, dark, 0, 0, .14); lock.rotation.z = Math.PI / 4;
+    // A small red index makes even slow rotation unambiguous.
+    box(reel, .12, .046, .014, redWire, .52, 0, .085);
+    batch(reel, false); reels.push(reel);
+  }
+  // Tape runs off the reels, around guides, across the head block and capstan.
+  const points = [V(-.85, 1.34, .59), V(-1.37, 1.12, .59), V(-1.30, .91, .59),
+    V(-.46, .70, .59), V(.47, .70, .59), V(1.30, .91, .59), V(1.37, 1.12, .59), V(.85, 1.34, .59)];
+  const tapePath = new THREE.CurvePath();
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i], midpoint = a.clone().add(b).multiplyScalar(.5);
+    const ribbon = box(root, a.distanceTo(b), .029, .025, tapeMaterial, midpoint.x, midpoint.y, midpoint.z);
+    ribbon.rotation.z = Math.atan2(b.y - a.y, b.x - a.x);
+    tapePath.add(new THREE.LineCurve3(a, b));
+  }
+  for (const x of [-1.30, 1.30, .50]) {
+    const guide = cyl(root, .078, .13, nickel, x, x === .50 ? .78 : 1.04, .57); guide.rotation.x = Math.PI / 2;
+    const cap = cyl(root, .035, .04, dark, x, x === .50 ? .78 : 1.04, .67); cap.rotation.x = Math.PI / 2;
+  }
+  box(root, .65, .28, .23, dark, -.08, .82, .46);
+  box(root, .48, .17, .025, nickel, -.08, .82, .59);
+  plaque(root, 'WIEDERGABE', -.08, .85, .61, .47, .10);
+  // A small analogue level meter and mechanical transport keys.
+  box(root, .58, .30, .04, dark, -.84, .39, .43);
+  plaque(root, '−20  −10   0  +3', -.84, .42, .46, .48, .21);
+  const meter = new THREE.Group(); meter.position.set(-.84, .31, .49); meter.userData.dynamic = true; root.add(meter);
+  box(meter, .012, .15, .01, brass, 0, .07, 0);
+  for (let i = 0; i < 4; i++) box(root, .16, .12, .07, i === 1 ? brass : nickel, .19 + i * .22, .39, .47);
+  const lamp = sphere(root, .058, new THREE.MeshStandardMaterial({ color: '#534d36', emissive: '#000000' }), 1.27, .39, .49);
+  lamp.userData.dynamic = true;
+  const status = plaque(root, 'BEREIT', 0, 1.14, .49, .82, .18); status.userData.dynamic = true;
+  const splice = box(root, .045, .035, .034, cloth); splice.userData.dynamic = true; splice.position.copy(tapePath.getPoint(.05));
+  const jack = cyl(root, .062, .11, dark, -1.51, .40, .46); jack.rotation.x = Math.PI / 2;
+  tube(root, [V(-1.51, .40, .54), V(-1.76, .20, .49), V(-1.86, -.15, -.17)], .032, cloth, 18);
+  return { root, reels, lamp, status, meter, splice, tapePath, descriptor, state: '',
+    endpoint: root.position.clone().add(V(-1.51, .40, .65)) };
+}
+
 export class ExchangeScene {
   constructor(canvas, viewElements) {
     this.canvas = canvas; this.viewElements = viewElements;
@@ -222,6 +286,13 @@ export class ExchangeScene {
     }
     this.source = makePhone(this.scene, V(-11, -.10, 5.4), 'black', '010001');
     this.target = makePhone(this.scene, V(11, -.10, 5.4), 'cream', 'ZIEL');
+    this.tapes = Object.fromEntries(TAPE_MACHINES.map((descriptor, i) => [descriptor.id, makeTapeMachine(this.scene, descriptor, i === 0 ? 4.55 : .90)]));
+    for (const x of [8.23, 12.07]) {
+      box(this.scene, .12, 9.15, .16, enamel, x, 2.86, -.15);
+      box(this.scene, .45, .13, 1.7, iron, x, -1.62, .0);
+    }
+    for (const y of [.7, 4.35, 7.7]) box(this.scene, 3.96, .12, 1.22, enamel, 10.15, y, .1);
+    plaque(this.scene, 'ANSAGEDIENSTE', 10.15, 8.16, .48, 3.55, .35);
     this.routeGroup = new THREE.Group(); this.routeGroup.userData.dynamic = true; this.scene.add(this.routeGroup);
     this.routeMaterial = new THREE.MeshBasicMaterial({ color: '#edb961', transparent: true, opacity: .93, depthTest: false });
     this.routeGlow = new THREE.MeshBasicMaterial({ color: '#e7b35c', transparent: true, opacity: .10, depthTest: false, depthWrite: false });
@@ -248,13 +319,17 @@ export class ExchangeScene {
   focusFor(engine) {
     if (engine.focus === 'source') return { position: V(-10, 3.8, 10.4), target: V(-11, .3, 5.4) };
     if (engine.focus === 'target') return { position: V(11.6, 3.9, 10.4), target: V(11, .3, 5.4) };
+    if (engine.focus === 'tape') {
+      const p = this.tapes[engine.target.tape].root.position;
+      return { position: V(p.x + .55, p.y + 2.45, 6.8), target: V(p.x, p.y + 1.35, .4) };
+    }
     const selector = engine.selectors[engine.focus];
     const device = this.devices[engine.focus][selector?.row ?? 1];
     const p = device.group.position;
     return { position: V(p.x + 2.45, p.y + 2.05, 4.55), target: V(p.x, p.y + 1.16, .1) };
   }
   route(engine) {
-    const key = `${engine.selectors.map(s => s?.held ? s.key : '-').join('|')}/${engine.state === 'connected'}/${['ringing', 'connected'].includes(engine.state)}`;
+    const key = `${engine.selectors.map(s => s?.held ? s.key : '-').join('|')}/${engine.state === 'connected'}/${['ringing', 'connected'].includes(engine.state)}/${engine.target?.tape || 'phone'}`;
     if (key === this.routeKey) return;
     this.routeKey = key;
     for (const line of this.routeLines) { line.geometry.dispose(); line.removeFromParent(); }
@@ -268,7 +343,12 @@ export class ExchangeScene {
       const d = this.devices[s.stage][s.row].group.position;
       points.push(V(d.x - .65, d.y + .23, 1.07), V(d.x, d.y + 1.15, 1.08), V(d.x + .7, d.y + .23, 1.07));
     }
-    if (['ringing', 'connected'].includes(engine.state)) points.push(V(9, -.1, 1.3), V(11, .1, 5.4));
+    if (['ringing', 'connected'].includes(engine.state)) {
+      if (engine.target?.tape) {
+        const end = this.tapes[engine.target.tape].endpoint;
+        points.push(V(7.9, end.y, 1.32), end.clone());
+      } else points.push(V(9, -.1, 1.3), V(11, .1, 5.4));
+    }
     const path = new THREE.CatmullRomCurve3(points, false, 'centripetal', .1);
     for (const [r, m] of [[.024, this.routeMaterial], [.078, this.routeGlow]]) {
       const line = mesh(this.routeGroup, new THREE.TubeGeometry(path, points.length * 10, r, 5, false), m);
@@ -298,9 +378,26 @@ export class ExchangeScene {
       phone.handset.position.set(-phone.pickup * .18, .91 + phone.pickup * .55, -.46 - phone.pickup * .10);
       phone.handset.rotation.z = phone.pickup * .2;
     }
-    if (engine.state === 'ringing') this.target.handset.rotation.z = Math.sin(engine.time * 48) * .025 * (engine.time % 3 < 1 ? 1 : 0);
+    if (engine.state === 'ringing' && engine.target?.kind === 'phone') this.target.handset.rotation.z = Math.sin(engine.time * 48) * .025 * (engine.time % 3 < 1 ? 1 : 0);
+    for (const [id, tape] of Object.entries(this.tapes)) {
+      const selected = engine.target?.tape === id;
+      const running = selected && engine.tapeRunning;
+      const waiting = selected && engine.state === 'ringing';
+      if (running) {
+        const t = engine.playbackSeconds;
+        tape.reels[0].rotation.z = -t * 1.7; tape.reels[1].rotation.z = -t * 1.9;
+        tape.splice.position.copy(tape.tapePath.getPoint((t * .20) % 1));
+        tape.meter.rotation.z = -.5 + .35 * Math.sin(t * 8) + .12 * Math.sin(t * 23);
+      } else tape.meter.rotation.z = -.7;
+      const state = running ? `LÄUFT · ${engine.target.name.toUpperCase()}` : waiting ? 'STARTET …' : 'BEREIT';
+      if (state !== tape.state) {
+        tape.state = state; tape.status.material = labelMaterial(state, running ? '#a0e3bf' : '#d6c9a8', '#29302a', 27);
+        tape.lamp.material.color.set(running ? '#a0e3bf' : waiting ? '#edb961' : '#534d36');
+        tape.lamp.material.emissive.set(running ? '#3f9366' : waiting ? '#93632a' : '#000000');
+      }
+    }
     this.source.wheel.rotation.y = -(dragAngle === null ? engine.dialAngle : dragAngle);
-    const focusKey = `${engine.focus}/${typeof engine.focus === 'number' ? engine.selectors[engine.focus]?.row : ''}`;
+    const focusKey = `${engine.focus}/${typeof engine.focus === 'number' ? engine.selectors[engine.focus]?.row : engine.target?.tape || ''}`;
     if (focusKey !== this.cameraFocus) {
       this.cameraFocus = focusKey; const shot = this.focusFor(engine);
       this.goalPosition.copy(shot.position); this.goalLook.copy(shot.target);
@@ -308,7 +405,7 @@ export class ExchangeScene {
     const cameraBlend = 1 - Math.exp(-dt * 4.5);
     this.cameras.follow.position.lerp(this.goalPosition, cameraBlend); this.followLook.lerp(this.goalLook, cameraBlend);
     this.cameras.follow.lookAt(this.followLook);
-    if (engine.target && this.targetNumber !== engine.target.number) {
+    if (engine.target?.kind === 'phone' && this.targetNumber !== engine.target.number) {
       this.targetNumber = engine.target.number;
       this.target.nameTag.material = labelMaterial(`${engine.target.number} · ${engine.target.kind === 'phone' ? 'TEILNEHMER' : 'ANSCHLUSS'}`, '#e5dab8', '#29302a', 29);
     }
@@ -330,8 +427,8 @@ export class ExchangeScene {
       this.renderer.setViewport(x, y, r.width, r.height); this.renderer.setScissor(x, y, r.width, r.height);
       camera.aspect = r.width / r.height;
       if (name === 'overview') {
-        const distance = Math.max(15.6, 24 / camera.aspect);
-        camera.position.set(.6, 5.8, distance); camera.lookAt(0, 3.7, 0);
+        const distance = Math.max(16.3, 33 / camera.aspect);
+        camera.position.set(2.6, 5.8, distance); camera.lookAt(2.2, 3.7, 0);
       }
       camera.updateProjectionMatrix();
       // The illuminated overlay is the maintenance view's circuit tracing aid.

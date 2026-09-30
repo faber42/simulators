@@ -34,8 +34,9 @@ test('all zero digits generate ten pulses; leading zeros survive number input', 
 test('all three services auto-answer and have distinct simulated text', () => {
   for (const contact of CONTACTS.filter(c => ['time', 'cinema', 'weather'].includes(c.kind))) {
     const e = new Exchange(); e.dialNumber(contact.number); runUntil(e, 'connected');
-    assert.equal(e.target.kind, contact.kind); assert.equal(e.targetOffHook, true);
-    assert.match(e.announcement, contact.kind === 'time' ? /Beim nächsten Ton/ : contact.kind === 'cinema' ? /Im Kinopalast heute/ : /Wetter heute/);
+    assert.equal(e.target.kind, contact.kind); assert.equal(e.targetOffHook, false);
+    assert.equal(e.focus, 'tape'); assert.equal(e.tapeRunning, true);
+    assert.match(e.announcement, contact.kind === 'time' ? /Beim nächsten Ton/ : contact.kind === 'cinema' ? /Kinoprogramm heute/ : /Wetter heute/);
     e.hangup(); runUntil(e, 'idle');
   }
 });
@@ -45,6 +46,7 @@ test('hangup at every phase cancels queued digits and delayed answers', () => {
     const e = new Exchange(); e.dialNumber('119100'); e.step(duration); e.hangup(); e.step(100);
     assert.equal(e.state, 'idle', `hangup at ${duration}`); assert.equal(e.offHook, false);
     assert.equal(e.targetOffHook, false); assert.equal(e.pending.length, 0);
+    assert.equal(e.tapeRunning, false);
     assert.equal(e.currentDigit, null); assert.equal(e.activeTask, null); assert.equal(e.tasks.length, 0);
     assert.equal(e.selectors.filter(Boolean).length, 0);
   }
@@ -85,4 +87,30 @@ test('a dial wound with the mouse starts returning immediately and still emits t
   e.step(.05); assert.equal(e.pulse, 1); assert.ok(e.dialAngle < 11 * Math.PI / 6);
   runUntil(e, 'ready'); assert.equal(e.digits, '0'); assert.equal(e.selectors[1].level, 10);
   assert.equal(e.dialAngle, 0);
+});
+
+test('announcement tapes run until the caller hangs up and never lift or ring a target handset', () => {
+  const e = new Exchange(); e.dialNumber('119100'); runUntil(e, 'ringing');
+  assert.equal(e.focus, 'tape'); assert.equal(e.target.tape, 'time');
+  assert.equal(e.tapeRunning, false); assert.equal(e.targetOffHook, false);
+  runUntil(e, 'connected');
+  const start = e.playbackSeconds; e.step(120);
+  assert.equal(e.state, 'connected'); assert.equal(e.tapeRunning, true);
+  assert.ok(Math.abs(e.playbackSeconds - start - 120) < 1e-8);
+  assert.equal(e.targetOffHook, false); assert.equal(e.targetHangup(), false);
+  const paused = e.snapshot(); e.step(0); assert.deepEqual(e.snapshot(), paused);
+  e.hangup(); assert.equal(e.tapeRunning, false);
+  const stoppedAt = e.playbackSeconds; e.step(60);
+  assert.equal(e.state, 'idle'); assert.equal(e.playbackSeconds, stoppedAt);
+  e.dialNumber('119200'); runUntil(e, 'connected');
+  assert.equal(e.target.name, 'Kinoprogramm'); assert.equal(e.target.tape, 'program');
+  assert.ok(e.playbackSeconds < .02, 'new playback starts at the beginning');
+});
+
+test('tape playback accounts only for connected simulation time, independent of step size', () => {
+  const slow = new Exchange(), fast = new Exchange(); slow.dialNumber('119200'); fast.dialNumber('119200');
+  for (let i = 0; i < 6000; i++) slow.step(.01); fast.step(60);
+  assert.equal(slow.state, 'connected'); assert.equal(fast.state, 'connected');
+  assert.ok(Math.abs(slow.playbackSeconds - fast.playbackSeconds) < 1e-8);
+  assert.ok(fast.playbackSeconds > 30 && fast.playbackSeconds < 60);
 });

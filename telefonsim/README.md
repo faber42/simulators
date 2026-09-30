@@ -2,7 +2,7 @@
 
 Eine elektromechanische Vermittlung mit sechsstelligen Rufnummern. Vom eigenen
 Bakelitapparat über den Anrufsucher und vier Gruppenwähler zum Leitungswähler
-und schließlich zum Zielapparat. Drei Kameras zeigen gleichzeitig den eigenen
+und schließlich zum Zielapparat oder zum Tonbandgerät. Drei Kameras zeigen gleichzeitig den eigenen
 Apparat, den gerade arbeitenden Wähler und den gesamten aktiven Schrank.
 
 Start aus dem Repository: `npm start`, dann <http://localhost:3000/telefonsim/>.
@@ -18,7 +18,15 @@ Kein Build, kein CDN, keine Installation zusätzlicher Abhängigkeiten.
   als einzelne Impulsfolgen. Führende Nullen bleiben erhalten.
 - Im Telefonbuch einen Eintrag auswählen und „Wählen“ drücken.
 - Normale Teilnehmer: den Zielhörer in Kamera 02 anklicken oder den dortigen
-  Abheben-Button drücken. Die Ansagedienste nehmen automatisch ab.
+  Abheben-Button drücken. Die Ansagedienste nehmen automatisch ab und führen
+  zu zwei Tonbandgeräten rechts neben dem Wählerschrank: Band 01 für die
+  Zeitansage, Band 02 für Kinoprogramm und Wetterdienst. Die Kamera schwenkt
+  zum richtigen Gerät; der Leitungsweg endet an dessen Anschlussbuchse.
+- Die Bandspulen, das Band und der Pegelzeiger bewegen sich während der
+  Wiedergabe. Der Bandzähler läuft mit der Simulationszeit. Das angewählte
+  Gerät läuft in einer dargestellten Endlosschleife bis zum Auflegen des
+  Anrufers. Pause hält auch den Bandtransport an. Der Zielapparat bleibt bei
+  Ansagen unberührt; Auflegen stoppt das Band sofort.
 - Eigenen Hörer auflegen (oder Escape): alle belegten Wähler lösen aus,
   drehen aus der Kontaktbank, fallen ab und stellen zurück. Kamera 02 folgt
   der Rückstellung in bewusst verlangsamter Reihenfolge.
@@ -51,9 +59,9 @@ einen generischen Apparat, mit folgenden definierten Ausnahmen:
 | 234567 | Feinmechanische Werkstatt |
 | 618204 | Wohnzimmer |
 | 405019 | Bahnhofsbüro |
-| 119100 | Zeitansage (lokale Systemzeit) |
-| 119200 | erfundenes Kinoprogramm als Text |
-| 119300 | erfundene Wetteransage als Text, keine Wetterdaten |
+| 119100 | Zeitansage (lokale Systemzeit), Tonband 01 |
+| 119200 | Kinoprogramm (erfunden, als Text), Tonband 02 |
+| 119300 | Wetterdienst (erfundene Textansage, keine Wetterdaten), Tonband 02 |
 | 234569 | dauerhaft besetzter Testanschluss |
 | 000000 | nicht beschalteter Testanschluss |
 
