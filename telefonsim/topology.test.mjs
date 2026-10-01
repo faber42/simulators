@@ -28,7 +28,7 @@ test('each hundred-group has ten final selectors in a fixed rack with both last 
     const rack = racksInArea(prefix.slice(0, 2)).find(r => r.id === sites[0].rack);
     assert.ok(rack); assert.ok(sites.every(s => s.rack === rack.id && s.shelf < rack.shelves));
     assert.notDeepEqual(selectorSite(5, prefix, 0).position, selectorSite(5, prefix, 1).position);
-    assert.deepEqual(targetPosition(prefix + '01'), targetPosition(prefix + '99'), 'one local display desk per destination bank');
+    assert.notDeepEqual(targetPosition(prefix + '01'), targetPosition(prefix + '99'), 'different subscribers have their own fixed upper-floor positions');
   }
   assert.notDeepEqual(selectorSite(5, '2345').position, selectorSite(5, '6182').position);
   assert.throws(() => selectorSite(5, '234')); assert.throws(() => selectorSite(3, 'ab'));
@@ -91,7 +91,7 @@ test('subscriber risers are vertical above the actual final selector outlet', ()
     const lw = selectorSite(5, number.slice(0, 4), slot).position;
     const riser = subscriberHandoff(number, slot), phone = targetPosition(number, slot);
     assert.equal(riser[0], lw[0]); assert.equal(riser[2], lw[2] + 1);
-    assert.equal(phone[0], riser[0]); assert.equal(phone[2], riser[2]);
+    assert.deepEqual(phone, targetPosition(number), 'phone position depends on the full number, not the selected outlet');
     assert.ok(riser[1] > WHOLE_OFFICE_BOUNDS.max[1]); assert.ok(phone[1] > riser[1]);
   }
 });

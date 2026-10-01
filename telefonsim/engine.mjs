@@ -27,6 +27,8 @@ export const STAGES = [
   { short: 'LW', name: 'Leitungswähler', digit: 'Ziffer 5 + 6' },
 ];
 export const pulsesFor = digit => digit === '0' ? 10 : Number(digit);
+export const dialStopAngle = digit => (pulsesFor(digit) + 1) * Math.PI / 6;
+const DIAL_WIND_SECONDS = .38;
 export function resolveNumber(number) {
   if (!/^(?:0\d{0,5}|[1-9]\d{5})$/.test(number)) throw new Error('Ortsrufnummern haben sechs Ziffern; 0 führt zum Fernamt.');
   if (number === SOURCE) return { number, name: 'Eigener Anschluss', kind: 'busy' };
@@ -42,11 +44,16 @@ export class Exchange {
     this.selectors = Array(6).fill(null); this.instances = new Map();
     this.focus = 0; this.release = null; this.message = 'Hörer abheben, dann eine sechsstellige Nummer wählen.';
     this.pulse = 0; this.pulseTotal = 0; this.currentDigit = null;
+    this.dialHeld = null;
     this.dialAngle = 0; this.time = 0; this.target = null; this.revision = 0;
     this.history = []; this.announcement = ''; this.answerAt = 0;
     this.playbackSeconds = 0;
   }
   get tapeRunning() { return this.state === 'connected' && this.offHook && !!this.target?.tape; }
+  get canPressDigit() {
+    return this.offHook && this.state === 'ready' && !this.dialHeld && this.currentDigit === null
+      && !this.pending.length && this.digits.length < 6;
+  }
   get dialTone() {
     return this.offHook && ['finding', 'ready'].includes(this.state) && !!this.selectors[1]?.held
       && !this.digits.length && this.currentDigit === null;
@@ -96,7 +103,38 @@ export class Exchange {
     this.task(CAMERA_TRAVEL_SECONDS + .1, () => {}, null, () => { this.state = 'ready'; this.look(1); this.nextDigit(); });
     return true;
   }
+  pressDigit(digit) {
+    if (!/^\d$/.test(String(digit)) || !this.canPressDigit) return false;
+    digit = String(digit);
+    this.dialHeld = { digit, released: false }; this.currentDigit = digit;
+    this.state = 'winding'; this.pulse = 0; this.pulseTotal = pulsesFor(digit);
+    this.say(`Wählscheibe für Ziffer ${digit} aufziehen. Taste halten, dann zum Wählen loslassen.`);
+    this.task(DIAL_WIND_SECONDS, () => this.emit('wind'), t => { this.dialAngle = dialStopAngle(digit) * t; }, () => {
+      this.state = 'holding';
+      if (this.dialHeld.released) this.releaseDigit();
+      else this.say(`Ziffer ${digit} am Anschlag. Erst beim Loslassen beginnt die Impulswahl.`);
+    });
+    return true;
+  }
+  releaseDigit() {
+    if (!this.dialHeld) return false;
+    this.dialHeld.released = true;
+    if (this.state === 'holding') {
+      const digit = this.dialHeld.digit;
+      this.dialHeld = null; this.currentDigit = null; this.state = 'ready';
+      this.enqueue(digit, true);
+    } else this.emit('state'); // A short click finishes winding before returning.
+    return true;
+  }
+  cancelDigit() {
+    if (!this.dialHeld) return false;
+    this.tasks = []; this.activeTask = null; this.dialHeld = null; this.currentDigit = null;
+    this.dialAngle = 0; this.pulse = 0; this.pulseTotal = 0; this.state = 'ready';
+    this.say('Aufziehen abgebrochen. Keine Ziffer gewählt.');
+    return true;
+  }
   enqueue(digit, prewound = false) {
+    if (this.dialHeld) return false;
     if (!/^\d$/.test(String(digit)) || !this.offHook || ['releasing', 'ringing', 'connected', 'busy', 'unavailable', 'external'].includes(this.state)) return false;
     if (this.digits.length + this.pending.length + (this.currentDigit !== null ? 1 : 0) >= 6) return false;
     this.prewound = prewound && this.state === 'ready' && !this.pending.length;
@@ -118,14 +156,14 @@ export class Exchange {
     this.currentDigit = digit; this.state = 'dialing'; this.pulse = 0; this.pulseTotal = count;
     this.look(stage);
     this.say(`${STAGES[stage].name}: ${index === 5 ? 'Drehen' : 'Heben'} für Ziffer ${digit}${digit === '0' ? ' – zehn Impulse' : ` – ${count} Impulse`}.`);
-    const wound = (count + 1) * Math.PI / 6;
+    const wound = dialStopAngle(digit);
     if (this.prewound) {
       // The mouse already brought the dial to the stop; return immediately.
       this.dialAngle = wound; this.prewound = false;
     } else {
       // Leave enough time for the camera to arrive before the first pulse.
       this.task(.65);
-      this.task(.38, () => this.emit('wind'), t => { this.dialAngle = wound * t; });
+      this.task(DIAL_WIND_SECONDS, () => this.emit('wind'), t => { this.dialAngle = wound * t; });
     }
     for (let n = 1; n <= count; n++) this.task(.1, () => {
       this.pulse = n; selector.phase = index === 5 ? 'dreht' : 'hebt';
@@ -203,6 +241,7 @@ export class Exchange {
     if (!this.offHook || this.state === 'releasing') return false;
     this.offHook = false; this.targetOffHook = false; this.state = 'releasing';
     this.tasks = []; this.activeTask = null; this.pending = []; this.currentDigit = null;
+    this.dialHeld = null;
     this.dialAngle = 0; this.announcement = ''; this.pulse = 0; this.pulseTotal = 0;
     const selectors = this.selectors.filter(s => s?.held), last = selectors.at(-1);
     this.release = { prefix: last?.stage >= 2 ? last.prefix.slice(0, 2) : '',
@@ -256,7 +295,8 @@ export class Exchange {
   }
   snapshot() {
     return { state: this.state, offHook: this.offHook, digits: this.digits, pending: this.pending.join(''),
-      focus: this.focus, pulse: this.pulse, dialTone: this.dialTone, target: this.target, targetOffHook: this.targetOffHook,
+      focus: this.focus, pulse: this.pulse, currentDigit: this.currentDigit, dialAngle: this.dialAngle,
+      dialHeld: this.dialHeld ? { ...this.dialHeld } : null, dialTone: this.dialTone, target: this.target, targetOffHook: this.targetOffHook,
       release: this.release ? { ...this.release, stages: [...this.release.stages] } : null,
       tapeRunning: this.tapeRunning, playbackSeconds: this.playbackSeconds,
       selectors: this.selectors.map(s => s ? { ...s } : null), allocated: this.instances.size,

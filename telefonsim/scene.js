@@ -5,6 +5,8 @@ import { OfficeScene } from './office-scene.js';
 import { UpperFloorTransition, upperFloorRequested } from './upper-floor.mjs';
 import { FrostedView } from './frosted-view.js';
 import { HallGuide } from './hall-guide.js';
+import { subscriberAppearance } from './subscriber-catalog.mjs';
+import { makeSubscriber } from './subscriber-scene.js';
 
 const TAU = Math.PI * 2;
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -290,8 +292,7 @@ export class ExchangeScene {
     // A sparse floor grid gives the empty upper level a readable surface.
     for (let x = -560; x <= 560; x += 140) box(this.upperFloor, .18, .05, 1280, glass, x, UPPER_FLOOR_Y + .3, -500);
     for (let z = -1050; z <= 70; z += 112) box(this.upperFloor, 1320, .05, .18, glass, 0, UPPER_FLOOR_Y + .3, z);
-    this.target = makePhone(this.upperFloor, new THREE.Vector3(...targetPosition('234567')), 'cream', 'ZIEL');
-    this.target.root.userData.dynamic = true; batch(this.target.root); this.target.root.visible = false;
+    this.target = null; this.targetNumber = null;
     const external = new THREE.Group(); external.position.fromArray(EXTERNAL_GATE_POSITION); this.scene.add(external);
     cyl(external, .12, 3.6, nickel, 0, -1.2, 0);
     plaque(external, '← 0 · FERNAMT', 0, 1.1, .2, 12, 2.4);
@@ -354,8 +355,9 @@ export class ExchangeScene {
       const p = new THREE.Vector3(...EXTERNAL_GATE_POSITION);
       return { position: p.clone().add(V(1, 4.5, 19)), target: p.clone().add(V(0, .5, 0)) };
     }
-    if (engine.focus === 'source' || engine.focus === 'target') {
-      const p = engine.focus === 'source' ? this.source.root.position : this.target.root.position;
+    if (engine.focus === 'target' && this.target) return this.target.view(this.cameras.follow.aspect);
+    if (engine.focus === 'source') {
+      const p = this.source.root.position;
       return { position: p.clone().add(V(.7, 4, 5)), target: p.clone().add(V(0, .4, 0)) };
     }
     if (engine.focus === 'tape') {
@@ -384,8 +386,9 @@ export class ExchangeScene {
     const endpoint = ['ringing', 'connected'].includes(engine.state);
     const subscriberStart = endpoint ? nodes.length : Infinity;
     if (endpoint) nodes.push({ point: new THREE.Vector3(...subscriberHandoff(engine.target.number, engine.selectors[5].slot)), label: 'Steigleitung ↑ OG', subscriber: true, upper: true });
+    if (endpoint && !engine.target.tape) nodes.push({ point: this.target.root.position.clone(), label: 'Teilnehmerleitung · OG', subscriber: true, upper: true });
     if (['ringing', 'connected'].includes(engine.state)) nodes.push({
-      point: engine.target?.tape ? this.tapes[engine.target.tape].endpoint.clone() : this.target.root.position.clone().add(V(0, .3, 0)),
+      point: engine.target?.tape ? this.tapes[engine.target.tape].endpoint.clone() : this.target.endpoint,
       label: engine.target.tape ? `◉ ${engine.target.name} · OG` : `☎ Ziel ${engine.target.number} · OG`, important: true, subscriber: true, upper: true,
     });
     if (engine.state === 'external') nodes.push({ point: new THREE.Vector3(...EXTERNAL_GATE_POSITION), label: '← 0 · Fernamt (außerhalb)', important: true });
@@ -465,20 +468,19 @@ export class ExchangeScene {
       }
     }
     const destination = /^[1-9]\d{5}$/.test(engine.digits) ? engine.target || resolveNumber(engine.digits) : null;
-    const targetKey = `${destination?.number}/${engine.selectors[5]?.slot}`;
-    if (destination && !destination.tape && this.targetNumber !== targetKey) {
-      this.targetNumber = targetKey;
-      this.target.root.position.fromArray(targetPosition(destination.number, engine.selectors[5]?.slot || 0));
-      this.target.nameTag.material = labelMaterial(`${destination.number} · TEILNEHMER`, '#e5dab8', '#29302a', 29);
+    if (destination && !destination.tape && this.targetNumber !== destination.number) {
+      this.target?.dispose(); this.targetNumber = destination.number;
+      this.target = makeSubscriber(this.upperFloor, subscriberAppearance(destination.number), targetPosition(destination.number));
+    } else if ((!destination || destination.tape) && this.target) {
+      this.target.dispose(); this.target = null; this.targetNumber = null;
     }
-    this.target.root.visible = !!destination && !destination.tape;
     this.subscriberActive = ['ringing', 'connected'].includes(engine.state);
-    for (const [phone, up] of [[this.source, engine.offHook], [this.target, engine.targetOffHook]]) {
+    for (const [phone, up] of [[this.source, engine.offHook]]) {
       phone.pickup += ((up ? 1 : 0) - phone.pickup) * blend;
       phone.handset.position.set(-phone.pickup * .18, .91 + phone.pickup * .55, -.46 - phone.pickup * .10);
       phone.handset.rotation.z = phone.pickup * .2;
     }
-    if (engine.state === 'ringing' && engine.target?.kind === 'phone') this.target.handset.rotation.z = Math.sin(engine.time * 48) * .025 * (engine.time % 3 < 1 ? 1 : 0);
+    this.target?.update(engine.targetOffHook, engine.state === 'ringing' && engine.target?.kind === 'phone', engine.time, dt);
     for (const [id, tape] of Object.entries(this.tapes)) {
       const selected = engine.target?.tape === id;
       const running = selected && engine.tapeRunning;
@@ -523,7 +525,7 @@ export class ExchangeScene {
     if (this.office.addressBounds && this.overviewMode !== 'whole') frameBounds = unionBounds(frameBounds, this.office.addressBounds);
     if (descent > 0) frameBounds = unionBounds(frameBounds, boundsOf([
       ...Object.values(this.tapes).map(tape => tape.endpoint.toArray()),
-      ...(this.target.root.visible ? [this.target.root.position.toArray()] : []),
+      ...(this.target ? [this.target.root.position.toArray()] : []),
     ], 15));
     const frame = overviewFrame(frameBounds, camera.aspect, camera.fov);
     const shift = descent * Math.max(UPPER_FLOOR_Y * .35, frame.distance * .085);
@@ -607,6 +609,7 @@ export class ExchangeScene {
     this.raycaster.layers.set(viewName === 'follow' ? 1 : 0);
     this.raycaster.setFromCamera(this.pointer, this.cameras[viewName]);
     const phone = viewName === 'source' ? this.source : this.target;
+    if (!phone) return null;
     const hits = this.raycaster.intersectObjects([phone.handsetHit, ...phone.dialHits], false);
     return hits[0]?.object.userData || null;
   }

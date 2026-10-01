@@ -1,9 +1,11 @@
-import { Exchange, STAGES, CONTACTS, TAPE_MACHINES, pulsesFor } from './engine.mjs';
+import { Exchange, STAGES, CONTACTS, TAPE_MACHINES, dialStopAngle } from './engine.mjs';
 import { ExchangeScene } from './scene.js';
 import { selectorSite, releaseBlockView } from './topology.mjs';
+import { bindDialKey } from './dial-key.mjs';
+import { subscriberAppearance, subscriberExamples } from './subscriber-catalog.mjs';
 
 const $ = id => document.getElementById(id);
-const STATE_NAMES = { idle: 'Ruhelage', finding: 'Anrufsucher läuft', ready: 'Wählbereit', dialing: 'Impulswahl', hunting: 'Freisuche', ringing: 'Ruf zum Teilnehmer', connected: 'Sprechverbindung', busy: 'Besetzt', unavailable: 'Nicht beschaltet', external: 'Fernamtsabgang 0', releasing: 'Verbindung wird ausgelöst' };
+const STATE_NAMES = { idle: 'Ruhelage', finding: 'Anrufsucher läuft', ready: 'Wählbereit', winding: 'Wählscheibe aufziehen', holding: 'Wählscheibe am Anschlag', dialing: 'Impulswahl', hunting: 'Freisuche', ringing: 'Ruf zum Teilnehmer', connected: 'Sprechverbindung', busy: 'Besetzt', unavailable: 'Nicht beschaltet', external: 'Fernamtsabgang 0', releasing: 'Verbindung wird ausgelöst' };
 
 class Sound {
   constructor() { this.enabled = false; this.context = null; }
@@ -46,10 +48,18 @@ async function main() {
     element.innerHTML = `<b>${stage.short}</b><span class="digit">—</span><small>${stage.digit}</small><small class="stage-state">frei</small>`;
     element.title = stage.name; $('route').append(element); return element;
   });
+  const digitKeys = [];
   for (const digit of ['1','2','3','4','5','6','7','8','9','0']) {
     if (digit === '0') { const note = document.createElement('span'); note.className = 'key-label'; note.textContent = 'IMPULSWAHL'; $('keypad').append(note); }
     const button = document.createElement('button'); button.textContent = digit; button.dataset.digit = digit; button.setAttribute('aria-label', `Ziffer ${digit} wählen`);
-    button.onclick = () => dial(digit); $('keypad').append(button);
+    const key = bindDialKey(button, {
+      press: () => {
+        if (paused || drag || !engine.pressDigit(digit)) return false;
+        feedback(''); return true;
+      },
+      release: () => engine.releaseDigit(), cancel: () => engine.cancelDigit(), activate: () => dial(digit),
+    });
+    digitKeys.push({ button, key }); $('keypad').append(button);
     if (digit === '0') { const note = document.createElement('span'); note.className = 'key-label'; note.textContent = '0 = 10'; $('keypad').append(note); }
   }
   for (const contact of CONTACTS) {
@@ -58,14 +68,22 @@ async function main() {
     button.onclick = () => { $('target-number').value = contact.number; feedback(`${contact.name} ausgewählt. „Wählen“ startet den Anruf.`); };
     $('directory').append(button);
   }
+  for (const profile of subscriberExamples()) {
+    const button = document.createElement('button'); button.className = 'apparatus-example';
+    const name = document.createElement('span'); name.textContent = profile.model.name;
+    const number = document.createElement('b'); number.textContent = profile.number; button.append(name, number);
+    button.onclick = () => { $('target-number').value = profile.number; feedback(`${profile.model.name} ausgewählt. „Wählen“ startet den Anruf.`); };
+    $('apparatus-examples').append(button);
+  }
   function feedback(text) { $('input-feedback').textContent = text; }
   function dial(digit, prewound = false) {
     if (paused) { feedback('Die Simulation ist pausiert. Mit „Weiter“ fortsetzen.'); return; }
+    if (drag || engine.dialHeld) { feedback('Bitte die Wählscheibe oder die gedrückte Zifferntaste erst loslassen.'); return; }
     if (!engine.enqueue(digit, prewound)) feedback(!engine.offHook ? 'Bitte zuerst den Hörer abheben.' : 'Für eine neue Rufnummer bitte auflegen. Die laufende Wahl wird vollständig geschaltet.');
     else feedback('');
   }
   function hook() {
-    drag = null;
+    cancelManualInput();
     if (engine.offHook) { engine.hangup(); feedback(''); }
     else if (engine.state === 'idle') { engine.lift(); feedback(''); }
     else feedback('Die Wähler kehren noch in die Ruhelage zurück.');
@@ -89,7 +107,7 @@ async function main() {
   const speeds = [.5, 1, 2, 4];
   $('speed').onclick = () => { speed = speeds[(speeds.indexOf(speed) + 1) % speeds.length]; $('speed').textContent = `Tempo ${String(speed).replace('.', ',')}×`; };
   $('pause').onclick = () => {
-    paused = !paused; drag = null; $('pause').textContent = paused ? 'Weiter' : 'Pause';
+    paused = !paused; cancelManualInput(); dirty = true; $('pause').textContent = paused ? 'Weiter' : 'Pause';
     $('pause').setAttribute('aria-pressed', String(paused)); document.body.classList.toggle('paused', paused);
   };
   $('sound').onclick = async () => {
@@ -97,7 +115,7 @@ async function main() {
     catch { feedback('Audio ist in diesem Browser nicht verfügbar. Die Textanzeigen bleiben nutzbar.'); }
   };
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { drag = null; engine.hangup(); return; }
+    if (event.key === 'Escape') { cancelManualInput(); engine.hangup(); return; }
     if (event.ctrlKey || event.altKey || event.metaKey || /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) return;
     if (/^\d$/.test(event.key)) { event.preventDefault(); dial(event.key); }
     if (event.code === 'Space' && !/BUTTON|SUMMARY|A/.test(event.target.tagName)) { event.preventDefault(); $('pause').click(); }
@@ -109,10 +127,10 @@ async function main() {
     if (picked?.action === 'handset') { hook(); return; }
     if (picked?.digit === undefined) return;
     if (!engine.offHook) { feedback('Bitte zuerst den Hörer abheben.'); return; }
-    if (paused || engine.state !== 'ready' || engine.currentDigit !== null) { feedback('Bitte warten, bis der Wähler bereit ist. Ziffern können auch auf der Tastatur vorgemerkt werden.'); return; }
+    if (paused || !engine.canPressDigit) { feedback('Bitte warten, bis der Wähler bereit ist. Ziffern können auch auf der Computertastatur vorgemerkt werden.'); return; }
     const angle = scene.dialPointerAngle(event.clientX, event.clientY);
     if (angle === null) return;
-    drag = { digit: picked.digit, last: angle, angle: 0, max: (pulsesFor(picked.digit) + 1) * Math.PI / 6, x: event.clientX, y: event.clientY, moved: false, pointerId: event.pointerId };
+    drag = { digit: picked.digit, last: angle, angle: 0, max: dialStopAngle(picked.digit), x: event.clientX, y: event.clientY, moved: false, pointerId: event.pointerId };
     hit.setPointerCapture(event.pointerId); event.preventDefault();
   });
   hit.addEventListener('pointermove', event => {
@@ -135,6 +153,15 @@ async function main() {
   hit.addEventListener('pointerup', event => finishDrag(event));
   hit.addEventListener('pointercancel', event => finishDrag(event, true));
   hit.addEventListener('lostpointercapture', event => { if (drag?.pointerId === event.pointerId) { drag = null; dirty = true; } });
+  function cancelManualInput() {
+    digitKeys.forEach(({ key }) => key.cancel());
+    if (drag) {
+      const pointerId = drag.pointerId; drag = null;
+      if (hit.hasPointerCapture(pointerId)) hit.releasePointerCapture(pointerId);
+    }
+    dirty = true;
+  }
+  window.addEventListener('blur', cancelManualInput);
   $('follow-hit').addEventListener('pointerdown', event => {
     if (engine.focus !== 'target') return;
     const picked = scene.pick('follow', event.clientX, event.clientY);
@@ -157,8 +184,7 @@ async function main() {
       const span = document.createElement('span'); span.textContent = number[i] ?? '—';
       if (i >= engine.digits.length) span.className = 'queued'; return span;
     }));
-    const allowDigit = engine.offHook && !['ringing', 'connected', 'busy', 'unavailable', 'external', 'releasing'].includes(engine.state) && number.length < 6;
-    document.querySelectorAll('[data-digit]').forEach(button => { button.disabled = !allowDigit; });
+    digitKeys.forEach(({ button, key }) => { button.disabled = paused || (!key.pressed && !engine.canPressDigit); });
     routeElements.forEach((element, index) => {
       const selector = engine.selectors[index];
       element.classList.toggle('held', !!selector?.held); element.classList.toggle('active', engine.focus === index && !!selector);
@@ -197,6 +223,12 @@ async function main() {
     $('subscriber-detail').hidden = !subscriber;
     if (subscriber) $('subscriber-detail').textContent = `LW ${engine.digits.slice(0, 4)}xx ↑ OG → ${engine.target.tape ? engine.target.name : `☎ ${engine.digits}`}`;
     $('follow-view').classList.toggle('tape-view', engine.focus === 'tape');
+    $('target-style').hidden = engine.focus !== 'target' || !engine.target;
+    if (engine.focus === 'target' && engine.target) {
+      const profile = subscriberAppearance(engine.target.number);
+      $('target-model').textContent = profile.model.name;
+      $('target-setting').textContent = `${profile.colour.name} · ${profile.setting.name} · ${profile.finish.name}`;
+    }
     $('tape-transport').hidden = engine.focus !== 'tape';
     $('tape-name').textContent = tape?.short.toUpperCase() || '';
     $('tape-mode').textContent = engine.tapeRunning ? 'WIEDERGABE · ENDLOSSCHLEIFE' : 'AUTOMATISCHER ANLAUF';
@@ -205,7 +237,9 @@ async function main() {
     $('announcement-type').textContent = engine.target?.kind === 'phone' ? 'SPRECHVERBINDUNG' : 'AUTOMATISCHER ANSAGEDIENST · SIMULIERTE ANSAGE';
     $('announcement-text').textContent = engine.announcement;
     $('target-hangup').hidden = engine.target?.kind !== 'phone';
-    $('dial-hint').textContent = engine.offHook ? engine.currentDigit !== null ? `Wählscheibe läuft zurück · Ziffer ${engine.currentDigit}` : 'Ziffer anklicken oder bis zum Anschlag drehen' : 'Hörer anklicken · dann Wählscheibe drehen';
+    $('dial-hint').textContent = engine.dialHeld
+      ? engine.state === 'holding' ? `Ziffer ${engine.currentDigit} am Anschlag · Taste loslassen` : `Wählscheibe zieht auf · Ziffer ${engine.currentDigit}`
+      : engine.offHook ? engine.currentDigit !== null ? `Wählscheibe läuft zurück · Ziffer ${engine.currentDigit}` : 'Zifferntaste halten oder Wählscheibe drehen' : 'Hörer anklicken · dann Wählscheibe drehen';
     $('log').replaceChildren(...engine.history.map(item => { const li = document.createElement('li'); li.textContent = `${item.time.toFixed(1)} s · ${item.text}`; return li; }));
     dirty = false;
   }
@@ -226,9 +260,9 @@ async function main() {
     }
     scene.update(engine, paused ? 0 : realDt * speed, drag?.angle ?? null); scene.render(); sound.update(engine, paused);
   }
-  document.addEventListener('visibilitychange', () => { last = performance.now(); if (document.hidden) sound.update(engine, true); });
+  document.addEventListener('visibilitychange', () => { last = performance.now(); if (document.hidden) { cancelManualInput(); sound.update(engine, true); } });
   $('scene').addEventListener('webglcontextlost', event => {
-    event.preventDefault(); paused = true; sound.update(engine, true);
+    event.preventDefault(); paused = true; cancelManualInput(); sound.update(engine, true);
     $('loader').hidden = false; $('loader').classList.add('error'); $('loader').textContent = 'Die 3D-Verbindung wurde unterbrochen. Bitte die Seite neu laden.';
   });
   // A read-only snapshot helps inspect the independent switching model.

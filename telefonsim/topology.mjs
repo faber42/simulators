@@ -1,5 +1,6 @@
 // A spatial model of the local destination number space, not a historical
 // traffic-engineered exchange. Every pool has ten permanent equipment slots.
+import { subscriberAppearance } from './subscriber-catalog.mjs';
 export const OFFICE = Object.freeze({ areas: 90, subscribers: 900_000, poolSize: 10,
   finalSelectors: 90_000, groupSelectors: 10_000, sourceFinders: 10,
   areaPitchX: 140, areaPitchZ: 112 });
@@ -70,12 +71,15 @@ export const UPPER_FLOOR_CENTER = [0, UPPER_FLOOR_Y, -510];
 export function tapePosition(id) {
   return [UPPER_FLOOR_CENTER[0], UPPER_FLOOR_Y + (id === 'time' ? 6.25 : 2.60), UPPER_FLOOR_CENTER[2]];
 }
-export function targetPosition(number, slot = 0) {
+export function targetPosition(number) {
+  const [x, z] = subscriberAppearance(number).planPosition;
+  return [x, UPPER_FLOOR_Y + .4, z];
+}
+export function subscriberHandoff(number, slot = 0) {
   if (!/^[1-9]\d{5}$/.test(number)) throw new Error('Ungültige örtliche Zielnummer');
   const [x, , z] = selectorSite(5, number.slice(0, 4), slot).position;
-  return [x, UPPER_FLOOR_Y + 1.8, z + 1];
+  return [x, UPPER_FLOOR_Y + .2, z + 1];
 }
-export function subscriberHandoff(number, slot = 0) { const p = targetPosition(number, slot); return [p[0], UPPER_FLOOR_Y + .2, p[2]]; }
 export function releaseBlockView(prefix) {
   if (/^[1-9]\d$/.test(prefix)) {
     const [x, , z] = areaOrigin(prefix);

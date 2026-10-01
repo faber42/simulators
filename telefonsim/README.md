@@ -18,7 +18,15 @@ Kein Build, kein CDN, keine Installation zusätzlicher Abhängigkeiten.
   starten wie bisher erst nach dieser Kamerafahrt, mit normalem Impulstakt.
 - Ein Fingerloch anklicken (automatisches Aufziehen) oder im Uhrzeigersinn bis
   zum Anschlag ziehen und loslassen. Ein abgebrochener Zug wählt keine Ziffer.
-- Alternativ die Nummerntastatur, Tasten 0–9 oder das Eingabefeld benutzen.
+- Die Zifferntasten rechts bedienen dieselbe Wählscheibe: beim Drücken zieht
+  sie bis zum Anschlag der Ziffer auf und bleibt dort, solange die Taste
+  gehalten wird. Erst beim Loslassen läuft sie zurück und gibt die Impulse ab.
+  Ein kurzer Klick zieht vollständig auf und läuft danach zurück. Auch ein
+  Loslassen außerhalb der Taste wird erfasst. Während Rücklauf und Vermittlung
+  sind die Zifferntasten bis zur nächsten Wahlbereitschaft gesperrt.
+  Auflegen, Pause oder Fensterwechsel brechen eine noch gehaltene Taste ohne
+  Wahl ab. Die Null erzeugt beim Rücklauf weiterhin zehn Impulse.
+- Alternativ Computertasten 0–9 oder das Eingabefeld benutzen.
   Die Direkteingabe hebt auch den Hörer ab und wählt die Nummer vollständig
   als einzelne Impulsfolgen. Eine führende 0 schaltet nach dem I. GW zum
   Fernamt außerhalb der Darstellung; weitere vorgemerkte Ziffern werden nicht
@@ -76,8 +84,8 @@ Kein Build, kein CDN, keine Installation zusätzlicher Abhängigkeiten.
   Etage eingeblendet (0,8 Sekunden). Der Saal bleibt weich und gedämpft wie
   hinter Milchglas erkennbar. Beim Auflegen verschwindet die obere Ebene
   wieder vor der gemeinsamen Rückstellung; eine führende 0 blendet sie nie ein.
-- Zielapparate stehen unmittelbar über dem genutzten Leitungswähler, auf der
-  oberen Etage. Die hellblaue Teilnehmerleitung führt senkrecht hinauf.
+- Die hellblaue Teilnehmerleitung steigt am genutzten Leitungswähler senkrecht
+  hinauf und führt auf der oberen Etage zum festen Standort des Zielapparats.
   Ansagerufe steigen ebenfalls dort hoch und führen oben zu den beiden
   zentralen Tonbandgeräten. Kamera 2 zeigt das angewählte Gerät weiterhin
   bedienbar aus der Nähe. Kamera 1 bleibt beim Quellapparat.
@@ -101,7 +109,8 @@ adressiert: I. GW → 9 Gruppen II. GW → 90 Gruppen III. GW → 900 Gruppen
 IV. GW → 9.000 Hundertergruppen mit Leitungswählern. Logische Wählerinstanzen
 werden beim Erreichen eines Präfixes angelegt und wiederverwendet. So ändern
 sich die Gruppen tatsächlich mit der gewählten Nummer. Ortsnummern erreichen
-einen generischen Apparat, mit folgenden definierten Ausnahmen:
+einen aus der vollständigen Rufnummer bestimmten Apparat, mit folgenden
+definierten Anschlussnamen und Ausnahmen:
 
 | Rufnummer | Anschluss |
 |---|---|
@@ -114,6 +123,32 @@ einen generischen Apparat, mit folgenden definierten Ausnahmen:
 | 119300 | Wetterdienst (erfundene Textansage, keine Wetterdaten), Tonband 02 |
 | 234569 | dauerhaft besetzter Testanschluss |
 | 0 / 0… | Abgang zum Fernamt; weitere Vermittlung außerhalb des Modells |
+
+### Unterschiedliche Zielapparate
+
+26 eigenständige Formtypen kombinieren sich mit 12 Gehäusefarben, 18 passenden
+Umgebungen und fünf Möbelausführungen. Dazu gehören klassische Tisch- und
+Säulenapparate, Art-déco- und Stromlinienformen, einteilige Standhörer,
+Tasten- und Mehrleitungsapparate, Wandkästen, Industrie- und Münzfernsprecher.
+Die Geräte stehen unter anderem auf Schreibtischen, Nachtschränken, Werkbänken,
+Cafétischen und Bartheken, hängen an unterschiedlichen Wänden oder befinden
+sich in einer Telefonzelle. Die Formen sind freie historische Anlehnungen,
+keine maßgenauen Nachbauten benannter Hersteller.
+
+Form, kompatible Farbe und Umgebung, Möbelausführung, kleine Ausstattung,
+Position und Ausrichtung werden unabhängig voneinander aus der vollständigen
+sechsstelligen Rufnummer berechnet. Derselbe Anschluss sieht auch nach einem
+Neuladen gleich aus und steht unabhängig vom genutzten Wählerplatz am selben
+Ort. Erst am Ende der Wahl entsteht **ein** Zielapparat samt Umgebung; beim
+Auflegen oder Anschlusswechsel wird er einschließlich seiner Grafikressourcen
+entfernt. Die übrigen Teilnehmer sind nicht als versteckte Objekte vorhanden.
+Die Tonbanddienste behalten ihre festen Geräte und Standorte.
+
+„26 Apparatvarianten entdecken“ enthält für jede Form eine Beispielrufnummer.
+Zum Ausprobieren: **300002** (Pyramidenapparat an der Bar), **300043**
+(hölzerner Wandkasten), **300074** (Münzfernsprecher in der Telefonzelle).
+Kamera 2 richtet ihren Blick nach Gerät und Umgebung aus. Der sichtbare Hörer
+bleibt anklickbar; die Schaltfläche zum Abheben ist ebenfalls verfügbar.
 
 Simuliert wird **ein Gespräch zur Zeit**, nicht die Verkehrslast eines
 Großamts. Der Saal bildet den örtlichen Zielnummernraum 100000–999999 mit
@@ -159,6 +194,12 @@ Das Modell vereinfacht historische Nummerierungs- und Fernwahlpläne.
 - `engine.mjs` ist eine unabhängige, deterministische Zustandsmaschine.
   Alle Wahl-, Ruf- und Rückstellzeiten gehören zur Simulationszeit. Auflegen
   entfernt ausstehende Impulse und automatisches Abheben atomar.
+- `subscriber-catalog.mjs` enthält die deterministische Teilnehmerausstattung;
+  `subscriber-scene.js` baut und entsorgt die zugehörige 3D-Szene. Feste Teile
+  werden instanziert, der bewegliche Hörer besitzt eine eigene Trefferfläche.
+- Das manuelle Aufziehen und Halten der Zifferntasten liegt ebenfalls in der
+  Zustandsmaschine. `dial-key.mjs` verwaltet Zeigererfassung, Loslassen und
+  Abbruch; der anschließende Klick erzeugt keine doppelte Ziffer.
 - `hall-guide.mjs` ordnet erreichte Wahlstufen dem vergrößerten Blockplan zu;
   `hall-guide.js` zeichnet dessen Beschriftungen und die Verbindung zum Saal.
 - Die Zeitansage liest bewusst die lokale Uhr; sie aktualisiert sich nicht
@@ -170,7 +211,9 @@ Das Modell vereinfacht historische Nummerierungs- und Fernwahlpläne.
 - Tests: `node --test telefonsim/*.test.mjs`.
   Geprüft werden Schaltablauf, Fernamtsabgang, Freigabe, Ansagen, alle 100.010
   eindeutigen Wählerplätze, Reihenfolge des Zugangs und der Nummerngassen,
-  Teilnehmerleitung, Kamerawartezeiten und Bildgrenzen bei mehreren Seitenverhältnissen.
+  Teilnehmerleitung, Kamerawartezeiten und Bildgrenzen bei mehreren Seitenverhältnissen,
+  reproduzierbare Teilnehmerausstattung, alle 26 Geometrien, erreichbare Hörer
+  und die Freigabe der Grafikressourcen.
 
 Die Anwendung benötigt WebGL 2 und wird über den gemeinsamen HTTP-Server
 geladen. Ein Verlust des WebGL-Kontexts hält die Simulation an und zeigt einen
