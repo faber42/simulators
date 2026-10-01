@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Exchange, CONTACTS, SOURCE, CAMERA_TRAVEL_SECONDS, pulsesFor, resolveNumber } from './engine.mjs';
+import { Exchange, CONTACTS, SOURCE, CAMERA_TRAVEL_SECONDS, FINDER_SEARCH_SECONDS, pulsesFor, resolveNumber } from './engine.mjs';
 
 function runUntil(e, state, limit = 90) {
   for (let n = 0; n < limit * 100 && e.state !== state; n++) e.step(.01);
@@ -149,17 +149,47 @@ test('leading zero exits after the first group without allocating local destinat
   }
 });
 
-test('mechanical work waits for the doubled camera travel at each new selector', () => {
+test('dial-controlled selectors still wait for camera arrival; the finder is already in view', () => {
   let changedAt = 0, focus = 'source'; const checked = new Set();
   const e = new Exchange((event, engine) => {
     if (event.type === 'focus' && engine.focus !== focus) { focus = engine.focus; changedAt = engine.time; }
-    if (['pulse', 'step', 'release'].includes(event.type) && focus === event.stage) {
+    if (['pulse', 'step', 'release'].includes(event.type) && focus === event.stage && event.stage > 0) {
       assert.ok(engine.time - changedAt >= CAMERA_TRAVEL_SECONDS - .02, `stage ${focus} started before camera arrived`);
       checked.add(event.stage);
     }
   });
   e.dialNumber('234567'); runUntil(e, 'ringing'); e.hangup(); runUntil(e, 'idle');
-  assert.equal(checked.size, 6);
+  assert.equal(checked.size, 5);
+});
+
+test('finder supplies dial tone after two pulse periods and holds the camera for another 250 ms', () => {
+  const events = [], e = new Exchange((event, engine) => events.push({ ...event, time: engine.time }));
+  e.lift(); assert.equal(e.dialTone, false);
+  e.step(.001); assert.equal(e.selectors[0].level, 1);
+  e.step(FINDER_SEARCH_SECONDS - .002); assert.equal(e.dialTone, false);
+  e.step(.001); assert.equal(e.dialTone, true); assert.equal(e.focus, 0);
+  assert.equal(e.selectors[0].level, 10); assert.equal(e.selectors[0].rotary, 1);
+  assert.equal(events.filter(ev => ev.type === 'step' && ev.stage === 0).length, 11);
+  assert.equal(e.time, .2);
+  e.enqueue('2');
+  e.step(.249); assert.equal(e.focus, 0); assert.equal(e.dialTone, true);
+  const paused = e.snapshot(); e.step(0); assert.deepEqual(e.snapshot(), paused);
+  e.step(.001); assert.equal(e.focus, 1); assert.equal(e.dialTone, true);
+  e.step(CAMERA_TRAVEL_SECONDS - .01);
+  assert.equal(e.dialTone, true); assert.equal(events.filter(ev => ev.type === 'pulse').length, 0);
+  runUntil(e, 'ready');
+  const pulses = events.filter(ev => ev.type === 'pulse');
+  assert.equal(pulses.length, 2); assert.ok(Math.abs(pulses[1].time - pulses[0].time - .1) < .011);
+  assert.equal(e.dialTone, false);
+});
+
+test('hanging up during the fast search or camera departure cancels the dial tone and queued digits', () => {
+  for (const time of [.01, .08, .18, .21, .4, .449, .46]) {
+    const e = new Exchange(); e.dialNumber('234567'); e.step(time); e.hangup();
+    assert.equal(e.dialTone, false); e.step(60);
+    assert.equal(e.state, 'idle'); assert.equal(e.dialTone, false); assert.equal(e.target, null);
+    assert.ok(e.selectors.every(s => s === null));
+  }
 });
 
 test('announcement tapes run until the caller hangs up and never lift or ring a target handset', () => {

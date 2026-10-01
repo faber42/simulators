@@ -4,6 +4,7 @@ import { SOURCE_POSITION, EXTERNAL_GATE_POSITION, selectorSite, targetPosition, 
 import { OfficeScene } from './office-scene.js';
 import { UpperFloorTransition, upperFloorRequested } from './upper-floor.mjs';
 import { FrostedView } from './frosted-view.js';
+import { HallGuide } from './hall-guide.js';
 
 const TAU = Math.PI * 2;
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -256,6 +257,8 @@ function makeTapeMachine(scene, descriptor, baseY) {
 export class ExchangeScene {
   constructor(canvas, viewElements) {
     this.canvas = canvas; this.viewElements = viewElements;
+    this.overviewSection = document.getElementById('overview-view');
+    this.hallGuide = new HallGuide(this.overviewSection);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -433,7 +436,8 @@ export class ExchangeScene {
     }
     this.floorTransition.update(upperFloorRequested(engine), dt);
     if (this.floorTransition.elapsed === 0) this.floorShot = null;
-    this.viewElements.overview.dataset.floor = this.floorTransition.phase;
+    this.overviewSection.dataset.floor = this.floorTransition.phase;
+    this.hallGuide.update(engine);
     const floorLabel = document.getElementById('floor-label');
     floorLabel.hidden = this.floorTransition.elapsed === 0;
     floorLabel.textContent = this.floorTransition.reveal > 0 ? 'OG · TEILNEHMER & ANSAGEDIENSTE'
@@ -450,7 +454,8 @@ export class ExchangeScene {
       }
       const y = active ? state.level * .045 : 0;
       const angle = active && state.rotary ? Math.PI * -.1 + (state.rotary - .5) / 10 * Math.PI * 1.2 : -.70;
-      d.y += (y - d.y) * blend; d.angle += (angle - d.angle) * blend;
+      const mechanismBlend = d.stage === 0 && engine.state === 'finding' ? 1 - Math.exp(-dt * 90) : blend;
+      d.y += (y - d.y) * mechanismBlend; d.angle += (angle - d.angle) * mechanismBlend;
       d.carriage.position.y = d.y; d.wipers.rotation.y = d.angle;
       d.lamp.material.color.set(active ? engine.state === 'connected' ? '#a4ddb4' : '#e9bd6c' : '#514b31');
       d.lamp.material.emissive.set(active ? '#93632a' : '#000000');
@@ -515,6 +520,7 @@ export class ExchangeScene {
   updateOverview(camera) {
     const { descent, reveal } = this.floorTransition;
     let frameBounds = this.overviewMode === 'whole' ? WHOLE_OFFICE_BOUNDS : this.callBounds;
+    if (this.office.addressBounds && this.overviewMode !== 'whole') frameBounds = unionBounds(frameBounds, this.office.addressBounds);
     if (descent > 0) frameBounds = unionBounds(frameBounds, boundsOf([
       ...Object.values(this.tapes).map(tape => tape.endpoint.toArray()),
       ...(this.target.root.visible ? [this.target.root.position.toArray()] : []),
@@ -546,14 +552,16 @@ export class ExchangeScene {
       dot.scale.setScalar(radius * 2);
       dot.visible = dot.position.y < UPPER_FLOOR_Y - 1 || reveal > .2;
     });
-    const rect = this.viewElements.overview.getBoundingClientRect(), occupied = [];
+    const rect = this.viewElements.overview.getBoundingClientRect();
+    const occupied = this.overviewMode === 'whole' || this.office.address ? this.office.coordinateObstacles(camera, rect) : [];
     const priority = [...this.routeNodes].reverse().sort((a, b) => Number(!!b.important) - Number(!!a.important));
     for (const node of priority) if (node.element) {
       const p = node.point.clone().project(camera), w = Math.min(190, node.label.length * 6 + 18), h = 21;
       const px = (p.x + 1) / 2 * rect.width, py = (1 - p.y) / 2 * rect.height;
       // Place labels to either side before changing height. Leader lines keep
       // their attachment unambiguous when the full hall compresses the entry.
-      const candidates = [[px + 9, py - 10], [px - w - 9, py - 10], [px + 9, py - 35], [px - w - 9, py + 16]];
+      const candidates = [[px + 9, py - 10], [px - w - 9, py - 10], [px + 9, py - 35], [px - w - 9, py + 16],
+        [px + 9, py + 40], [px - w - 9, py - 65], [px + 9, py + 65], [px - w - 9, py - 90]];
       const placement = candidates.map(([x, y]) => ({ x: Math.max(8, Math.min(rect.width - w - 8, x)), y: Math.max(reveal > 0 ? 128 : this.subscriberActive ? 100 : 64, Math.min(rect.height - 60, y)) }))
         .find(a => !occupied.some(b => a.x < b.x + b.w + 4 && a.x + w + 4 > b.x && a.y < b.y + b.h + 3 && a.y + h + 3 > b.y));
       const visible = !!placement && p.z > -1 && p.z < 1 && (!node.upper || reveal > .2);
@@ -566,6 +574,7 @@ export class ExchangeScene {
         node.anchor.setAttribute('cx', px); node.anchor.setAttribute('cy', py);
       }
     }
+    this.hallGuide.project(camera, rect);
   }
   render() {
     const bounds = this.canvas.getBoundingClientRect();
@@ -583,7 +592,7 @@ export class ExchangeScene {
       this.upperFloor.visible = this.floorTransition.reveal > 0 && (name === 'overview' || (name === 'follow' && !this.releaseView));
       const wide = name === 'overview' || (name === 'follow' && this.releaseView);
       this.scene.fog.density = wide ? .00006 : .014;
-      this.office.prepare(camera, wide);
+      this.office.prepare(camera, wide, name === 'overview' && (this.overviewMode === 'whole' || !!this.office.address));
       for (const d of this.devices) d.group.visible = !!d.site && camera.position.distanceTo(d.group.position) < 135;
       camera.layers.set(0); camera.layers.enable(1); camera.layers.enable(2);
       if (name === 'overview' && this.floorTransition.reveal > 0) {

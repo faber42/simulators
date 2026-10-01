@@ -1,5 +1,5 @@
 import * as THREE from '../pinsim/three.module.min.js';
-import { AREA_PREFIXES, ENTRANCE_SITES, EXTERNAL_GATE_POSITION, areaOrigin, racksInArea, sitesInArea } from './topology.mjs';
+import { AREA_PREFIXES, DIGIT_ORDER, ENTRANCE_SITES, EXTERNAL_GATE_POSITION, areaOrigin, racksInArea, sitesInArea, boundsOf } from './topology.mjs';
 
 // Permanent rack geometry for the whole office. Individual mechanisms are
 // revealed near a camera; distant racks use the same repeating contact pattern.
@@ -42,6 +42,19 @@ function label(parent, text, position, width = 22) {
   const texture = new THREE.CanvasTexture(c); texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
   sprite.position.fromArray(position); sprite.scale.set(width, width / 4, 1); parent.add(sprite); return sprite;
+}
+function coordinateLabel(parent, digit, caption, position, width) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 160;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#192b23'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.strokeStyle = '#81917b'; ctx.lineWidth = 3; ctx.strokeRect(2, 2, 252, 156);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#e2e8ce';
+  ctx.font = 'bold 136px monospace'; ctx.save(); ctx.translate(128, 0); ctx.scale(2.3, 1); ctx.fillText(digit, 0, 70); ctx.restore();
+  ctx.font = '18px monospace'; ctx.fillStyle = '#b7c4a7'; ctx.fillText(caption, 128, 141);
+  const texture = new THREE.CanvasTexture(c); texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false, transparent: true }));
+  sprite.position.fromArray(position); sprite.scale.set(width, width * 160 / 256, 1);
+  sprite.renderOrder = 12; parent.add(sprite); return sprite;
 }
 function racks(parent, descriptors) {
   const frames = [], backs = [], fronts = new Map();
@@ -91,19 +104,55 @@ export class OfficeScene {
     const entranceRacks = ENTRANCE_SITES.filter(s => s.slot === 0).map(s => ({ position: [s.position[0], 0, s.position[2]], shelves: 1 }));
     this.entrance = new THREE.Group(); this.root.add(this.entrance);
     this.entranceFacade = racks(this.entrance, entranceRacks);
-    this.entranceSigns = ENTRANCE_SITES.filter(s => s.slot === 0).map(s => label(this.entrance,
-      s.stage === 0 ? 'ANRUFSUCHER' : s.stage === 1 ? 'AMTSZUGANG' : `${s.prefix}xxxxx`,
-      [s.position[0] + 10.8, 4.5, s.position[2]], s.stage < 2 ? 16 : 22));
+    this.entranceSigns = ENTRANCE_SITES.filter(s => s.slot === 0 && s.stage < 2).map(s => label(this.entrance,
+      s.stage === 0 ? 'ANRUFSUCHER' : 'AMTSZUGANG', [s.position[0] + 10.8, 4.5, s.position[2]], 16));
     this.entranceSigns.push(label(this.entrance, '← 0 FERNAMT', [EXTERNAL_GATE_POSITION[0], 10, EXTERNAL_GATE_POSITION[2]], 48));
     this.entranceDetail = mechanisms(this.entrance, ENTRANCE_SITES, this.held);
     this.highlights = new THREE.Group(); this.root.add(this.highlights);
     this.highlightMaterial = new THREE.LineBasicMaterial({ color: '#e9b76d', depthTest: false, transparent: true, opacity: .85 });
+    this.coordinates = new THREE.Group(); this.root.add(this.coordinates);
+    this.columnSigns = DIGIT_ORDER.slice(0, 9).map(digit => coordinateLabel(this.coordinates, digit, '1. ZIFFER', [(Number(digit) - 5) * 140, 27, 55], 126));
+    this.rowSigns = DIGIT_ORDER.map(digit => coordinateLabel(this.coordinates, digit, '2. ZIFFER', [-683, 23, areaOrigin('1' + digit)[2] - 35], 70));
+    const stripe = new THREE.MeshBasicMaterial({ color: '#edb961', transparent: true, opacity: .10, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+    this.columnBand = new THREE.Mesh(new THREE.PlaneGeometry(134, 1120), stripe);
+    this.rowBand = new THREE.Mesh(new THREE.PlaneGeometry(1260, 106), stripe);
+    for (const band of [this.columnBand, this.rowBand]) { band.rotation.x = -Math.PI / 2; band.renderOrder = 1; band.visible = false; this.coordinates.add(band); }
+    this.address = ''; this.addressBounds = null;
+  }
+  setAddress(prefix) {
+    if (prefix === this.address) return;
+    this.address = prefix;
+    this.columnSigns.forEach((sign, i) => sign.material.color.set(DIGIT_ORDER[i] === prefix[0] ? '#ffc36d' : '#ffffff'));
+    this.rowSigns.forEach((sign, i) => sign.material.color.set(DIGIT_ORDER[i] === prefix[1] ? '#ffc36d' : '#ffffff'));
+    this.columnBand.visible = !!prefix; this.rowBand.visible = prefix.length === 2;
+    this.addressBounds = null;
+    if (!prefix) return;
+    const x = (Number(prefix[0]) - 5) * 140;
+    this.columnBand.position.set(x, 17, -575);
+    const points = [[x - 67, -2, 60], [x + 67, 70, 20]];
+    if (prefix.length === 2) {
+      const z = areaOrigin(prefix)[2]; this.rowBand.position.set(0, 17.1, z - 35);
+      points.push([-725, 0, z - 90], [x + 67, 50, z + 16]);
+    }
+    this.addressBounds = boundsOf(points, 5);
+  }
+  coordinateObstacles(camera, rect) {
+    return [...this.columnSigns, ...this.rowSigns].map(sign => {
+      const center = sign.position.clone().project(camera);
+      const corner = new THREE.Vector3(sign.scale.x / 2, sign.scale.y / 2, 0)
+        .applyQuaternion(camera.quaternion).add(sign.position).project(camera);
+      const w = Math.abs(corner.x - center.x) * rect.width + 8;
+      const h = Math.abs(corner.y - center.y) * rect.height + 8;
+      return { x: (center.x + 1) * rect.width / 2 - w / 2,
+        y: (1 - center.y) * rect.height / 2 - h / 2, w, h, depth: center.z };
+    }).filter(box => box.depth > -1 && box.depth < 1 && box.x + box.w > 0 && box.x < rect.width && box.y + box.h > 0 && box.y < rect.height);
   }
   setHeld(sites, connected) {
     this.highlightMaterial.color.set(connected ? '#96dfb5' : '#e9b76d');
     const key = sites.map(s => s.id).join('|'); if (key === this.heldKey) return;
     // The source finder always has its detailed mechanism, including at rest.
     this.heldKey = key; this.held = new Set([ENTRANCE_SITES[0].id, ...sites.map(s => s.id)]);
+    this.setAddress(sites.find(s => s.stage === 3)?.prefix || sites.find(s => s.stage === 2)?.prefix || '');
     for (const area of this.areas) if (area.detail) { disposeInstances(area.detail); area.detail = null; }
     disposeInstances(this.entranceDetail); this.entranceDetail = mechanisms(this.entrance, ENTRANCE_SITES, this.held);
     for (const child of [...this.highlights.children]) { child.geometry.dispose(); child.removeFromParent(); }
@@ -126,7 +175,7 @@ export class OfficeScene {
       const outline = new THREE.LineLoop(geometry, this.highlightMaterial); outline.renderOrder = 4; this.highlights.add(outline);
     }
   }
-  prepare(camera, overview) {
+  prepare(camera, overview, coordinates = false) {
     this.clock++;
     for (const area of this.areas) {
       const distance = camera.position.distanceTo(area.origin.clone().add(new THREE.Vector3(0, 6, -40)));
@@ -136,7 +185,7 @@ export class OfficeScene {
       if (near) area.touched = this.clock;
       if (area.detail) area.detail.visible = near;
       area.facade.visible = !near;
-      area.sign.visible = overview;
+      area.sign.visible = overview && area.prefix === this.address;
     }
     // Keep a small reusable neighbourhood while the follow camera crosses the hall.
     const cached = this.areas.filter(a => a.detail).sort((a, b) => b.touched - a.touched);
@@ -145,5 +194,6 @@ export class OfficeScene {
     this.entranceDetail.visible = !this.entranceFacade.visible;
     this.entranceSigns.forEach(sign => { sign.visible = overview; });
     this.highlights.visible = overview;
+    this.coordinates.visible = coordinates;
   }
 }

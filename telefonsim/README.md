@@ -11,6 +11,11 @@ Kein Build, kein CDN, keine Installation zusätzlicher Abhängigkeiten.
 ## Bedienung
 
 - Hörer in Kamera 01 anklicken oder „Hörer abheben“ drücken.
+- Der Anrufsucher läuft sofort los und findet die Leitung bei Tempo 1× in
+  etwa 0,2 Sekunden (zwei Wählimpulsperioden). Der Wählton setzt danach ein.
+  Kamera 2 bleibt noch 250 ms beim Anrufsucher und fährt dann zum ersten
+  Gruppenwähler. Vorgemerkte Ziffern
+  starten wie bisher erst nach dieser Kamerafahrt, mit normalem Impulstakt.
 - Ein Fingerloch anklicken (automatisches Aufziehen) oder im Uhrzeigersinn bis
   zum Anschlag ziehen und loslassen. Ein abgebrochener Zug wählt keine Ziffer.
 - Alternativ die Nummerntastatur, Tasten 0–9 oder das Eingabefeld benutzen.
@@ -51,6 +56,21 @@ Kein Build, kein CDN, keine Installation zusätzlicher Abhängigkeiten.
   n0xxxx hinten; auch die Gassen und Hundertergruppen verwenden diese Folge.
   Die Ziffer 0 bedeutet zehn Impulse, nicht die mechanische Ruhestellung.
   Diese räumliche Sortierung ist didaktisch und kein historischer Gestellplan.
+- Große Spaltentafeln zeigen Ziffer 1, die Tafeln am linken Saalrand Ziffer 2.
+  Die gewählte Spalte und Reihe werden als sich kreuzende Bänder markiert.
+  Sobald nach zwei Ziffern der III. GW erreicht ist, erscheint links eine
+  Vergrößerung des Nummernblocks. Eine gestrichelte Linie verbindet sie mit
+  dem entsprechenden Bereich in der 3D-Ansicht. Auf schmalen Bildschirmen
+  steht der Plan oberhalb der Übersicht.
+- Im vergrößerten Plan stehen die zehn Gassen für Ziffer 3 an denselben
+  Positionen wie im Saal (zwei Spalten, fünf Reihen). Jede Gasse zeigt zehn
+  beschriftete Felder für die Hundertergruppen der Ziffer 4. Deren Anordnung
+  ist zur Lesbarkeit aufgefächert; im Gestell sind sie übereinander eingebaut.
+  Während der Wahl ist die laufende Ziffer gestrichelt markiert, nach ihrer
+  vollständigen Impulsfolge fest hervorgehoben. Der Text darunter erläutert
+  die verbleibenden Stellen: Ziffer 5 hebt, Ziffer 6 dreht den Leitungswähler.
+  Vorgemerkte Ziffern nehmen keine Markierung vorweg. Der Plan bleibt bei
+  der gemeinsamen Rückstellung sichtbar, bis alle Wähler freigegeben sind.
 - Erst nach der sechsten vollständig gewählten Ziffer senkt Kamera 3 den
   Wählersaal optisch ab (1,2 Sekunden). Danach werden Zwischendecke und obere
   Etage eingeblendet (0,8 Sekunden). Der Saal bleibt weich und gedämpft wie
@@ -139,6 +159,8 @@ Das Modell vereinfacht historische Nummerierungs- und Fernwahlpläne.
 - `engine.mjs` ist eine unabhängige, deterministische Zustandsmaschine.
   Alle Wahl-, Ruf- und Rückstellzeiten gehören zur Simulationszeit. Auflegen
   entfernt ausstehende Impulse und automatisches Abheben atomar.
+- `hall-guide.mjs` ordnet erreichte Wahlstufen dem vergrößerten Blockplan zu;
+  `hall-guide.js` zeichnet dessen Beschriftungen und die Verbindung zum Saal.
 - Die Zeitansage liest bewusst die lokale Uhr; sie aktualisiert sich nicht
   während einer Pause. Alle anderen Abläufe verwenden ausschließlich `step(dt)`.
 - `window.TELEFONSIM.snapshot()` liefert einen Diagnosezustand ohne Mutation.

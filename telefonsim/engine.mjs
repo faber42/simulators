@@ -2,6 +2,8 @@
 // replacing the task queue on clear-down prevents late pulses or auto-answers.
 export const SOURCE = '210001';
 export const CAMERA_TRAVEL_SECONDS = 1.7;
+// Demonstration timing: the free-running finder takes two dial-pulse periods.
+export const FINDER_SEARCH_SECONDS = .2;
 export const CONTACTS = [
   { number: '234567', name: 'Feinmechanische Werkstatt', kind: 'phone', note: 'Am Zielapparat selbst abheben' },
   { number: '618204', name: 'Wohnzimmer', kind: 'phone', note: 'Ein zweiter Bakelitapparat' },
@@ -45,6 +47,10 @@ export class Exchange {
     this.playbackSeconds = 0;
   }
   get tapeRunning() { return this.state === 'connected' && this.offHook && !!this.target?.tape; }
+  get dialTone() {
+    return this.offHook && ['finding', 'ready'].includes(this.state) && !!this.selectors[1]?.held
+      && !this.digits.length && this.currentDigit === null;
+  }
   emit(type, detail = {}) { this.revision++; this.onEvent({ type, ...detail }, this); }
   say(text) {
     this.message = text;
@@ -75,15 +81,19 @@ export class Exchange {
     this.announcement = ''; this.targetOffHook = false; this.playbackSeconds = 0; this.state = 'finding';
     const finder = this.acquire(0, SOURCE.slice(0, 4));
     this.look(0); this.say(`Schleife geschlossen. Der Anrufsucher sucht Anschluss ${SOURCE}.`);
-    this.task(CAMERA_TRAVEL_SECONDS);
-    for (let n = 1; n <= 10; n++) this.task(.10, () => {
+    // Camera 2 is already at the finder in idle: search starts immediately.
+    for (let n = 1; n <= 10; n++) this.task(FINDER_SEARCH_SECONDS / 12, () => {
       finder.level = n; finder.phase = 'sucht'; this.emit('step', { stage: 0 });
     });
-    this.task(.18, () => { finder.rotary = 1; this.emit('step', { stage: 0 }); });
-    this.task(CAMERA_TRAVEL_SECONDS + .1, () => {
-      finder.phase = 'gehalten'; this.acquire(1); this.look(1); this.emit('route');
+    this.task(FINDER_SEARCH_SECONDS / 6, () => { finder.rotary = 1; this.emit('step', { stage: 0 }); }, null, () => {
+      finder.phase = 'gehalten'; this.acquire(1); this.emit('route');
       this.say('Anschluss gefunden. Wählton – der erste Gruppenwähler ist bereit.');
-    }, null, () => { this.state = 'ready'; this.look(1); this.nextDigit(); });
+    });
+    // Let the found line and Wählton register before leaving the finder.
+    this.task(.25, () => {}, null, () => this.look(1));
+    // Wählton is available now. Keep the existing camera allowance before
+    // showing the first dialled digit at the next selector.
+    this.task(CAMERA_TRAVEL_SECONDS + .1, () => {}, null, () => { this.state = 'ready'; this.look(1); this.nextDigit(); });
     return true;
   }
   enqueue(digit, prewound = false) {
@@ -246,7 +256,7 @@ export class Exchange {
   }
   snapshot() {
     return { state: this.state, offHook: this.offHook, digits: this.digits, pending: this.pending.join(''),
-      focus: this.focus, pulse: this.pulse, target: this.target, targetOffHook: this.targetOffHook,
+      focus: this.focus, pulse: this.pulse, dialTone: this.dialTone, target: this.target, targetOffHook: this.targetOffHook,
       release: this.release ? { ...this.release, stages: [...this.release.stages] } : null,
       tapeRunning: this.tapeRunning, playbackSeconds: this.playbackSeconds,
       selectors: this.selectors.map(s => s ? { ...s } : null), allocated: this.instances.size,

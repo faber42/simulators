@@ -28,7 +28,7 @@ class Sound {
     if (!this.context) return;
     let volume = 0;
     if (this.enabled && !paused) {
-      if (engine.state === 'ready' && !engine.digits.length) volume = .026;
+      if (engine.dialTone) volume = .026;
       if (engine.state === 'ringing' && !engine.target?.tape && engine.time % 4 < 1) volume = .045;
       if (['busy', 'unavailable'].includes(engine.state) && engine.time % 1 < .5) volume = .03;
     }
@@ -39,7 +39,7 @@ class Sound {
 async function main() {
   const sound = new Sound(); let dirty = true, speed = 1, paused = false, drag = null, lastTimeAnnouncement = -1;
   const engine = new Exchange(event => { dirty = true; if (['pulse', 'step', 'release'].includes(event.type) && !paused) sound.click(event.type); });
-  const scene = new ExchangeScene($('scene'), { source: $('source-view'), follow: $('follow-view'), overview: $('overview-view') });
+  const scene = new ExchangeScene($('scene'), { source: $('source-view'), follow: $('follow-view'), overview: $('overview-world') });
   $('loader').hidden = true;
   const routeElements = STAGES.map((stage, index) => {
     const element = document.createElement('div'); element.className = 'route-stage';
@@ -148,7 +148,7 @@ async function main() {
     $('hook').textContent = engine.offHook ? 'Hörer auflegen' : engine.state === 'releasing' ? 'Amt stellt zurück …' : 'Hörer abheben';
     $('hook').disabled = engine.state === 'releasing';
     const tape = TAPE_MACHINES.find(t => t.id === engine.target?.tape);
-    $('state-label').textContent = (tape && engine.state === 'ringing' ? 'Tonbandanlauf' : engine.tapeRunning ? 'Bandwiedergabe' : STATE_NAMES[engine.state]).toUpperCase(); $('status').textContent = engine.message;
+    $('state-label').textContent = (tape && engine.state === 'ringing' ? 'Tonbandanlauf' : engine.tapeRunning ? 'Bandwiedergabe' : engine.dialTone ? 'Wählton · Anschluss gefunden' : STATE_NAMES[engine.state]).toUpperCase(); $('status').textContent = engine.message;
     $('status-light').className = `status-light ${['busy', 'unavailable'].includes(engine.state) ? 'busy' : !['idle', 'connected'].includes(engine.state) ? 'working' : ''}`;
     $('route-summary').textContent = engine.state === 'external' ? '0 → Fernamt' : `${engine.digits.length} / 6 Ziffern`;
     $('queue-count').textContent = engine.pending.length ? `${engine.pending.length} vorgemerkt` : '';

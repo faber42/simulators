@@ -63,7 +63,7 @@ export const ENTRANCE_SITES = [
   ...Array.from({ length: 10 }, (_, i) => selectorSite(1, '', i)),
   ...Array.from({ length: 90 }, (_, i) => selectorSite(2, String(1 + Math.floor(i / 10)), i % 10)),
 ];
-export const WHOLE_OFFICE_BOUNDS = { min: [-760, -2, -1140], max: [800, 28, 175] };
+export const WHOLE_OFFICE_BOUNDS = { min: [-760, -2, -1140], max: [800, 70, 175] };
 // The floor separation is exaggerated for the overview of this teaching model.
 export const UPPER_FLOOR_Y = 150;
 export const UPPER_FLOOR_CENTER = [0, UPPER_FLOOR_Y, -510];

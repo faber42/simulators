@@ -34,10 +34,20 @@
         </section>
         <section class="view overview-view" id="overview-view" aria-label="Kamera 3: gesamter Wählersaal mit Leitungsweg">
           <div class="camera-heading"><span><b>03</b> WÄHLERSAAL</span><div class="overview-controls" aria-label="Bildausschnitt der Kamera 3"><button id="overview-route" aria-pressed="true">Verbindungsweg</button><button id="overview-whole" aria-pressed="false">Ganzes Amt</button></div></div>
-          <div class="office-scale">Gassen 1–9 <span>·</span> 900.000 Ortsrufnummern <span>·</span> 0 → Fernamt</div>
+          <div class="office-scale">1. Ziffer → Spalte <span>·</span> 2. Ziffer → Reihe <span>·</span> führende 0 → Fernamt</div>
+          <div id="overview-world">
           <div id="overview-labels" aria-hidden="true"></div>
           <div id="subscriber-detail" hidden></div>
           <div id="floor-label" hidden></div>
+          </div>
+          <svg id="block-link" aria-hidden="true" hidden><path></path><circle r="4"></circle></svg>
+          <section id="block-detail" aria-label="Vergrößerung des gewählten Nummernbereichs" hidden>
+            <div class="block-heading"><span>VERGRÖSSERUNG · EG</span><strong id="block-title"></strong></div>
+            <p id="block-coordinates"></p>
+            <div class="block-legend"><b>3. ZIFFER · GASSE</b><span>kleine Felder: 4. Ziffer</span></div>
+            <div id="block-grid" aria-label="Gassenplan: unten vorne 1 und 2, oben hinten 9 und 0"></div>
+            <div class="block-result"><strong id="block-chosen"></strong><p id="block-explanation"></p></div>
+          </section>
           <div class="overview-caption" id="office-location">Zugang · Anrufsucher und erste Gruppenwähler</div>
           <div class="overview-note"><span class="amber-dot"></span> gehalten <span class="green-dot"></span> Sprechweg <span class="blue-dot"></span> Teilnehmerleitung <span class="model-note">· Lehrmodell</span></div>
         </section>
