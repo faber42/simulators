@@ -3,6 +3,7 @@ import { buildPath, samplePath } from './engine.mjs';
 import { buildEnvironment } from './environment.mjs';
 import { createTransitRenderer } from './transit-renderer.mjs';
 import { buildLaneMarkings, sampleLaneMarking } from './lane-markings.mjs';
+import { SURFACE_HEIGHTS, surfaceMaterialOptions, cameraNearForHeight, CAMERA_FAR } from './surface-layers.mjs';
 
 /** Resolve route-local gates into unique physical stop lines and shared gantries. */
 export function buildSignalLayout(config) {
@@ -71,7 +72,7 @@ export function createScene(canvas, config) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#c4d9df');
   scene.fog = new THREE.Fog('#c4d9df', 270, 710);
-  const camera = new THREE.PerspectiveCamera(48, 1, .3, 1100);
+  const camera = new THREE.PerspectiveCamera(48, 1, cameraNearForHeight(0), CAMERA_FAR);
   const sky = new THREE.HemisphereLight('#d6e7ff', '#7d8068', 2.4);
   scene.add(sky);
   const sun = new THREE.DirectionalLight('#fff0d4', 3.1);
@@ -99,13 +100,17 @@ export function createScene(canvas, config) {
     return t;
   }
   const grass = new THREE.MeshStandardMaterial({ map: texture([100, 120, 75], 32, 100), roughness: 1 });
+  const terrainMaterial = grass.clone(); Object.assign(terrainMaterial, surfaceMaterialOptions('terrain'));
+  const turfMaterial = grass.clone(); Object.assign(turfMaterial, surfaceMaterialOptions('turf'));
   const asphalt = new THREE.MeshStandardMaterial({ map: texture([91, 94, 90], 20, 1), roughness: .94 });
   const pavement = new THREE.MeshStandardMaterial({ color: '#b8b6a5', roughness: 1 });
+  const roadUnderlay = pavement.clone(); Object.assign(roadUnderlay, surfaceMaterialOptions('roadUnderlay'));
   const marking = new THREE.MeshStandardMaterial({ color: '#e4e2cf', roughness: .9 });
+  const roadMarking = marking.clone(); Object.assign(roadMarking, surfaceMaterialOptions('marking'));
   const metal = new THREE.MeshStandardMaterial({ color: '#87918c', metalness: .55, roughness: .4 });
   const black = new THREE.MeshStandardMaterial({ color: '#17211f', roughness: .65 });
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), grass);
-  ground.rotation.x = -Math.PI / 2; ground.position.y = -.025; ground.receiveShadow = true; scene.add(ground);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), terrainMaterial);
+  ground.rotation.x = -Math.PI / 2; ground.position.y = SURFACE_HEIGHTS.terrain; ground.receiveShadow = true; scene.add(ground);
   const boxGeo = new THREE.BoxGeometry(1, 1, 1);
   function box(parent, mat, x, y, z, w, h, d) {
     const m = new THREE.Mesh(boxGeo, mat); m.position.set(x, y, z); m.scale.set(w, h, d);
@@ -118,7 +123,9 @@ export function createScene(canvas, config) {
       const s = start + (end - start) * i / steps, p = samplePath(path, s);
       const nx = Math.cos(p.heading) * width / 2, nz = -Math.sin(p.heading) * width / 2;
       positions.push(p.x + nx, height, p.z + nz, p.x - nx, height, p.z - nz);
-      uvs.push(0, s / 6, width / 6, s / 6);
+      // Crossing ribbons and turn flares share asphalt at the same height.
+      // World-space UVs make their overlap sample exactly the same texture.
+      uvs.push((p.x + nx) / 6, (p.z + nz) / 6, (p.x - nx) / 6, (p.z - nz) / 6);
       if (i < steps) { const a = i * 2; indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     }
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -126,8 +133,8 @@ export function createScene(canvas, config) {
     const m = new THREE.Mesh(geo, material); m.receiveShadow = true; scene.add(m); return m;
   }
   const roads = config.roads.map(road => ({ ...road, path: buildPath(road.points) }));
-  roads.forEach(r => strip(r.path, r.width + 5.2, pavement, .005));
-  roads.forEach(r => strip(r.path, r.width, asphalt, .035));
+  roads.forEach(r => strip(r.path, r.width + 5.2, roadUnderlay, SURFACE_HEIGHTS.roadUnderlay));
+  roads.forEach(r => strip(r.path, r.width, asphalt, SURFACE_HEIGHTS.road));
   const bounds = config.conflictBounds;
   const inJunction = p => p.x > bounds.minX - 3 && p.x < bounds.maxX + 3 && p.z > bounds.minZ - 7 && p.z < bounds.maxZ + 7;
   const { routes: processedRoutes, stops: physicalStops, clusters } = buildSignalLayout(config);
@@ -142,7 +149,7 @@ export function createScene(canvas, config) {
       const a = sampleLaneMarking(boundary, s), b = sampleLaneMarking(boundary, end);
       const length = Math.hypot(b.x - a.x, b.z - a.z);
       if (length < .05) continue;
-      const m = box(scene, marking, (a.x + b.x) / 2, .056, (a.z + b.z) / 2, .12, .016, length);
+      const m = box(scene, roadMarking, (a.x + b.x) / 2, SURFACE_HEIGHTS.roadMarking, (a.z + b.z) / 2, .12, .016, length);
       m.rotation.y = Math.atan2(b.x - a.x, b.z - a.z); m.castShadow = false;
     }
   }
@@ -152,12 +159,12 @@ export function createScene(canvas, config) {
       if (inJunction(p)) continue;
       for (let lane = 1; lane < road.lanes; lane++) {
         const offset = -road.width / 2 + lane * road.width / road.lanes;
-        const m = box(scene, marking, p.x + Math.cos(p.heading) * offset, .056, p.z - Math.sin(p.heading) * offset, .12, .016, 3);
+        const m = box(scene, roadMarking, p.x + Math.cos(p.heading) * offset, SURFACE_HEIGHTS.roadMarking, p.z - Math.sin(p.heading) * offset, .12, .016, 3);
         m.rotation.y = p.heading; m.castShadow = false;
       }
       for (const side of [-1, 1]) {
         const offset = side * (road.width / 2 - .2);
-        const m = box(scene, marking, p.x + Math.cos(p.heading) * offset, .055, p.z - Math.sin(p.heading) * offset, .12, .012, 6);
+        const m = box(scene, roadMarking, p.x + Math.cos(p.heading) * offset, SURFACE_HEIGHTS.roadMarking, p.z - Math.sin(p.heading) * offset, .12, .012, 6);
         m.rotation.y = p.heading; m.castShadow = false;
       }
     }
@@ -175,7 +182,7 @@ export function createScene(canvas, config) {
     else { const sign = turn === 'left' ? -1 : 1; ctx.lineTo(64, 140); ctx.quadraticCurveTo(64, 91, 64 + sign * 28, 91); ctx.stroke(); ctx.beginPath(); ctx.moveTo(64 + sign * 58, 91); ctx.lineTo(64 + sign * 14, 49); ctx.lineTo(64 + sign * 14, 133); }
     ctx.closePath(); ctx.fill();
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-    return new THREE.MeshStandardMaterial({ map: t, transparent: true, depthWrite: false, roughness: 1 });
+    return new THREE.MeshStandardMaterial({ map: t, transparent: true, depthWrite: false, roughness: 1, ...surfaceMaterialOptions('marking') });
   }
   const arrows = { straight: arrow('straight'), left: arrow('left'), right: arrow('right'), 'left-straight': arrow('left-straight') };
   const signalHeads = [];
@@ -210,7 +217,7 @@ export function createScene(canvas, config) {
       const valid = inJunction(p) && onRoad(p.x, p.z, .9) && !pointInIsland(p.x, p.z, 2.3);
       if (valid && start === null) start = s;
       if ((!valid || s + 1 >= route.path.length) && start !== null) {
-        if (s - start > 1) strip(route.path, 4.3, asphalt, .034, start, s - .2);
+        if (s - start > 1) strip(route.path, 4.3, asphalt, SURFACE_HEIGHTS.road, start, s - .2);
         start = null;
       }
       if (!inJunction(p) && s > route.stopDistance + 5) break;
@@ -222,14 +229,14 @@ export function createScene(canvas, config) {
       const stop = route.stops[index];
       if (paintedStops.has(stop.id)) continue;
       paintedStops.add(stop.id);
-      const line = box(scene, marking, stop.x, .063, stop.z, stop.width || 3.2, .02, .45);
+      const line = box(scene, roadMarking, stop.x, SURFACE_HEIGHTS.roadMarking, stop.z, stop.width || 3.2, .02, .45);
       line.rotation.y = stop.heading; line.castShadow = false;
       for (const before of stop.inner ? [6] : [14, 35, 60]) {
         if (stop.distance < before + 2 || index > 0 && stop.distance - before < route.stops[index - 1].distance + 3) continue;
         const a = samplePath(route.path, stop.distance - before);
         if (pointInIsland(a.x, a.z, 1) || !onRoad(a.x, a.z)) continue;
         const m = new THREE.Mesh(new THREE.PlaneGeometry(1.65, stop.inner ? 3.2 : 4.1), arrows[stop.arrow] || arrows.straight);
-        m.rotation.set(-Math.PI / 2, 0, a.heading + Math.PI); m.position.set(a.x, .067, a.z); scene.add(m);
+        m.rotation.set(-Math.PI / 2, 0, a.heading + Math.PI); m.position.set(a.x, SURFACE_HEIGHTS.roadMarking, a.z); scene.add(m);
       }
     }
   }
@@ -243,7 +250,7 @@ export function createScene(canvas, config) {
       const key = `${Math.round(x * 2)},${Math.round(z * 2)}`;
       if (!onRoad(x, z) || pointInIsland(x, z, .8) || guidePositions.has(key)) continue;
       guidePositions.add(key);
-      const m = box(scene, marking, x, .061, z, .1, .014, 1.3);
+      const m = box(scene, roadMarking, x, SURFACE_HEIGHTS.roadMarking, z, .1, .014, 1.3);
       m.rotation.y = p.heading; m.castShadow = false;
     }
   }
@@ -295,7 +302,7 @@ export function createScene(canvas, config) {
       for (const ahead of [2.5, 5]) for (let across = -cluster.stops.length * 1.75; across <= cluster.stops.length * 1.75; across += 1.15) {
         const p = center.clone().addScaledVector(dir, ahead).addScaledVector(right, across);
         if (pointInIsland(p.x, p.z, .45) || !onRoad(p.x, p.z)) continue;
-        const m = box(scene, marking, p.x, .061, p.z, .6, .015, .35); m.rotation.y = heading; m.castShadow = false;
+        const m = box(scene, roadMarking, p.x, SURFACE_HEIGHTS.roadMarking, p.z, .6, .015, .35); m.rotation.y = heading; m.castShadow = false;
       }
     }
     const anchor = cluster.anchor ? new THREE.Vector3(cluster.anchor[0], 0, cluster.anchor[1])
@@ -322,7 +329,7 @@ export function createScene(canvas, config) {
     const points = island.points || island.polygon;
     const shape = new THREE.Shape(); points.forEach(([x, z], i) => i ? shape.lineTo(x, -z) : shape.moveTo(x, -z)); shape.closePath();
     const geometry = new THREE.ExtrudeGeometry(shape, { depth: island.height || .18, bevelEnabled: false }); geometry.rotateX(-Math.PI / 2);
-    const curb = new THREE.Mesh(geometry, pavement); curb.position.y = .035; curb.castShadow = curb.receiveShadow = true; scene.add(curb);
+    const curb = new THREE.Mesh(geometry, pavement); curb.position.y = SURFACE_HEIGHTS.road; curb.castShadow = curb.receiveShadow = true; scene.add(curb);
     if (island.surface === 'grass') {
       const center = points.reduce((sum, point) => [sum[0] + point[0] / points.length, sum[1] + point[1] / points.length], [0, 0]);
       const turfShape = new THREE.Shape();
@@ -334,7 +341,9 @@ export function createScene(canvas, config) {
       });
       turfShape.closePath();
       const turfGeometry = new THREE.ShapeGeometry(turfShape); turfGeometry.rotateX(-Math.PI / 2);
-      const turf = new THREE.Mesh(turfGeometry, grass); turf.position.y = .038 + (island.height || .18); turf.receiveShadow = true; scene.add(turf);
+      const turf = new THREE.Mesh(turfGeometry, turfMaterial);
+      turf.position.y = SURFACE_HEIGHTS.road + (island.height || .18) + SURFACE_HEIGHTS.turfGap;
+      turf.receiveShadow = true; scene.add(turf);
     }
     if (island.keepRight) {
       const [x, z] = island.keepRight.position;
@@ -537,6 +546,12 @@ export function createScene(canvas, config) {
     transit.setEvening(enabled);
   }
   function resize() { const { width, height } = canvas.getBoundingClientRect(); renderer.setSize(width, height, false); camera.aspect = width / Math.max(1, height); camera.updateProjectionMatrix(); }
-  function render() { renderer.render(scene, camera); }
+  function render() {
+    // Preserve near detail at street level without sacrificing depth precision
+    // when the free camera rises hundreds of metres above layered surfaces.
+    const near = cameraNearForHeight(camera.position.y);
+    if (camera.near !== near) { camera.near = near; camera.updateProjectionMatrix(); }
+    renderer.render(scene, camera);
+  }
   return { scene, camera, renderer, roads, signalHeads, signalLayout: { stops: physicalStops, clusters }, transit, update, resize, render, setLighting, setEvening, setMounts, THREE };
 }

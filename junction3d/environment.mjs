@@ -1,4 +1,5 @@
 import { createStreetLighting } from './street-lighting.mjs';
+import { SURFACE_HEIGHTS, surfaceMaterialOptions } from './surface-layers.mjs';
 
 /**
  * Reusable, procedural streetscape. All positions are metres: x east, y up,
@@ -46,6 +47,9 @@ export function buildEnvironment(THREE, scene, config) {
   const concrete = material('#b6b4a9');
   const paleConcrete = material('#d5d1c2');
   const pavement = material('#aaa79a');
+  // Surface-only materials: architectural pavement also appears on platforms
+  // and steps, which must retain their ordinary, unbiased object depth.
+  const groundPavement = material('#aaa79a', surfaceMaterialOptions('paving'));
   const roofMaterial = material('#657273');
   const rubber = material('#252c2b');
   const wood = material('#a58d66');
@@ -107,12 +111,56 @@ export function buildEnvironment(THREE, scene, config) {
     return mesh;
   }
 
-  function segment(parent, a, b, width, height, mat) {
+  function segment(parent, a, b, width, height, mat, top = SURFACE_HEIGHTS.paving) {
     const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const mesh = box(parent, [width, height, length],
-      [(a[0] + b[0]) / 2, height / 2 + 0.04, (a[1] + b[1]) / 2], mat, false);
+      [(a[0] + b[0]) / 2, top - height / 2, (a[1] + b[1]) / 2], mat, false);
     mesh.rotation.y = Math.atan2(b[0] - a[0], b[1] - a[1]);
     return mesh;
+  }
+
+  function pathNetwork(parent, paths, mat) {
+    // Subtract previous convex strips from each new strip. Park footways thus
+    // form one continuous, flat surface without duplicate faces at crossings.
+    const rectangles = paths.map(({ a, b, width }) => {
+      const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const nx = -(b[1] - a[1]) / length * width / 2, nz = (b[0] - a[0]) / length * width / 2;
+      return [[a[0] - nx, a[1] - nz], [b[0] - nx, b[1] - nz],
+        [b[0] + nx, b[1] + nz], [a[0] + nx, a[1] + nz]];
+    });
+    function split(polygon, a, b, keepInside) {
+      const result = [], distance = p => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+      for (let i = 0; i < polygon.length; i++) {
+        const p = polygon[i], q = polygon[(i + 1) % polygon.length], dp = distance(p), dq = distance(q);
+        const inside = keepInside ? dp >= 0 : dp <= 0, nextInside = keepInside ? dq >= 0 : dq <= 0;
+        if (inside) result.push(p);
+        if (inside !== nextInside) {
+          const t = dp / (dp - dq);
+          result.push([p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]);
+        }
+      }
+      return result;
+    }
+    function subtract(polygon, clip) {
+      const outside = []; let remaining = polygon;
+      for (let i = 0; i < clip.length && remaining.length >= 3; i++) {
+        const a = clip[i], b = clip[(i + 1) % clip.length], piece = split(remaining, a, b, false);
+        if (piece.length >= 3) outside.push(piece);
+        remaining = split(remaining, a, b, true);
+      }
+      return outside;
+    }
+    rectangles.forEach((rectangle, index) => {
+      let pieces = [rectangle];
+      for (let previous = 0; previous < index; previous++) pieces = pieces.flatMap(piece => subtract(piece, rectangles[previous]));
+      for (const points of pieces) {
+        const shape = new THREE.Shape();
+        points.forEach(([x, z], i) => i ? shape.lineTo(x, -z) : shape.moveTo(x, -z)); shape.closePath();
+        const geometry = keepGeometry(new THREE.ShapeGeometry(shape)); geometry.rotateX(-Math.PI / 2);
+        const mesh = new THREE.Mesh(geometry, mat); mesh.position.y = SURFACE_HEIGHTS.paving;
+        mesh.receiveShadow = true; parent.add(mesh);
+      }
+    });
   }
 
   function line3(parent, start, end, radius, mat) {
@@ -355,11 +403,15 @@ export function buildEnvironment(THREE, scene, config) {
     const shape = new THREE.Shape();
     spec.points.forEach(([x, z], index) => index ? shape.lineTo(x, -z) : shape.moveTo(x, -z)); shape.closePath();
     const geometry = keepGeometry(new THREE.ShapeGeometry(shape)); geometry.rotateX(-Math.PI / 2);
-    const mat = material(spec.color || '#b5aea1', spec.surface === 'grass' ? { map: foliageTexture } : {});
-    const mesh = new THREE.Mesh(geometry, mat); mesh.position.y = spec.height ?? .052; mesh.receiveShadow = true;
+    const layer = spec.surface === 'grass' ? 'grass' : 'paving';
+    const mat = material(spec.color || '#b5aea1', { ...surfaceMaterialOptions(layer),
+      ...(layer === 'grass' ? { map: foliageTexture } : {}) });
+    const mesh = new THREE.Mesh(geometry, mat);
+    mesh.position.y = spec.height ?? SURFACE_HEIGHTS[layer]; mesh.receiveShadow = true;
     mesh.name = spec.id || 'Surface landscaping'; root.add(mesh);
     if (spec.curb) for (let index = 0; index < spec.points.length; index++) {
-      segment(root, spec.points[index], spec.points[(index + 1) % spec.points.length], .24, .13, paleConcrete);
+      segment(root, spec.points[index], spec.points[(index + 1) % spec.points.length], .24, .13, paleConcrete,
+        mesh.position.y + (SURFACE_HEIGHTS.curb - SURFACE_HEIGHTS.paving));
     }
   }
 
@@ -367,9 +419,14 @@ export function buildEnvironment(THREE, scene, config) {
     const { width: w, depth: d } = spec;
     if (!(w > 5 && d > 8)) return;
     const group = groupAt(spec, spec.id || 'Parking');
-    box(group, [w + .55, .12, d + .55], [0, .06, 0], pavement, false);
-    box(group, [w, .025, d], [0, .136, 0], material(spec.color || '#818580'), false);
-    const paint = material('#dfded3');
+    // The parking slab is split into a recessed base and raised wearing course.
+    // Paint lies above the course, never partly embedded in either volume.
+    const courseThickness = .02, paintThickness = .012;
+    const baseTop = SURFACE_HEIGHTS.parking - courseThickness - .01;
+    box(group, [w + .55, baseTop, d + .55], [0, baseTop / 2, 0], groundPavement, false);
+    box(group, [w, courseThickness, d], [0, SURFACE_HEIGHTS.parking - courseThickness / 2, 0],
+      material(spec.color || '#818580', surfaceMaterialOptions('parking')), false);
+    const paint = material('#dfded3', surfaceMaterialOptions('marking'));
     const rows = spec.rows === 1 ? [0] : [-1, 1], pitch = spec.spacing || 2.85;
     const stallLength = 5.3, count = Math.floor((w - 3) / pitch);
     const bodies = [], cabins = [], tires = [], lamps = [], trims = [];
@@ -378,7 +435,8 @@ export function buildEnvironment(THREE, scene, config) {
       const z = rows.length === 1 ? -d / 2 + 3.2 : side * (d / 2 - 3.2);
       for (let column = 0; column <= count; column++) {
         const x = (column - count / 2) * pitch;
-        box(group, [.085, .013, stallLength], [x, .16, z], paint, false);
+        box(group, [.085, paintThickness, stallLength],
+          [x, SURFACE_HEIGHTS.parkingPaint - paintThickness / 2, z], paint, false);
         if (column === count || random() > (spec.occupancy ?? .76)) continue;
         const px = x + pitch / 2, pz = z + (random() - .5) * .22;
         const angle = side < 0 ? 0 : Math.PI, color = colors[Math.floor(random() * colors.length)];
@@ -560,15 +618,15 @@ export function buildEnvironment(THREE, scene, config) {
   function buildPark(spec) {
     const { x, z, width: w, depth: d } = spec;
     const group = groupAt(spec, 'Park');
-    box(group, [w, 0.03, d], [0, 0.035, 0], material('#778665'), false);
-    const path = material('#d0c6ad');
+    box(group, [w, .03, d], [0, SURFACE_HEIGHTS.grass - .015, 0],
+      material('#778665', surfaceMaterialOptions('grass')), false);
+    const path = material('#d0c6ad', surfaceMaterialOptions('paving'));
     const sw = [-w / 2 + 2, d / 2 - 2];
     const ne = [w / 2 - 2, -d / 2 + 2];
     const nw = [-w / 2 + 2, -d / 2 + 2];
     const se = [w / 2 - 2, d / 2 - 2];
-    segment(group, sw, ne, 2.15, 0.04, path);
-    segment(group, nw, se, 2.15, 0.04, path);
-    segment(group, sw, se, 2, 0.04, path);
+    pathNetwork(group, [{ a: sw, b: ne, width: 2.15 }, { a: nw, b: se, width: 2.15 },
+      { a: sw, b: se, width: 2 }], path);
     bench(group, -w * 0.3, d * 0.36, Math.PI);
     bench(group, w * 0.3, -d * 0.36);
     const bark = material('#61594a');
@@ -730,20 +788,21 @@ export function buildEnvironment(THREE, scene, config) {
     });
     turfTexture.wrapS = turfTexture.wrapT = THREE.RepeatWrapping;
     turfTexture.repeat.set(6, 3);
-    const turf = material('#ffffff', { map: turfTexture, roughness: 1 });
-    const soil = material('#6b604a');
+    const turf = material('#ffffff', { map: turfTexture, roughness: 1, ...surfaceMaterialOptions('turf') });
+    const soil = material('#6b604a', surfaceMaterialOptions('turf'));
     const shrubs = [];
     env.landscapeBeds.forEach(spec => {
       const group = groupAt(spec, 'Planted bed');
       const w = spec.width, d = spec.depth;
-      box(group, [w, 0.12, d], [0, 0.06, 0], turf, false);
+      box(group, [w, .12, d], [0, SURFACE_HEIGHTS.bedTurf - .06, 0], turf, false);
       [-1, 1].forEach(side => {
-        box(group, [w + 0.25, 0.2, 0.22], [0, 0.1, side * d / 2], paleConcrete, false);
-        box(group, [0.22, 0.2, d], [side * w / 2, 0.1, 0], paleConcrete, false);
+        box(group, [w + .25, .2, .22], [0, SURFACE_HEIGHTS.curb - .1, side * d / 2], paleConcrete, false);
+        box(group, [.22, .2, d], [side * w / 2, SURFACE_HEIGHTS.curb - .1, 0], paleConcrete, false);
       });
       const longX = w > d;
       const length = Math.max(w, d) - 2;
-      box(group, longX ? [length, 0.03, 1.7] : [1.7, 0.03, length], [0, 0.13, 0], soil, false);
+      box(group, longX ? [length, .03, 1.7] : [1.7, .03, length],
+        [0, SURFACE_HEIGHTS.bedSoil - .015, 0], soil, false);
       for (let n = -length / 2; n < length / 2; n += 1.25) {
         const localX = longX ? n : (random() - 0.5) * 0.45;
         const localZ = longX ? (random() - 0.5) * 0.45 : n;
@@ -784,10 +843,10 @@ export function buildEnvironment(THREE, scene, config) {
     const pitchedGeometry = keepGeometry(new THREE.ExtrudeGeometry(roofShape, { depth: 1, bevelEnabled: false }));
     pitchedGeometry.translate(0, 0, -0.5);
     const colors = ['#c8c3b5', '#bdc2be', '#cfcdc0', '#b7beb8', '#c4bbac', '#bab7ae'];
-    const districtGround = material('#969c8a');
+    const districtGround = material('#969c8a', surfaceMaterialOptions('grass'));
     env.backgroundZones.forEach(zone => {
       const group = groupAt(zone, 'Background district');
-      box(group, [zone.width, 0.035, zone.depth], [0, 0.0175, 0], districtGround, false);
+      box(group, [zone.width, .035, zone.depth], [0, SURFACE_HEIGHTS.grass - .0175, 0], districtGround, false);
       const columns = Math.max(1, Math.ceil(Math.sqrt(zone.count * zone.width / zone.depth)));
       const rows = Math.max(1, Math.ceil(zone.count / columns));
       const cellW = zone.width / columns, cellD = zone.depth / rows;
@@ -864,12 +923,15 @@ export function buildEnvironment(THREE, scene, config) {
   (env.surfacePatches || []).forEach(buildSurfacePatch);
   (env.pavement || []).forEach(spec => {
     const group = groupAt(spec, 'Pavement');
-    box(group, [spec.width, 0.16, spec.depth], [0, 0.08, 0], pavement, false);
+    box(group, [spec.width, SURFACE_HEIGHTS.paving, spec.depth],
+      [0, SURFACE_HEIGHTS.paving / 2, 0], groundPavement, false);
+    const joints = material('#b6b4a9', surfaceMaterialOptions('marking'));
+    const jointY = SURFACE_HEIGHTS.paving + SURFACE_HEIGHTS.turfGap;
     const axis = spec.width > spec.depth ? 'x' : 'z';
     const long = axis === 'x' ? spec.width : spec.depth;
     for (let offset = -long / 2 + 2.5; offset < long / 2; offset += 2.5) {
       box(group, axis === 'x' ? [0.035, 0.008, spec.depth] : [spec.width, 0.008, 0.035],
-        axis === 'x' ? [offset, 0.164, 0] : [0, 0.164, offset], concrete, false);
+        axis === 'x' ? [offset, jointY, 0] : [0, jointY, offset], joints, false);
     }
   });
   if (env.park) buildPark(env.park);
