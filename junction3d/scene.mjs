@@ -1,6 +1,8 @@
 import * as THREE from '../pinsim/three.module.min.js';
 import { buildPath, samplePath } from './engine.mjs';
 import { buildEnvironment } from './environment.mjs';
+import { createTransitRenderer } from './transit-renderer.mjs';
+import { buildLaneMarkings, sampleLaneMarking } from './lane-markings.mjs';
 
 /** Resolve route-local gates into unique physical stop lines and shared gantries. */
 export function buildSignalLayout(config) {
@@ -128,8 +130,23 @@ export function createScene(canvas, config) {
   roads.forEach(r => strip(r.path, r.width, asphalt, .035));
   const bounds = config.conflictBounds;
   const inJunction = p => p.x > bounds.minX - 3 && p.x < bounds.maxX + 3 && p.z > bounds.minZ - 7 && p.z < bounds.maxZ + 7;
-  // Paint only outside the crossing; each lane uses its actual route heading.
-  for (const road of roads) {
+  const { routes: processedRoutes, stops: physicalStops, clusters } = buildSignalLayout(config);
+  // Pavement width includes shoulders and need not equal the sum of lane widths.
+  // Explicit lane boundaries follow the same curves as the moving vehicles.
+  if (config.laneMarkings) for (const boundary of buildLaneMarkings(processedRoutes, config.laneMarkings)) {
+    const dashLength = boundary.style === 'solid' ? 6 : 3;
+    for (let s = boundary.start; s < boundary.end; s += 6) {
+      const end = Math.min(s + dashLength, boundary.end);
+      const p = sampleLaneMarking(boundary, (s + end) / 2);
+      if (inJunction(p)) continue;
+      const a = sampleLaneMarking(boundary, s), b = sampleLaneMarking(boundary, end);
+      const length = Math.hypot(b.x - a.x, b.z - a.z);
+      if (length < .05) continue;
+      const m = box(scene, marking, (a.x + b.x) / 2, .056, (a.z + b.z) / 2, .12, .016, length);
+      m.rotation.y = Math.atan2(b.x - a.x, b.z - a.z); m.castShadow = false;
+    }
+  }
+  else for (const road of roads) {
     for (let s = 0; s < road.path.length - 3; s += 6) {
       const p = samplePath(road.path, s + 1.5);
       if (inJunction(p)) continue;
@@ -150,18 +167,21 @@ export function createScene(canvas, config) {
     const c = document.createElement('canvas'); c.width = 128; c.height = 256;
     const ctx = c.getContext('2d'); ctx.strokeStyle = ctx.fillStyle = '#e1e1ce'; ctx.lineWidth = 14;
     ctx.beginPath(); ctx.moveTo(64, 230);
-    if (turn === 'straight') { ctx.lineTo(64, 50); ctx.stroke(); ctx.beginPath(); ctx.moveTo(64, 20); ctx.lineTo(27, 87); ctx.lineTo(101, 87); }
+    if (turn === 'left-straight') {
+      ctx.lineTo(64, 50); ctx.stroke(); ctx.beginPath(); ctx.moveTo(64, 20); ctx.lineTo(37, 78); ctx.lineTo(91, 78); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(64, 166); ctx.lineTo(64, 140); ctx.quadraticCurveTo(64, 104, 34, 104); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(6, 104); ctx.lineTo(41, 74); ctx.lineTo(41, 134);
+    } else if (turn === 'straight') { ctx.lineTo(64, 50); ctx.stroke(); ctx.beginPath(); ctx.moveTo(64, 20); ctx.lineTo(27, 87); ctx.lineTo(101, 87); }
     else { const sign = turn === 'left' ? -1 : 1; ctx.lineTo(64, 140); ctx.quadraticCurveTo(64, 91, 64 + sign * 28, 91); ctx.stroke(); ctx.beginPath(); ctx.moveTo(64 + sign * 58, 91); ctx.lineTo(64 + sign * 14, 49); ctx.lineTo(64 + sign * 14, 133); }
     ctx.closePath(); ctx.fill();
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
     return new THREE.MeshStandardMaterial({ map: t, transparent: true, depthWrite: false, roughness: 1 });
   }
-  const arrows = { straight: arrow('straight'), left: arrow('left'), right: arrow('right') };
+  const arrows = { straight: arrow('straight'), left: arrow('left'), right: arrow('right'), 'left-straight': arrow('left-straight') };
   const signalHeads = [];
   const lampGeo = new THREE.SphereGeometry(.16, 12, 8);
   const darkLamp = ['#541c14', '#60511e', '#133c28'].map(color => new THREE.MeshStandardMaterial({ color, roughness: .3 }));
   const litLamp = ['#ff281c', '#ffc338', '#36fa80'].map(color => new THREE.MeshBasicMaterial({ color, toneMapped: false }));
-  const { routes: processedRoutes, stops: physicalStops, clusters } = buildSignalLayout(config);
   const islandPolygons = (config.islands || []).map(island => island.points || island.polygon);
   function pointInIsland(x, z, margin = 0) {
     return islandPolygons.some(points => {
@@ -218,7 +238,8 @@ export function createScene(canvas, config) {
     for (let s = route.stopDistance + 6; s < route.path.length; s += 5) {
       const p = samplePath(route.path, s);
       if (!inJunction(p)) break;
-      const x = p.x + Math.cos(p.heading) * 1.65, z = p.z - Math.sin(p.heading) * 1.65;
+      const halfWidth = (route.laneWidth ?? config.laneWidth ?? 3.5) / 2;
+      const x = p.x + Math.cos(p.heading) * halfWidth, z = p.z - Math.sin(p.heading) * halfWidth;
       const key = `${Math.round(x * 2)},${Math.round(z * 2)}`;
       if (!onRoad(x, z) || pointInIsland(x, z, .8) || guidePositions.has(key)) continue;
       guidePositions.add(key);
@@ -232,7 +253,12 @@ export function createScene(canvas, config) {
     const c = document.createElement('canvas'); c.width = c.height = 128;
     const ctx = c.getContext('2d'); ctx.strokeStyle = ctx.fillStyle = '#36fa80'; ctx.lineWidth = 15;
     ctx.lineCap = 'square'; ctx.beginPath();
-    if (turn === 'straight') {
+    if (turn === 'left-straight') {
+      ctx.moveTo(78, 105); ctx.lineTo(78, 31); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(78, 12); ctx.lineTo(52, 44); ctx.lineTo(104, 44); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(78, 86); ctx.lineTo(78, 69); ctx.lineTo(32, 69); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(12, 69); ctx.lineTo(44, 43); ctx.lineTo(44, 95);
+    } else if (turn === 'straight') {
       ctx.moveTo(64, 104); ctx.lineTo(64, 29); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(64, 13); ctx.lineTo(32, 52); ctx.lineTo(96, 52);
     } else {
@@ -323,13 +349,18 @@ export function createScene(canvas, config) {
     meshes.forEach((mesh, index) => { mesh.updateMatrix(); batch.setMatrixAt(index, mesh.matrix); scene.remove(mesh); });
     batch.computeBoundingSphere(); scene.add(batch);
   }
-  buildEnvironment(THREE, scene, config);
+  const environment = buildEnvironment(THREE, scene, config);
+  const transit = createTransitRenderer(THREE, scene, config);
+  const streetLighting = environment.streetLighting;
+  streetLighting.applyTo(scene);
+  const litTransitModels = new WeakSet();
   const carTemplates = new Map();
   const carMeshes = new Map();
   const carColors = ['#ecede7', '#324a5e', '#3b4144', '#984235', '#aab4b4', '#d4cbb5', '#305c58', '#353237', '#bd9a50'];
   const tireMat = new THREE.MeshStandardMaterial({ color: '#17201f', roughness: .95 });
   const hubMat = new THREE.MeshStandardMaterial({ color: '#9ca9ad', metalness: .8, roughness: .26 });
-  const glassMat = new THREE.MeshStandardMaterial({ color: '#496573', metalness: .45, roughness: .19 });
+  const glassMat = new THREE.MeshStandardMaterial({ color: '#496573', metalness: .45, roughness: .19,
+    emissive: '#698493', emissiveIntensity: 0 });
   const headMat = new THREE.MeshStandardMaterial({ color: '#f2ecd3', emissive: '#ffefc8', emissiveIntensity: .4 });
   const tailMat = new THREE.MeshStandardMaterial({ color: '#9b2118', emissive: '#ee2818', emissiveIntensity: .25 });
   const brakeMat = new THREE.MeshBasicMaterial({ color: '#ff2c19', toneMapped: false });
@@ -381,6 +412,7 @@ export function createScene(canvas, config) {
     }
     box(group, black, 0, .59, length / 2 + .02, .66, .19, .05);
     box(group, headMat, 0, .64, -length / 2 - .035, .38, .11, .01);
+    streetLighting.applyTo(group);
     carTemplates.set(key, group); return group;
   }
 
@@ -398,14 +430,24 @@ export function createScene(canvas, config) {
   }
   setMounts(config.cameras);
   function update(simulation) {
+    transit.update(simulation);
+    for (const model of transit.vehicles.values()) if (!litTransitModels.has(model)) {
+      streetLighting.applyTo(model); litTransitModels.add(model);
+    }
     const live = new Set();
     for (const vehicle of simulation.vehicles) {
       live.add(vehicle.id);
       let model = carMeshes.get(vehicle.id);
-      if (!model) { model = carTemplate(vehicle.kind, vehicle.color || 0).clone(true); carMeshes.set(vehicle.id, model); scene.add(model); }
+      if (model && model.userData.simulationBody !== vehicle) { scene.remove(model); model = null; }
+      if (!model) {
+        model = carTemplate(vehicle.kind, vehicle.color || 0).clone(true);
+        model.userData.simulationBody = vehicle;
+        carMeshes.set(vehicle.id, model); scene.add(model);
+      }
       const actualLength = vehicle.kind === 'bus' ? 10.8 : vehicle.kind === 'van' ? 5.7 : 4.5;
       model.scale.z = vehicle.length / actualLength;
-      model.position.set(vehicle.x, .04, vehicle.z); model.rotation.y = vehicle.heading;
+      const pose = simulation.getRenderPose?.(vehicle) || vehicle;
+      model.position.set(pose.x, .04, pose.z); model.rotation.y = pose.heading;
       const blink = Math.floor(simulation.elapsed * 2.5) % 2 === 0;
       const entryStop = vehicle.route.stops?.[0];
       let blinkEnd = vehicle.route.clearDistance;
@@ -414,11 +456,14 @@ export function createScene(canvas, config) {
         const holding = samplePath(vehicle.route.path, entryStop.clearDistance).heading;
         // Side-road left turns have the same storage metadata but turn after
         // the median signal; only an already-completed entry turn stops blinking.
-        if (Math.cos(holding - approach) < Math.SQRT1_2) blinkEnd = entryStop.clearDistance;
+        const finalHeading = samplePath(vehicle.route.path, vehicle.route.clearDistance).heading;
+        const laterLeftTurn = Math.cos(finalHeading - holding) < Math.SQRT1_2;
+        if (Math.cos(holding - approach) < Math.SQRT1_2 && !laterLeftTurn) blinkEnd = entryStop.clearDistance;
       }
+      const indicatedTurn = vehicle.turn === 'straight' ? null : vehicle.turn === 'right' ? 'right' : 'left';
       model.children.forEach(m => {
         if (m.name === 'brake') m.material = vehicle.braking ? brakeMat : tailMat;
-        else if (m.name.startsWith('blink-')) m.material = vehicle.turn !== 'straight' && m.name === `blink-${vehicle.turn}` && blink && vehicle.distance < blinkEnd ? blinkMat : blinkOff;
+        else if (m.name.startsWith('blink-')) m.material = indicatedTurn && m.name === `blink-${indicatedTurn}` && blink && vehicle.distance < blinkEnd ? blinkMat : blinkOff;
       });
     }
     for (const [id, mesh] of carMeshes) { if (!live.has(id)) { scene.remove(mesh); carMeshes.delete(id); } }
@@ -428,14 +473,57 @@ export function createScene(canvas, config) {
       if (head.arrowLamp) head.arrowLamp.visible = state === 'green';
     }
   }
+  const lightingColors = {
+    nightSky: new THREE.Color('#0b1428'), daySky: new THREE.Color('#c4d9df'), duskSky: new THREE.Color('#aa7d79'),
+    nightKey: new THREE.Color('#92afe3'), dayKey: new THREE.Color('#fff0d4'), warmKey: new THREE.Color('#ffb16b'),
+    nightAmbient: new THREE.Color('#8ba9d7'), dayAmbient: new THREE.Color('#d6e7ff'),
+    nightGround: new THREE.Color('#3f4c65'), dayGround: new THREE.Color('#7d8068'),
+  };
+  // Lighting is an explicit state update: no timer or render loop is started,
+  // so time and every light remain frozen when the simulation is paused.
+  function setLighting(profile = {}) {
+    const daylight = THREE.MathUtils.clamp(Number.isFinite(profile.daylight) ? profile.daylight : 1, 0, 1);
+    const warmth = THREE.MathUtils.clamp(Number.isFinite(profile.warmth) ? profile.warmth : 0, 0, 1);
+    const night = 1 - daylight;
+    scene.background.copy(lightingColors.nightSky).lerp(lightingColors.daySky, daylight ** .82)
+      .lerp(lightingColors.duskSky, warmth * .32);
+    scene.fog.color.copy(scene.background);
+    scene.fog.far = 570 + daylight * 140;
+    sun.color.copy(lightingColors.nightKey).lerp(lightingColors.dayKey, daylight)
+      .lerp(lightingColors.warmKey, warmth * daylight);
+    sun.intensity = .22 + daylight * 2.88;
+    if (Number.isFinite(profile.azimuth) && Number.isFinite(profile.elevation)) {
+      // Azimuth: 0 north, pi/2 east. Below the horizon this same inexpensive
+      // key light supplies soft moonlight rather than illuminating from below.
+      const elevation = Math.max(.18, profile.elevation), radius = 210;
+      const horizontal = Math.cos(elevation) * radius;
+      sun.position.set(Math.sin(profile.azimuth) * horizontal, Math.sin(elevation) * radius,
+        -Math.cos(profile.azimuth) * horizontal);
+    } else sun.position.set(-100 - warmth * 70, 80 + daylight * 80 - warmth * 25, 90);
+    sky.color.copy(lightingColors.nightAmbient).lerp(lightingColors.dayAmbient, daylight);
+    sky.groundColor.copy(lightingColors.nightGround).lerp(lightingColors.dayGround, daylight);
+    sky.intensity = .8 + daylight * 1.6;
+    renderer.toneMappingExposure = 1.03 + daylight * .15;
+    headMat.emissiveIntensity = .4 + night * 4;
+    tailMat.emissiveIntensity = .25 + night * 1.2;
+    glassMat.emissiveIntensity = night * .07;
+    environment.setLighting?.({ daylight, warmth });
+    transit.setLighting({ daylight, warmth });
+  }
   function setEvening(enabled) {
+    // Keep the familiar manual presets while resetting all state that an
+    // automatic night profile may have changed, including shared materials.
+    setLighting({ daylight: enabled ? .4 : 1, warmth: enabled ? 1 : 0 });
     scene.background.set(enabled ? '#647888' : '#c4d9df'); scene.fog.color.copy(scene.background);
+    scene.fog.far = 710;
     sun.color.set(enabled ? '#ffb16b' : '#fff0d4'); sun.intensity = enabled ? 1.8 : 3.1;
     sun.position.set(enabled ? -170 : -100, enabled ? 65 : 160, 90);
+    sky.color.set('#d6e7ff'); sky.groundColor.set('#7d8068');
     sky.intensity = enabled ? 1.25 : 2.4; renderer.toneMappingExposure = enabled ? 1.02 : 1.18;
     headMat.emissiveIntensity = enabled ? 2.8 : .4;
+    transit.setEvening(enabled);
   }
   function resize() { const { width, height } = canvas.getBoundingClientRect(); renderer.setSize(width, height, false); camera.aspect = width / Math.max(1, height); camera.updateProjectionMatrix(); }
   function render() { renderer.render(scene, camera); }
-  return { scene, camera, renderer, roads, signalHeads, signalLayout: { stops: physicalStops, clusters }, update, resize, render, setEvening, setMounts, THREE };
+  return { scene, camera, renderer, roads, signalHeads, signalLayout: { stops: physicalStops, clusters }, transit, update, resize, render, setLighting, setEvening, setMounts, THREE };
 }

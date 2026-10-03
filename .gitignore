@@ -14,3 +14,6 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
+
+# Local recording frames used to diagnose junction animation
+/2026-10-03 17-22-03/

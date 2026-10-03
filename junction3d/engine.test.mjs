@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildPath, samplePath, TrafficSimulation } from './engine.mjs';
-import dortmund from './locations/dortmund.mjs';
 
 function config(overrides = {}) {
   return {
@@ -43,6 +42,32 @@ function stagedConfig() {
       ],
     }],
   };
+}
+
+function transitConfig(offsets = [16, 16]) {
+  const options = stagedConfig();
+  options.phases[0].duration = 20;
+  options.phases[1].groupDelays = {};
+  options.phases[3].groupDelays = {};
+  options.transit = {
+    greenGroups: ['main'], blockedGroups: ['leftSouth', 'leftNorth'],
+    routes: offsets.map((offset, index) => {
+      const direction = index === 0 ? 1 : -1, z = index === 0 ? 2.4 : -2.4;
+      return { id: `tram-${index}`, label: `Direction ${index}`, points: [[-140 * direction, z], [140 * direction, z]],
+        stopLine: [-35 * direction, z], clearPoint: [35 * direction, z], interval: 600, offset, speed: 10, length: 28 };
+    }),
+  };
+  return options;
+}
+
+function timetableConfig() {
+  const options = transitConfig([16, 40]);
+  options.timeZone = 'Europe/Berlin';
+  options.transit.routes.forEach((route, index) => {
+    route.schedule = { minuteOffset: index === 0 ? 9 : 2, intervalMinutes: 10,
+      sundayIntervalMinutes: 20, serviceStart: 300, serviceEnd: 1410 };
+  });
+  return options;
 }
 
 test('path sampling uses metres and the renderer +Z heading convention', () => {
@@ -201,6 +226,226 @@ test('invalid group delays and drain group membership are rejected', () => {
   assert.throws(() => new TrafficSimulation(invalidDrain), /Drain/);
 });
 
+test('inner and outer signals can open together while protected median clearing remains independent', () => {
+  const simulation = new TrafficSimulation(transitConfig([500, 524]));
+  for (let tick = 0; tick < 8000 && simulation.cycle < 2; tick++) {
+    simulation.update(1 / 30);
+    if (simulation.stage !== 'green') continue;
+    if (simulation.phaseIndex === 1) assert.equal(simulation.getSignal('middleSouth'), simulation.getSignal('north'));
+    if (simulation.phaseIndex === 3) assert.equal(simulation.getSignal('middleNorth'), simulation.getSignal('south'));
+  }
+  assert.equal(simulation.cycle, 2);
+});
+
+test('a late scheduled tram reserves the entire B1 phase and both directions can cross together', () => {
+  const simulation = new TrafficSimulation(transitConfig());
+  assert.equal(simulation.getStatus().transit.protected, true);
+  assert.equal(simulation.getSignal('leftSouth'), 'red');
+  let crossedTogether = false;
+  for (let tick = 0; tick < 1200; tick++) {
+    simulation.update(1 / 30);
+    if (simulation.phaseIndex === 0) {
+      assert.equal(simulation.getSignal('leftSouth'), 'red');
+      assert.equal(simulation.getSignal('leftNorth'), 'red');
+    }
+    if (simulation.trams.filter(tram => tram.committed).length === 2) crossedTogether = true;
+    if (simulation.phaseIndex === 1) assert.ok(simulation.trams.every(tram => !tram.committed || tram.distance - tram.length / 2 > tram.route.clearDistance), 'Side traffic must wait for the complete rear of both trains');
+  }
+  assert.equal(crossedTogether, true);
+  assert.equal(simulation.vehicles.length, 0, 'Transit schedules remain active at car density zero');
+  assert.ok(simulation.transitPassed > 0);
+});
+
+test('a skipped reserved phase and an unexpected late request wait for a fully booked B1 phase', () => {
+  const simulation = new TrafficSimulation(transitConfig([8]));
+  simulation.update(2);
+  simulation.requestNextPhase();
+  let sawWaiting = false, enteredLater = false;
+  for (let tick = 0; tick < 3000 && !enteredLater; tick++) {
+    simulation.update(1 / 30);
+    for (const tram of simulation.trams) {
+      if (!tram.committed && simulation.phaseIndex === 1 && tram.speed < 0.5) sawWaiting = true;
+      if (tram.committed) { assert.equal(simulation.transitProtected, true); assert.equal(simulation.phaseIndex, 2); enteredLater = true; }
+    }
+  }
+  assert.equal(sawWaiting, true);
+  assert.equal(enteredLater, true);
+  const late = new TrafficSimulation(transitConfig([500]));
+  assert.equal(late.transitProtected, false);
+  late.nextTransitDue.set('tram-0', 0); // A newly announced request missed the phase's booking deadline.
+  late.update(12);
+  assert.equal(late.getTransitSignal('tram-0'), 'red');
+  assert.equal(late.trams[0].committed, false);
+  assert.ok(late.trams[0].distance + late.trams[0].length / 2 < late.trams[0].route.stopDistance);
+});
+
+test('tram schedules repeat at 600 seconds and reset reproduces the original booking', () => {
+  const simulation = new TrafficSimulation(transitConfig([16, 40]));
+  simulation.update(1250);
+  assert.ok(simulation.transitPassed >= 4);
+  assert.deepEqual([...simulation.nextTransitDue.values()], [1816, 1840]);
+  simulation.reset();
+  assert.equal(simulation.transitProtected, true);
+  assert.equal(simulation.transitPassed, 0);
+  assert.deepEqual(simulation.getStatus().transit.nextArrivals.map(arrival => arrival.in), [16, 40]);
+});
+
+test('a selected clock advances with simulation time, pauses, and resets to its chosen base', () => {
+  const startTime = Date.parse('2026-10-03T12:08:50+02:00');
+  const simulation = new TrafficSimulation(timetableConfig(), { startTime });
+  assert.equal(simulation.getClockTime(), startTime);
+  assert.deepEqual(simulation.getStatus().transit.nextArrivals.map(arrival => [arrival.in, arrival.scheduledTime]), [
+    [10, Date.parse('2026-10-03T12:09:00+02:00')],
+    [190, Date.parse('2026-10-03T12:12:00+02:00')],
+  ]);
+  const originalStatus = simulation.getStatus();
+  simulation.update(.017);
+  assert.equal(simulation.elapsed, 0, 'The displayed clock includes sub-tick time without advancing physics early');
+  assert.equal(simulation.getClockTime(), startTime + 17);
+  simulation.update(4 - .017);
+  assert.ok(Math.abs(simulation.getClockTime() - startTime - 4000) < .001);
+  for (let frame = 0; frame < 60; frame++) simulation.update(0);
+  assert.ok(Math.abs(simulation.getClockTime() - startTime - 4000) < .001, 'Paused updates never consult the real clock');
+  simulation.reset();
+  assert.equal(simulation.getClockTime(), startTime);
+  assert.deepEqual(simulation.getStatus(), originalStatus);
+  simulation.update(80);
+  const sunday = Date.parse('2026-10-04T12:01:59+02:00');
+  simulation.setClockTime(sunday);
+  assert.equal(simulation.getClockTime(), sunday);
+  assert.equal(simulation.elapsed, 0);
+  assert.equal(simulation.phaseIndex, 0);
+  assert.equal(simulation.transitPassed, 0);
+  assert.equal(simulation.nextId, 1);
+  assert.deepEqual(simulation.getStatus().transit.nextArrivals.map(arrival => arrival.in), [421, 1]);
+  simulation.update(5);
+  simulation.reset();
+  assert.equal(simulation.getClockTime(), sunday, 'Later resets retain the newly selected start time');
+  for (const invalid of [NaN, Infinity, -Infinity, '2026-10-04', 9e15]) {
+    assert.throws(() => simulation.setClockTime(invalid), /startTime/);
+    assert.equal(simulation.getClockTime(), sunday, 'Invalid clock input cannot partially rebase the running model');
+  }
+});
+
+test('clockless scenarios retain relative schedules and clocked routes without timetables do too', () => {
+  const legacy = new TrafficSimulation(timetableConfig());
+  assert.equal(legacy.getClockTime(), null);
+  assert.deepEqual(legacy.getStatus().transit.nextArrivals.map(arrival => [arrival.in, arrival.scheduledTime]), [[16, null], [40, null]]);
+  const startTime = Date.parse('2026-10-04T02:00:00+02:00');
+  const clockedLegacy = new TrafficSimulation(transitConfig([16, 40]), { startTime });
+  assert.deepEqual(clockedLegacy.getStatus().transit.nextArrivals.map(arrival => arrival.in), [16, 40]);
+  clockedLegacy.update(50);
+  assert.deepEqual([...clockedLegacy.nextTransitDue.values()], [616, 640]);
+});
+
+test('an exact timetable boundary creates one tram and reserves the entire phase before its arrival', () => {
+  const startTime = Date.parse('2026-10-03T12:08:45+02:00');
+  const simulation = new TrafficSimulation(timetableConfig(), { startTime });
+  assert.equal(simulation.transitProtected, true, 'A departure near the end of B1 green must be booked at its beginning');
+  assert.equal(simulation.trams.length, 0, 'Distant approaching trains need not exist before their approach lead time');
+  for (let tick = 0; tick < 20 * 30; tick++) {
+    simulation.update(1 / 30);
+    assert.equal(simulation.getSignal('leftSouth'), 'red');
+    assert.equal(simulation.getSignal('leftNorth'), 'red');
+  }
+  assert.equal(simulation.nextTramId, 2);
+  assert.equal(simulation.trams[0].scheduledAt, 15);
+  simulation.setClockTime(Date.parse('2026-10-03T12:09:00+02:00'));
+  assert.equal(simulation.trams.length, 1, 'An inclusive departure exactly at the selected time appears once');
+  assert.equal(simulation.trams[0].scheduledAt, 0);
+  assert.equal(simulation.nextTransitDue.get('tram-0'), 600);
+  simulation.update(.02); simulation.update(0); simulation.update(.02);
+  assert.equal(simulation.nextTramId, 2, 'Fractional update calls must never create duplicate scheduled trips');
+  assert.equal(simulation.nextTransitDue.get('tram-0'), 600);
+});
+
+test('Sunday timetable uses twenty minutes and update subdivisions leave identical traffic and departures', () => {
+  const startTime = Date.parse('2026-10-04T12:01:59+02:00');
+  const whole = new TrafficSimulation(timetableConfig(), { startTime });
+  const sliced = new TrafficSimulation(timetableConfig(), { startTime });
+  whole.update(45);
+  for (let frame = 0; frame < 2700; frame++) sliced.update(1 / 60);
+  assert.equal(whole.nextTransitDue.get('tram-1'), 1201);
+  assert.equal(whole.nextTramId, 2);
+  const snapshot = simulation => ({ status: simulation.getStatus(), due: [...simulation.nextTransitDue],
+    trams: simulation.trams.map(({ id, scheduledAt, distance, speed, committed }) => ({ id, scheduledAt, distance, speed, committed })) });
+  assert.deepEqual(snapshot(whole), snapshot(sliced));
+  assert.ok(Math.abs(whole.getClockTime() - startTime - 45000) < .001);
+  assert.ok(Math.abs(sliced.getClockTime() - whole.getClockTime()) < .001);
+});
+
+test('night closure and a Sunday-to-Monday advance skip out-of-service trips without catch-up duplicates', () => {
+  const options = timetableConfig();
+  const startTime = Date.parse('2026-10-04T23:28:59+02:00');
+  const simulation = new TrafficSimulation(options, { startTime });
+  const departures = new Map(simulation.trams.map(tram => [tram.id, [tram.routeId, startTime + tram.scheduledAt * 1000]]));
+  const spawn = simulation.spawnTrams.bind(simulation);
+  simulation.spawnTrams = () => {
+    spawn();
+    for (const tram of simulation.trams) departures.set(tram.id, [tram.routeId, startTime + tram.scheduledAt * 1000]);
+  };
+  simulation.update(61);
+  assert.equal(simulation.getClockTime(), Date.parse('2026-10-04T23:30:00+02:00'));
+  assert.equal(simulation.trams.length, 0, 'The last admitted tram may clear after closing, but no new night trip is created');
+  assert.equal(simulation.transitPassed, 1);
+  assert.deepEqual(simulation.getStatus().transit.nextArrivals.map(arrival => arrival.scheduledTime), [
+    Date.parse('2026-10-05T05:09:00+02:00'), Date.parse('2026-10-05T05:02:00+02:00'),
+  ]);
+  simulation.update(6 * 3600 - 61);
+  const expected = [
+    ['tram-0', '2026-10-04T23:29:00+02:00'],
+    ['tram-1', '2026-10-05T05:02:00+02:00'],
+    ['tram-0', '2026-10-05T05:09:00+02:00'],
+    ['tram-1', '2026-10-05T05:12:00+02:00'],
+    ['tram-0', '2026-10-05T05:19:00+02:00'],
+    ['tram-1', '2026-10-05T05:22:00+02:00'],
+    ['tram-0', '2026-10-05T05:29:00+02:00'],
+  ].map(([id, time]) => [id, Date.parse(time)]);
+  assert.deepEqual([...departures.values()], expected, 'Only actual service departures spawn, with Monday back on its ten-minute cadence');
+  assert.equal(simulation.nextTramId, expected.length + 1);
+  assert.equal(simulation.vehicles.length, 0, 'Tram timetable remains independent of zero car density');
+  assert.equal(simulation.passed, 0);
+  assert.ok(Math.abs(simulation.getClockTime() - startTime - 6 * 3600 * 1000) < .01);
+  simulation.setClockTime(Date.parse('2026-10-05T02:00:00+02:00'));
+  simulation.update(8);
+  assert.equal(simulation.trams.length, 0);
+  assert.equal(simulation.transitProtected, false, 'A closed timetable does not unnecessarily suppress B1 left turns');
+  assert.equal(simulation.getSignal('leftSouth'), 'green');
+});
+
+test('entry route alternatives select available median storage and lock after admission', () => {
+  const options = stagedConfig();
+  const first = options.routes[0];
+  first.choiceGroup = 'same-destination';
+  first.laneSections = [{ id: 'shared-entry', from: [-10, -120], to: [-10, -40] }];
+  const alternative = { ...first, id: 'alternate-left', rate: 0, stops: first.stops.map(stop => ({ ...stop })) };
+  alternative.stops[0].storage = { id: 'second-holding-lane', capacity: 2 };
+  options.routes.push(alternative);
+  const simulation = new TrafficSimulation(options);
+  const vehicle = simulation.createVehicle(simulation.routes[0], simulation.routes[0].stopDistance - 4);
+  const occupied = new Map([['median-south', 2], ['second-holding-lane', 0]]);
+  simulation.chooseRoute(vehicle, occupied);
+  assert.equal(vehicle.routeId, 'alternate-left');
+  vehicle.passedGateIndex = 0;
+  simulation.chooseRoute(vehicle, new Map([['median-south', 0], ['second-holding-lane', 2]]));
+  assert.equal(vehicle.routeId, 'alternate-left', 'An admitted vehicle must retain its selected lane');
+});
+
+test('different destinations sharing a median lane maintain one physical queue', () => {
+  const options = stagedConfig();
+  const first = options.routes[0];
+  first.laneSections = [{ id: 'median-shared', from: [-10, -12], to: [-10, 9] }];
+  const second = { ...first, id: 'another-destination', exitId: 'east', laneId: 'different-entry', points: [[-10, -120], [-10, -40], [-10, -12], [-10, 9], [0, 20], [120, 20]] };
+  options.routes.push(second);
+  const simulation = new TrafficSimulation(options);
+  const leading = simulation.createVehicle(simulation.routes[0], simulation.routes[0].stops[1].distance - 3.05);
+  const following = simulation.createVehicle(simulation.routes[1], simulation.routes[1].stops[1].distance - 15);
+  leading.passedGateIndex = following.passedGateIndex = 0;
+  simulation.vehicles.push(leading, following);
+  simulation.update(5);
+  assert.ok(simulation.separation(following, leading) >= (following.length + leading.length) / 2 + 2.19);
+});
+
 test('red stops front bumpers before the stop line and queues do not overlap', () => {
   const simulation = new TrafficSimulation(config({ density: 0, phases: [{ groups: ['main'], duration: 120 }] }));
   const route = simulation.routes.find(route => route.id === 'south');
@@ -295,11 +540,25 @@ test('route vehicleKinds restrict the fleet to vehicles supported by its geometr
   assert.throws(() => new TrafficSimulation(options), /vehicleKinds/);
 });
 
-test('Dortmund side turns and shared exits do not overlap vehicle bodies over ten minutes', () => {
-  const simulation = new TrafficSimulation(dortmund);
+for (const scenario of [
+  { name: 'baseline', overrides: {} },
+  { name: 'Monday rush hour with six initial vehicles per lane', overrides: { density: 1.65, initialVehiclesPerLane: 6 },
+    startTime: Date.parse('2026-10-05T06:00:00Z') },
+]) test(`Dortmund ${scenario.name}: cars, shared lanes and scheduled trams remain conflict-free over twenty-one minutes`, async () => {
+  const { default: dortmund } = await import('./locations/dortmund.mjs');
+  const simulation = new TrafficSimulation({ ...dortmund, ...scenario.overrides }, { startTime: scenario.startTime });
+  if (scenario.overrides.initialVehiclesPerLane) {
+    const initialCounts = new Map();
+    for (const vehicle of simulation.vehicles) initialCounts.set(vehicle.route.laneId, (initialCounts.get(vehicle.route.laneId) ?? 0) + 1);
+    const arrivingLanes = new Set(simulation.routes.filter(route => route.rate > 0).map(route => route.laneId));
+    assert.equal(initialCounts.size, arrivingLanes.size);
+    assert.ok([...initialCounts.values()].every(count => count === 6), 'The rush-hour audit must actually start with six vehicles in every arriving lane');
+  }
   const capacities = new Map(simulation.routes.flatMap(route => route.stops.filter(stop => stop.storage).map(stop => [stop.storage.id, stop.storage.capacity])));
   const stagedDirections = new Set();
-  const widths = { car: 1.82, van: 2.05, bus: 2.5 };
+  const scheduledTrips = new Set();
+  const widths = { car: 1.82, van: 2.05, bus: 2.5, tram: 2.65 };
+  const observedUTurns = new Set();
   // Independent separating-axis check: longitudinal headway alone cannot catch
   // a long bus clipping an adjacent lane with its tail on a tight side turn.
   const overlaps = (a, b) => {
@@ -316,26 +575,42 @@ test('Dortmund side turns and shared exits do not overlap vehicle bodies over te
       return Math.abs(dx * axis[0] + dz * axis[1]) < extentA + extentB;
     });
   };
-  for (let tick = 0; tick < 18000; tick++) {
+  for (let tick = 0; tick < 37800; tick++) {
     simulation.update(1 / 30);
     if (tick % 10 !== 0) continue;
+    if (simulation.transitProtected) for (const group of dortmund.transit.blockedGroups) assert.equal(simulation.getSignal(group), 'red', 'Both B1 left turns stay closed for the whole booked train phase');
+    if (simulation.stage === 'green' && simulation.phaseIndex === 1) assert.equal(simulation.getSignal('north'), simulation.getSignal('middleSouth'));
+    if (simulation.stage === 'green' && simulation.phaseIndex === 3) assert.equal(simulation.getSignal('south'), simulation.getSignal('middleNorth'));
     const occupancy = new Map();
     for (const vehicle of simulation.vehicles) {
       for (const reservation of vehicle.reservations) occupancy.set(reservation.id, (occupancy.get(reservation.id) ?? 0) + 1);
+      if (vehicle.routeId.includes('uturn')) observedUTurns.add(vehicle.routeId.startsWith('east') ? 'east' : 'west');
       const nextStop = vehicle.route.stops[vehicle.passedGateIndex + 1];
       if (vehicle.passedGateIndex >= 0 && nextStop && vehicle.speed < 0.5 && simulation.getSignal(nextStop.group) === 'red') stagedDirections.add(nextStop.group);
     }
     for (const [id, count] of occupancy) assert.ok(count <= capacities.get(id), `Median storage ${id} exceeded its reserved capacity`);
-    for (let a = 0; a < simulation.vehicles.length; a++) {
-      for (let b = a + 1; b < simulation.vehicles.length; b++) {
-        const first = simulation.vehicles[a], second = simulation.vehicles[b];
+    const bodies = [...simulation.vehicles, ...simulation.trams.map(tram => ({ ...tram, kind: 'tram' }))];
+    for (const tram of simulation.trams) {
+      scheduledTrips.add(tram.scheduledAt);
+      if (tram.committed && tram.distance - tram.length / 2 <= tram.route.clearDistance) assert.ok(dortmund.phases[simulation.phaseIndex].groups.includes('main'), 'A train rear must clear before side traffic is enabled');
+    }
+    for (let a = 0; a < bodies.length; a++) {
+      for (let b = a + 1; b < bodies.length; b++) {
+        const first = bodies[a], second = bodies[b];
         assert.equal(overlaps(first, second), false, `Body overlap: ${first.routeId}/${second.routeId} at ${simulation.elapsed.toFixed(1)} s`);
       }
     }
   }
-  assert.ok(simulation.passed > 250, 'Collision avoidance must preserve flowing traffic with dedicated turning lanes');
-  assert.ok(simulation.cycle >= 3, 'Staged vehicles must not deadlock later phases');
+  assert.ok(simulation.passed > 500, 'Collision avoidance must preserve flowing traffic with dedicated turning lanes');
+  assert.ok(simulation.cycle >= 6, 'Staged vehicles must not deadlock later phases');
   assert.ok(stagedDirections.has('middleNorth') && stagedDirections.has('middleSouth'), 'Both alternating B1 turns must actually wait at their second red light');
+  assert.equal(observedUTurns.size, 2, 'U-turn demand from both B1 directions must be simulated');
+  assert.ok(simulation.transitPassed >= 4, 'Each train direction should complete at least two scheduled passages');
+  if (scenario.startTime !== undefined) {
+    assert.deepEqual([...scheduledTrips].sort((a, b) => a - b), [120, 540, 720, 1140],
+      'The rush-hour audit must use real Monday departures at 08:02, 08:09, 08:12 and 08:19');
+    assert.ok(Math.abs(simulation.getClockTime() - scenario.startTime - 1260000) < .01);
+  }
 });
 
 test('ten-minute traffic run stays finite, passes vehicles, and preserves lane headway', () => {
@@ -367,4 +642,116 @@ test('reset and frame subdivision reproduce the same seeded traffic', () => {
   assert.equal(snapshot(first), snapshot(second));
   first.reset(); first.update(30);
   assert.equal(snapshot(first), snapshot(second));
+});
+
+function constantMotionSimulation() {
+  const simulation = new TrafficSimulation(config({ density: 0,
+    phases: [{ groups: ['main'], duration: 1000 }],
+    routes: [{ id: 'constant-car', group: 'main', points: [[0, 0], [1000, 0]], stopLine: [900, 0], rate: 0, speed: 12 }],
+    transit: { greenGroups: ['main'], blockedGroups: [], routes: [
+      { id: 'constant-tram', points: [[0, 4], [1000, 4]], stopLine: [900, 4], clearPoint: [950, 4],
+        interval: 600, offset: 0, speed: 12, length: 28 },
+    ] },
+  }));
+  const car = simulation.createVehicle(simulation.routes[0], 100);
+  car.speed = 12; simulation.vehicles.push(car);
+  const tram = simulation.trams[0];
+  tram.distance = 100; tram.speed = 12; tram.committed = true;
+  Object.assign(tram, samplePath(tram.route.path, tram.distance));
+  return simulation;
+}
+
+test('render interpolation removes synchronized fixed-tick stutter for cars and trams under jitter', () => {
+  for (const cadence of [[.028, .035, .031, .038, .022, .044], [.064, .068, .065, .067]]) {
+    const simulation = constantMotionSimulation();
+    const baseline = constantMotionSimulation();
+    const bodies = [...simulation.vehicles, ...simulation.trams];
+    simulation.update(1 / 30);
+    let wallTime = 1 / 30;
+    let previousRender = bodies.map(body => simulation.getRenderPose(body));
+    let previousTick = simulation.elapsed;
+    const stepCounts = new Set();
+    for (let frame = 0; frame < 120; frame++) {
+      const dt = cadence[frame % cadence.length];
+      simulation.update(dt); wallTime += dt;
+      stepCounts.add(Math.round((simulation.elapsed - previousTick) * 30));
+      previousTick = simulation.elapsed;
+      bodies.forEach((body, index) => {
+        const pose = simulation.getRenderPose(body);
+        assert.ok(Math.abs(pose.x - previousRender[index].x - 12 * dt) < 1e-8,
+          'Rendered displacement must follow frame duration, including zero-tick and multi-tick frames');
+        assert.ok(Math.abs(pose.x - (100 + 12 * (wallTime - 1 / 30))) < 1e-8,
+          'The interpolated timeline has one fixed tick of latency, not a variable lag');
+        assert.ok(pose.x <= body.x + 1e-9, 'Rendering never extrapolates beyond collision-checked physics');
+        previousRender[index] = pose;
+      });
+    }
+    assert.ok(stepCounts.size > 1, 'The regression must actually cross different fixed-step counts');
+    if (cadence[0] === .028) assert.ok(stepCounts.has(0) && stepCounts.has(2));
+    else assert.ok(stepCounts.has(1) && stepCounts.has(3), 'Recorded ~66 ms cadence includes one- and three-tick advances');
+    baseline.update(wallTime);
+    const physics = sim => ({ status: sim.getStatus(), bodies: [...sim.vehicles, ...sim.trams].map(
+      ({ id, routeId, distance, speed, x, z, heading }) => ({ id, routeId, distance, speed, x, z, heading })) });
+    assert.deepEqual(physics(simulation), physics(baseline), 'Render reads and jitter must not alter deterministic physical state');
+  }
+});
+
+test('interpolated headings cross the north-facing angle wrap without rotating the long way', () => {
+  const simulation = new TrafficSimulation(config({ density: 0,
+    phases: [{ groups: ['main'], duration: 1000 }],
+    routes: [{ id: 'north-curve', group: 'main', points: [[0, 20], [.2, 0], [0, -20], [-.2, -40]],
+      stopLine: [-.15, -35], rate: 0, speed: 12 }],
+  }));
+  const car = simulation.createVehicle(simulation.routes[0], 19.9);
+  car.speed = 12; simulation.vehicles.push(car);
+  assert.ok(car.heading > 3);
+  simulation.update(.05);
+  assert.ok(car.heading < -3, 'The physical curve must cross +π to -π in this tick');
+  const pose = simulation.getRenderPose(car);
+  assert.ok(Math.cos(pose.heading) < -.9999, 'Interpolated heading continues to face north');
+  assert.ok(Math.abs(pose.z - (20 - 20.1)) < .003);
+});
+
+test('paused render reads, reset identity reuse and newly spawned bodies have stable display poses', () => {
+  const simulation = constantMotionSimulation();
+  simulation.update(.05);
+  const car = simulation.vehicles[0], tram = simulation.trams[0];
+  const before = [simulation.getRenderPose(car), simulation.getRenderPose(tram)];
+  const physicalTime = simulation.elapsed, remainder = simulation.accumulator;
+  for (let redraw = 0; redraw < 100; redraw++) {
+    assert.deepEqual([simulation.getRenderPose(car), simulation.getRenderPose(tram)], before);
+    simulation.update(0);
+  }
+  assert.equal(simulation.elapsed, physicalTime); assert.equal(simulation.accumulator, remainder);
+  simulation.reset();
+  const fresh = simulation.createVehicle(simulation.routes[0], 450);
+  assert.equal(fresh.id, car.id, 'Reset reuses numeric IDs but must never reuse a different body snapshot');
+  assert.deepEqual(simulation.getRenderPose(fresh), { x: fresh.x, z: fresh.z, heading: fresh.heading });
+  const freshTram = simulation.trams[0];
+  assert.equal(freshTram.id, tram.id);
+  assert.deepEqual(simulation.getRenderPose(freshTram), { x: freshTram.x, z: freshTram.z, heading: freshTram.heading });
+  fresh.distance = simulation.routes[0].length - .01;
+  Object.assign(fresh, samplePath(fresh.route.path, fresh.distance));
+  fresh.speed = 12; simulation.vehicles.push(fresh);
+  simulation.update(1 / 30);
+  assert.equal(simulation.vehicles.length, 0, 'Removed vehicles are not retained as display ghosts');
+});
+
+test('route reassignment with different stationing keeps the same interpolated world pose', () => {
+  const options = stagedConfig();
+  options.routes[0].choiceGroup = 'same-destination';
+  const alternative = { ...options.routes[0], id: 'longer-approach', points: [[-10, -150], [-10, -40], [-10, -12], [-10, 9], [-10, 120]],
+    stops: options.routes[0].stops.map(stop => ({ ...stop })) };
+  alternative.stops[0].storage = { id: 'second-holding-lane', capacity: 2 };
+  options.routes.push(alternative);
+  const simulation = new TrafficSimulation(options);
+  const car = simulation.createVehicle(simulation.routes[0], 35);
+  car.speed = 5; simulation.vehicles.push(car);
+  simulation.update(.05);
+  const before = simulation.getRenderPose(car), distance = car.distance;
+  simulation.chooseRoute(car, new Map([['median-south', 2], ['second-holding-lane', 0]]));
+  assert.equal(car.routeId, 'longer-approach');
+  assert.ok(car.distance > distance + 25, 'Route stationing changes although the approach is physically shared');
+  const after = simulation.getRenderPose(car);
+  assert.ok(Math.hypot(after.x - before.x, after.z - before.z) < 1e-8);
 });

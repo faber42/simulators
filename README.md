@@ -17,7 +17,7 @@ Dann <http://localhost:3000> öffnen. Die Startseite verlinkt auf alle Projekte.
 | [elevsim](elevsim/) | Aufzug-Simulator |
 | [netsim](netsim/) | Netzwerk-Simulator (Geräte, Links, Frames, Protokolle) |
 | [trafficsim](trafficsim/) | Kreuzungssimulation mit mehrstufiger Ampelanlage |
-| [junction3d](junction3d/) | Westfalendamm / Voßkuhle in Dortmund als 3D-Kreuzung mit Verkehrskameras, Linksabbiegern und getrennten Nebenstraßenphasen; allgemeine Simulation und Standortdaten getrennt |
+| [junction3d](junction3d/) | Voßkuhle · 3D-Kreuzung in Dortmund am Westfalendamm (B1) mit Verkehrskameras, Linksabbiegern und getrennten Nebenstraßenphasen; allgemeine Simulation und Standortdaten getrennt |
 | [washsim](washsim/) | Waschtrockner-Simulator mit Wasser- und Schaumpartikeln |
 | [drivesim](drivesim/) | Nachtfahrt auf regennasser Autobahn (WebGL-Shader) |
 | [llmsim](llmsim/) | Transformer-Simulator: Texterzeugung Wort für Wort, Attention, Wissens-Ebenen und KV-Cache als Symbole statt Mathematik |

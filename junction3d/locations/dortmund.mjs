@@ -22,13 +22,59 @@ const southApproach = {
   outer: [[17.75, 180], [15.75, 80], [8.75, 38], [8.75, 31]],
 };
 
-// Shared tails make the B1 turning pockets and side-road through lanes one queue.
-const southTail = [[-7.2, -6], [-6.5, 9], [-5.25, 30], [1.75, 80], [3.75, 180]];
-const northTail = [[4.5, 7], [4.7, -9], [2.2, -32], [-21.5, -67.7], [-60.9, -115.3], [-107.9, -173.3]];
-const southStorage = { id: 'holding-south-through', capacity: 2 };
-const northStorage = { id: 'holding-north-through', capacity: 2 };
-const middleSouthThrough = { id: 'middle-south-through', group: 'middleSouth', point: [-6.5, 9], arrow: 'straight' };
-const middleNorthThrough = { id: 'middle-north-through', group: 'middleNorth', point: [4.7, -9], arrow: 'straight' };
+// Each direction has a dedicated left, shared left/straight and straight lane.
+// Paired left-turn arcs are concentric, preserving 3.5 m between lane centres.
+const southLeftArc = [[-2.368, 12.176], [-0.569, 14.869], [2.124, 16.668], [5.3, 17.3], [25, 17.3], [60, 17.3], [220, 17.3]];
+const southSharedArc = [[-5.602, 13.516], [-3.044, 17.344], [0.784, 19.902], [5.3, 20.8], [25, 20.8], [60, 20.8], [220, 20.8]];
+const northLeftArc = [[0.568, -12.176], [-1.231, -14.869], [-3.924, -16.668], [-7.1, -17.3], [-25, -17.3], [-60, -17.3], [-220, -17.3]];
+const northSharedArc = [[3.802, -13.516], [1.244, -17.344], [-2.584, -19.902], [-7.1, -20.8], [-25, -20.8], [-60, -20.8], [-220, -20.8]];
+
+const median = {
+  south: {
+    left: { id: 'south-left', entry: [-3.4, -6], point: [-3, 9], arrow: 'left' },
+    shared: { id: 'south-shared', entry: [-7.2, -6], point: [-6.5, 9], arrow: 'left-straight' },
+    through: { id: 'south-through', entry: [-10.5, -6], point: [-10, 9], arrow: 'straight' },
+  },
+  north: {
+    left: { id: 'north-left', entry: [1.3, 7], point: [1.2, -9], arrow: 'left' },
+    shared: { id: 'north-shared', entry: [4.5, 7], point: [4.7, -9], arrow: 'left-straight' },
+    through: { id: 'north-through', entry: [8, 7], point: [8.2, -9], arrow: 'straight' },
+  },
+};
+
+// Rerouting only chooses a compatible lane; the vehicle's destination is fixed.
+const tails = {
+  south: {
+    left: { exitId: 'east1', points: [median.south.left.entry, median.south.left.point, ...southLeftArc] },
+    sharedLeft: { exitId: 'east2', points: [median.south.shared.entry, median.south.shared.point, ...southSharedArc] },
+    sharedStraight: { exitId: 'south1', points: [median.south.shared.entry, median.south.shared.point, [-5.25, 30], [1.75, 80], [3.75, 180]] },
+    through: { exitId: 'south2', points: [median.south.through.entry, median.south.through.point, [-8.75, 30], [-1.75, 80], [0.25, 180]] },
+  },
+  north: {
+    left: { exitId: 'west1', points: [median.north.left.entry, median.north.left.point, ...northLeftArc] },
+    sharedLeft: { exitId: 'west2', points: [median.north.shared.entry, median.north.shared.point, ...northSharedArc] },
+    sharedStraight: { exitId: 'north1', points: [median.north.shared.entry, median.north.shared.point, [2.2, -32], [-21.5, -67.7], [-60.9, -115.3], [-107.9, -173.3]] },
+    through: { exitId: 'north2', points: [median.north.through.entry, median.north.through.point, [5.7, -32], [-18.5, -69.5], [-58.2, -117.5], [-105.2, -175.5]] },
+  },
+};
+
+function medianStops(direction, lane, entryId, outerGroup, outerPoint, arrow) {
+  const m = median[direction][lane];
+  return [
+    { id: entryId, group: outerGroup, point: outerPoint, clearPoint: m.entry,
+      storage: { id: `holding-${m.id}`, capacity: 2 }, arrow },
+    { id: `middle-${m.id}`, group: direction === 'south' ? 'middleSouth' : 'middleNorth', point: m.point, arrow: m.arrow },
+  ];
+}
+
+function medianSection(direction, lane, movement) {
+  const m = median[direction][lane];
+  // Keep headway until divergent vehicle bodies have actually separated.
+  const to = lane !== 'shared' ? m.point : movement === 'sharedLeft'
+    ? (direction === 'south' ? southSharedArc[2] : northSharedArc[2])
+    : (direction === 'south' ? [-5.6, 24] : [3.1, -24]);
+  return { id: `median-${m.id}`, from: m.entry, to };
+}
 
 /** The innermost B1 lanes are dedicated left-turn lanes, never through lanes. */
 const mainRoutes = [17.3, 20.8].flatMap((z, index) => [
@@ -48,13 +94,90 @@ const mainRoutes = [17.3, 20.8].flatMap((z, index) => [
   },
 ]);
 
+function mainTurn({ id, from, direction, lane, movement, choiceGroup, rate, label }) {
+  const east = from === 'east';
+  const group = direction === 'south' ? 'mainLeftSouth' : 'mainLeftNorth';
+  const m = median[direction][lane], tail = tails[direction][movement];
+  const stopLine = east ? [28, -13.8] : [-28, 13.8];
+  const prefix = east ? [[220, -13.8], [80, -13.8], stopLine, [10, -13.8]] : [[-220, 13.8], [-80, 13.8], stopLine, [-10, 13.8]];
+  const radius = east ? 7.8 : 6.8;
+  const bend = east ? [
+    [m.entry[0] + radius, -13.8],
+    [m.entry[0] + radius * 0.5, -6 - radius * 0.8660254],
+    [m.entry[0] + radius * 0.1339746, -6 - radius * 0.5],
+  ] : [
+    [m.entry[0] - radius, 13.8],
+    [m.entry[0] - radius * 0.5, 7 + radius * 0.8660254],
+    [m.entry[0] - radius * 0.1339746, 7 + radius * 0.5],
+  ];
+  return {
+    id, label, choiceGroup, rate, group, laneId: east ? 'e0' : 'w0',
+    vehicleKinds: ['car', 'van'], renderFlare: false,
+    exitId: tail.exitId, turn: 'left', speed: 6.5, stopLine,
+    points: [...prefix, ...bend, ...tail.points],
+    mergePoint: movement === 'left' || movement === 'sharedLeft' ? tail.points.at(-3) : m.entry,
+    laneSections: [
+      { id: east ? 'e0-entry' : 'w0-entry', from: prefix[0], to: east ? [4.4, -13.8] : [-5.5, 13.8] },
+      medianSection(direction, lane, movement),
+    ],
+    stops: medianStops(direction, lane, `${from}-${direction}-entry`, group, stopLine, 'left'),
+  };
+}
+
+// A choice group's first route owns the arrival rate; alternatives must stay at 0.
+// The engine chooses a lane with room before admission, never a new destination.
+const mainTurnRoutes = [
+  mainTurn({ id: 'east-south', from: 'east', direction: 'south', lane: 'shared', movement: 'sharedStraight', choiceGroup: 'east-to-south', rate: 45, label: 'B1 aus Ost → Semmerteichstraße · gemeinsame Spur' }),
+  mainTurn({ id: 'east-south-outer', from: 'east', direction: 'south', lane: 'through', movement: 'through', choiceGroup: 'east-to-south', rate: 0, label: 'B1 aus Ost → Semmerteichstraße · Geradeausspur' }),
+  mainTurn({ id: 'east-uturn', from: 'east', direction: 'south', lane: 'left', movement: 'left', choiceGroup: 'east-return-east', rate: 20, label: 'B1 aus Ost → Mitte → B1 Ost · Wendefahrt' }),
+  mainTurn({ id: 'east-uturn-shared', from: 'east', direction: 'south', lane: 'shared', movement: 'sharedLeft', choiceGroup: 'east-return-east', rate: 0, label: 'B1 aus Ost → Mitte → B1 Ost · gemeinsame Spur' }),
+  mainTurn({ id: 'west-north', from: 'west', direction: 'north', lane: 'shared', movement: 'sharedStraight', choiceGroup: 'west-to-north', rate: 45, label: 'B1 aus West → Voßkuhle · gemeinsame Spur' }),
+  mainTurn({ id: 'west-north-outer', from: 'west', direction: 'north', lane: 'through', movement: 'through', choiceGroup: 'west-to-north', rate: 0, label: 'B1 aus West → Voßkuhle · Geradeausspur' }),
+  mainTurn({ id: 'west-uturn', from: 'west', direction: 'north', lane: 'left', movement: 'left', choiceGroup: 'west-return-west', rate: 20, label: 'B1 aus West → Mitte → B1 West · Wendefahrt' }),
+  mainTurn({ id: 'west-uturn-shared', from: 'west', direction: 'north', lane: 'shared', movement: 'sharedLeft', choiceGroup: 'west-return-west', rate: 0, label: 'B1 aus West → Mitte → B1 West · gemeinsame Spur' }),
+];
+
+function sideRoute({ from, direction, lane, movement, id, rate, label }) {
+  const north = from === 'north';
+  const laneIndex = lane === 'left' ? 0 : lane === 'shared' ? 1 : 2;
+  const approach = (north ? northApproach : southApproach)[['inner', 'middle', 'outer'][laneIndex]];
+  const transition = north ? [[-4.2, -18], [-7.7, -18], [-11.3, -18]][laneIndex] : [[1.5, 19], [4.8, 19], [8.3, 19]][laneIndex];
+  const m = median[direction][lane], tail = tails[direction][movement];
+  const stopLine = approach.at(-1), entryId = `${from}-${lane}-entry`;
+  return {
+    id, label, rate, group: from, laneId: `${north ? 'n' : 's'}${laneIndex}`,
+    vehicleKinds: ['car', 'van'], exitId: tail.exitId,
+    turn: movement === 'left' || movement === 'sharedLeft' ? 'left' : 'straight',
+    speed: movement === 'left' || movement === 'sharedLeft' ? 5.5 : 9.7,
+    points: [...approach, transition, ...tail.points], stopLine,
+    mergePoint: movement === 'left' || movement === 'sharedLeft' ? tail.points.at(-3) : m.entry,
+    laneSections: [
+      { id: `${north ? 'n' : 's'}${laneIndex}-entry`, from: approach[0], to: m.entry },
+      medianSection(direction, lane, movement),
+    ],
+    stops: medianStops(direction, lane, entryId, from, stopLine, m.arrow),
+  };
+}
+
+const sideRoutes = [
+  sideRoute({ from: 'north', direction: 'south', lane: 'left', movement: 'left', id: 'north-left', rate: 90, label: 'Voßkuhle → B1 Ost · Linksabbiegerspur' }),
+  sideRoute({ from: 'north', direction: 'south', lane: 'shared', movement: 'sharedLeft', id: 'north-shared-left', rate: 60, label: 'Voßkuhle → B1 Ost · gemeinsame Spur' }),
+  sideRoute({ from: 'north', direction: 'south', lane: 'shared', movement: 'sharedStraight', id: 'north-shared-straight', rate: 25, label: 'Voßkuhle → Semmerteichstraße · gemeinsame Spur' }),
+  sideRoute({ from: 'north', direction: 'south', lane: 'through', movement: 'through', id: 'north-through', rate: 50, label: 'Voßkuhle → Semmerteichstraße · Geradeausspur' }),
+  sideRoute({ from: 'south', direction: 'north', lane: 'left', movement: 'left', id: 'south-left', rate: 90, label: 'Semmerteichstraße → B1 West · Linksabbiegerspur' }),
+  sideRoute({ from: 'south', direction: 'north', lane: 'shared', movement: 'sharedLeft', id: 'south-shared-left', rate: 60, label: 'Semmerteichstraße → B1 West · gemeinsame Spur' }),
+  sideRoute({ from: 'south', direction: 'north', lane: 'shared', movement: 'sharedStraight', id: 'south-shared-straight', rate: 25, label: 'Semmerteichstraße → Voßkuhle · gemeinsame Spur' }),
+  sideRoute({ from: 'south', direction: 'north', lane: 'through', movement: 'through', id: 'south-through', rate: 50, label: 'Semmerteichstraße → Voßkuhle · Geradeausspur' }),
+];
+
 export const dortmund = {
   id: 'dortmund-westfalendamm',
-  name: 'Westfalendamm',
+  name: 'Voßkuhle',
+  timeZone: 'Europe/Berlin',
   subtitle: 'Dortmund · B1 × Voßkuhle / Semmerteichstraße',
   ui: {
     roadBadge: 'B 1',
-    phaseExplainer: 'Die B1 erhält jede zweite Grünphase. Linksabbieger warten zunächst in der Mitte.',
+    phaseExplainer: 'Die B1 erhält jede zweite Grünphase. Innere und äußere Nebenstraßenampeln starten gemeinsam.',
     signalIndicators: [
       { group: 'mainLeftSouth', label: 'B1 links → Süd' },
       { group: 'mainLeftNorth', label: 'B1 links → Nord' },
@@ -62,7 +185,7 @@ export const dortmund = {
       { group: 'middleNorth', label: 'Mitte → Nord' },
     ],
   },
-  description: 'Eine räumliche Rekonstruktion der Kreuzung mit getrennten Nebenstraßenphasen und Zwischenhalt für B1-Linksabbieger.',
+  description: 'Drei Nebenstraßenspuren je Richtung, flexible Wendefahrten über die Mitte und Stadtbahn-Vorrang während der B1-Phasen.',
   coordinates: { latitude: 51.5034529, longitude: 7.4972166 },
   source: {
     url: 'https://www.google.de/maps/@51.5034529,7.4972166,17.99z/data=!5m1!1e1?entry=ttu',
@@ -75,115 +198,72 @@ export const dortmund = {
   phases: [
     { id: 'main-a', label: 'Hauptstraße · West ↔ Ost', groups: ['main', 'mainLeftSouth'], groupDelays: { mainLeftSouth: 7 }, duration: 32,
       uiNote: 'B1 geradeaus; nach 7 s links aus Ost in den Wartebereich Richtung Süd.' },
-    { id: 'north', label: 'Nebenstraße → Süd · Mitte zuerst, dann Voßkuhle', groups: ['middleSouth', 'north'], groupDelays: { north: 5 }, drainGroups: ['middleSouth'], duration: 22,
-      uiNote: 'Mitte fährt nach Süd ab. Voßkuhle folgt 5 s später, einschließlich links nach Ost.' },
+    { id: 'north', label: 'Nebenstraße → Süd · Mitte und Voßkuhle gemeinsam', groups: ['middleSouth', 'north'], drainGroups: ['middleSouth'], duration: 22,
+      uiNote: 'Voßkuhle und Mittelbereich werden gleichzeitig frei: links, links/geradeaus und geradeaus.' },
     { id: 'main-b', label: 'Hauptstraße · West ↔ Ost', groups: ['main', 'mainLeftNorth'], groupDelays: { mainLeftNorth: 7 }, duration: 32,
       uiNote: 'B1 geradeaus; nach 7 s links aus West in den Wartebereich Richtung Nord.' },
-    { id: 'south', label: 'Nebenstraße → Nord · Mitte zuerst, dann Semmerteichstraße', groups: ['middleNorth', 'south'], groupDelays: { south: 5 }, drainGroups: ['middleNorth'], duration: 22,
-      uiNote: 'Mitte fährt nach Nord ab. Semmerteichstraße folgt 5 s später, einschließlich links nach West.' },
+    { id: 'south', label: 'Nebenstraße → Nord · Mitte und Semmerteichstraße gemeinsam', groups: ['middleNorth', 'south'], drainGroups: ['middleNorth'], duration: 22,
+      uiNote: 'Semmerteichstraße und Mittelbereich werden gleichzeitig frei: links, links/geradeaus und geradeaus.' },
   ],
   roads: [
     { id: 'b1-west', label: 'Westfalendamm · Richtung West', points: [[-220, -18], [220, -18]], width: 12, lanes: 3 },
     { id: 'b1-east', label: 'Westfalendamm · Richtung Ost', points: [[-220, 18], [220, 18]], width: 12, lanes: 3 },
-    { id: 'side', label: 'Voßkuhle / Semmerteichstraße', points: [[-112, -170], [-65, -112], [-26, -65], [-3, -32], [0, 30], [7, 80], [9, 180]], width: 22, lanes: 6 },
+    { id: 'side', label: 'Voßkuhle / Semmerteichstraße', points: [[-112, -170], [-65, -112], [-26, -65], [-3, -32], [0, 30], [7, 80], [9, 180]], width: 24, lanes: 6 },
+  ],
+  laneWidth: 3.5,
+  // Painting follows real lane paths, independently of the wider paved surface.
+  // Positive offsets are left of travel; a shared physical lane is listed once.
+  laneMarkings: [
+    { routeId: 'west-east-1', section: 'full', offsets: [
+      { offset: 5.25, style: 'solid' }, { offset: 1.75, style: 'dashed' },
+      { offset: -1.75, style: 'dashed' }, { offset: -5.25, style: 'solid' },
+    ] },
+    { routeId: 'east-west-1', section: 'full', offsets: [
+      { offset: 5.25, style: 'solid' }, { offset: 1.75, style: 'dashed' },
+      { offset: -1.75, style: 'dashed' }, { offset: -5.25, style: 'solid' },
+    ] },
+    { routeId: 'north-left', section: 'approach', offsets: [{ offset: 1.75, style: 'dashed' }] },
+    { routeId: 'north-shared-straight', section: 'approach', offsets: [{ offset: 1.75, style: 'dashed', betweenRouteId: 'north-left' }] },
+    { routeId: 'north-through', section: 'approach', offsets: [{ offset: 1.75, style: 'dashed', betweenRouteId: 'north-shared-straight' }, { offset: -1.75, style: 'solid' }] },
+    { routeId: 'south-left', section: 'approach', offsets: [{ offset: 1.75, style: 'dashed' }] },
+    { routeId: 'south-shared-straight', section: 'approach', offsets: [{ offset: 1.75, style: 'dashed', betweenRouteId: 'south-left' }] },
+    { routeId: 'south-through', section: 'approach', offsets: [{ offset: 1.75, style: 'dashed', betweenRouteId: 'south-shared-straight' }, { offset: -1.75, style: 'solid' }] },
+    { routeId: 'north-shared-straight', section: 'departure', offsets: [{ offset: 1.75, style: 'dashed' }] },
+    { routeId: 'north-through', section: 'departure', offsets: [{ offset: 1.75, style: 'dashed', betweenRouteId: 'north-shared-straight' }, { offset: -1.75, style: 'solid' }] },
+    { routeId: 'south-shared-straight', section: 'departure', offsets: [{ offset: 1.75, style: 'dashed' }] },
+    { routeId: 'south-through', section: 'departure', offsets: [{ offset: 1.75, style: 'dashed', betweenRouteId: 'south-shared-straight' }, { offset: -1.75, style: 'solid' }] },
   ],
   islands: [
-    { id: 'median-refuge-north', points: [[-1.6, -5], [-0.4, -5], [-0.4, -3.5], [-1.6, -3.5]] },
-    { id: 'median-refuge-south', points: [[-1.6, 3.5], [-0.4, 3.5], [-0.4, 5], [-1.6, 5]] },
+    { id: 'median-refuge-north', points: [[-1.6, -5], [-0.4, -5], [-0.4, -3.9], [-1.6, -3.9]] },
+    { id: 'median-refuge-south', points: [[-1.6, 3.9], [-0.4, 3.9], [-0.4, 5], [-1.6, 5]] },
   ],
   signalGantries: [
     { id: 'b1-from-west', stopIds: ['west-east-1-entry', 'west-east-2-entry', 'west-north-entry'], anchor: [-30, 26.5], height: 6.6 },
     { id: 'b1-from-east', stopIds: ['east-west-1-entry', 'east-west-2-entry', 'east-south-entry'], anchor: [30, -26.5], height: 6.6 },
-    { id: 'side-from-north', stopIds: ['north-through-entry', 'north-left-entry', 'north-right-entry'], anchor: [-17, -32], height: 6.3 },
-    { id: 'side-from-south', stopIds: ['south-through-entry', 'south-left-entry', 'south-right-entry'], anchor: [14.2, 32], height: 6.3 },
-    { id: 'median-to-south', stopIds: ['middle-south-through', 'middle-south-left'], anchor: [-1, 4.2], height: 5.8 },
-    { id: 'median-to-north', stopIds: ['middle-north-through', 'middle-north-left'], anchor: [-1, -4.2], height: 5.8 },
+    { id: 'side-from-north', stopIds: ['north-left-entry', 'north-shared-entry', 'north-through-entry'], anchor: [-17, -32], height: 6.3 },
+    { id: 'side-from-south', stopIds: ['south-left-entry', 'south-shared-entry', 'south-through-entry'], anchor: [14.2, 32], height: 6.3 },
+    { id: 'median-to-south', stopIds: ['middle-south-left', 'middle-south-shared', 'middle-south-through'], anchor: [-1, 4.2], height: 5.8 },
+    { id: 'median-to-north', stopIds: ['middle-north-left', 'middle-north-shared', 'middle-north-through'], anchor: [-1, -4.2], height: 5.8 },
   ],
-  routes: [
-    ...mainRoutes,
-    {
-      id: 'east-south', label: 'B1 aus Ost → Mitte → Semmerteichstraße',
-      vehicleKinds: ['car', 'van'], renderFlare: false,
-      group: 'mainLeftSouth', laneId: 'e0', exitId: 'south1', turn: 'left',
-      points: [[220, -13.8], [80, -13.8], [28, -13.8], [10, -13.8], [0.6, -13.8], [-3.3, -12.76], [-6.15, -9.9], ...southTail],
-      stopLine: [28, -13.8], mergePoint: southTail[0], rate: 45, speed: 6.5,
-      stops: [
-        { id: 'east-south-entry', group: 'mainLeftSouth', point: [28, -13.8], clearPoint: southTail[0], storage: southStorage, arrow: 'left' },
-        middleSouthThrough,
-      ],
-    },
-    {
-      id: 'west-north', label: 'B1 aus West → Mitte → Voßkuhle',
-      vehicleKinds: ['car', 'van'], renderFlare: false,
-      group: 'mainLeftNorth', laneId: 'w0', exitId: 'north1', turn: 'left',
-      points: [[-220, 13.8], [-80, 13.8], [-28, 13.8], [-10, 13.8], [-2.3, 13.8], [1.1, 12.89], [3.59, 10.4], ...northTail],
-      stopLine: [-28, 13.8], mergePoint: northTail[0], rate: 45, speed: 6.5,
-      stops: [
-        { id: 'west-north-entry', group: 'mainLeftNorth', point: [-28, 13.8], clearPoint: northTail[0], storage: northStorage, arrow: 'left' },
-        middleNorthThrough,
-      ],
-    },
-    {
-      id: 'north-through', label: 'Voßkuhle → Semmerteichstraße',
-      vehicleKinds: ['car', 'van'],
-      group: 'north', laneId: 'n1', exitId: 'south1', turn: 'straight',
-      points: [...northApproach.middle, [-7.7, -18], ...southTail],
-      stopLine: [-8.3, -31], mergePoint: southTail[0], rate: 140, speed: 9.7,
-      stops: [
-        { id: 'north-through-entry', group: 'north', point: [-8.3, -31], clearPoint: southTail[0], storage: southStorage, arrow: 'straight' },
-        middleSouthThrough,
-      ],
-    },
-    {
-      id: 'north-left', label: 'Voßkuhle → B1 Ost',
-      vehicleKinds: ['car', 'van'],
-      group: 'north', laneId: 'n0', exitId: 'east0', turn: 'left',
-      points: [...northApproach.inner, [-4.2, -18], [-3.4, -6], [-3, 9], [-2.45, 11.2], [-0.5, 13.2], [3, 13.8], [20, 13.8], [45, 13.8], [220, 13.8]],
-      stopLine: [-4.8, -31], rate: 90, speed: 5.5,
-      stops: [
-        { id: 'north-left-entry', group: 'north', point: [-4.8, -31], clearPoint: [-3.4, -6], storage: { id: 'holding-south-left', capacity: 2 }, arrow: 'left' },
-        { id: 'middle-south-left', group: 'middleSouth', point: [-3, 9], arrow: 'left' },
-      ],
-    },
-    {
-      id: 'north-right', label: 'Voßkuhle → B1 West',
-      vehicleKinds: ['car', 'van'],
-      group: 'north', laneId: 'n2', exitId: 'west2', turn: 'right',
-      points: [...northApproach.outer, [-14, -25], [-20, -21.5], [-30, -20.8], [-60, -20.8], [-220, -20.8]],
-      stopLine: [-11.8, -31], rate: 110, speed: 6.5,
-      stops: [{ id: 'north-right-entry', group: 'north', point: [-11.8, -31], arrow: 'right' }],
-    },
-    {
-      id: 'south-through', label: 'Semmerteichstraße → Voßkuhle',
-      vehicleKinds: ['car', 'van'],
-      group: 'south', laneId: 's1', exitId: 'north1', turn: 'straight',
-      points: [...southApproach.middle, [4.8, 19], ...northTail],
-      stopLine: [5.25, 31], mergePoint: northTail[0], rate: 140, speed: 9.7,
-      stops: [
-        { id: 'south-through-entry', group: 'south', point: [5.25, 31], clearPoint: northTail[0], storage: northStorage, arrow: 'straight' },
-        middleNorthThrough,
-      ],
-    },
-    {
-      id: 'south-left', label: 'Semmerteichstraße → B1 West',
-      vehicleKinds: ['car', 'van'],
-      group: 'south', laneId: 's0', exitId: 'west0', turn: 'left',
-      points: [...southApproach.inner, [1.5, 19], [1.3, 7], [1.2, -9], [0.65, -11.2], [-1.3, -13.2], [-4.8, -13.8], [-30, -13.8], [-60, -13.8], [-220, -13.8]],
-      stopLine: [1.75, 31], rate: 90, speed: 5.5,
-      stops: [
-        { id: 'south-left-entry', group: 'south', point: [1.75, 31], clearPoint: [1.3, 7], storage: { id: 'holding-north-left', capacity: 2 }, arrow: 'left' },
-        { id: 'middle-north-left', group: 'middleNorth', point: [1.2, -9], arrow: 'left' },
-      ],
-    },
-    {
-      id: 'south-right', label: 'Semmerteichstraße → B1 Ost',
-      vehicleKinds: ['car', 'van'],
-      group: 'south', laneId: 's2', exitId: 'east2', turn: 'right',
-      points: [...southApproach.outer, [14, 24], [24, 20.8], [45, 20.8], [220, 20.8]],
-      stopLine: [8.75, 31], rate: 120, speed: 6.5,
-      stops: [{ id: 'south-right-entry', group: 'south', point: [8.75, 31], arrow: 'right' }],
-    },
-  ],
+  transit: {
+    greenGroups: ['main'],
+    blockedGroups: ['mainLeftSouth', 'mainLeftNorth'],
+    // User-provided clock minutes. Sundays use every other departure;
+    // 23:30–05:00 has no service. Signals may delay a scheduled passage.
+    routes: [
+      { id: 'tram-east', label: 'Stadtbahn → Ost', line: 'U47', destination: 'Aplerbeck', trackZ: 2.4, direction: 1,
+        points: [[-260, 2.4], [-36, 2.4], [36, 2.4], [260, 2.4]],
+        stopLine: [-36, 2.4], clearPoint: [36, 2.4], signalPosition: [-36, 4.6],
+        interval: 600, offset: 75, speed: 11, length: 28,
+        schedule: { minuteOffset: 9, intervalMinutes: 10, sundayIntervalMinutes: 20, serviceStart: 300, serviceEnd: 1410 } },
+      { id: 'tram-west', label: 'Stadtbahn → West', line: 'U47', destination: 'Westerfilde', trackZ: -2.4, direction: -1,
+        points: [[260, -2.4], [36, -2.4], [-36, -2.4], [-260, -2.4]],
+        stopLine: [36, -2.4], clearPoint: [-36, -2.4], signalPosition: [36, -4.6],
+        interval: 600, offset: 99, speed: 11, length: 28,
+        schedule: { minuteOffset: 2, intervalMinutes: 10, sundayIntervalMinutes: 20, serviceStart: 300, serviceEnd: 1410 } },
+    ],
+  },
+  routes: [...mainRoutes, ...mainTurnRoutes, ...sideRoutes],
   cameras: [
     { id: 'overview', label: 'Übersicht', description: 'Freier Blick über den gesamten Knotenpunkt', position: [165, 180, 210], target: [0, 0, 0], fov: 48 },
     { id: 'north', label: 'Voßkuhle', description: 'Nordmast · Blick Richtung Süd', position: [-30, 10, -47], target: [0, 1.2, 16], fov: 58 },
@@ -194,19 +274,44 @@ export const dortmund = {
     { id: 'middle', label: 'Mittelbereich', description: 'Die inneren Ampeln und Wartebereiche im Detail', position: [45, 40, 55], target: [-1, 0, 0], fov: 53, mount: false },
   ],
   environment: {
-    rails: { from: -220, to: 220, tracks: [-2.4, 2.4] },
-    station: { x: 85, length: 80, label: 'Voßkuhle', infoLines: ['U47', 'Dortmund'] },
+    rails: { from: -280, to: 280, tracks: [-2.4, 2.4] },
+    station: { x: 85, length: 80, label: 'Voßkuhle', infoLines: ['U47', 'Dortmund'], platformOffset: 5.5 },
     fuelStation: { x: 130, z: -65 },
     park: { x: 76, z: 99, width: 94, depth: 118 },
+    streetLights: {
+      defaultProfile: 'side', resolution: 256,
+      profiles: {
+        b1: { color: '#ffb24a', intensity: 5.5, radius: 25, forward: 7, spread: 1.25 },
+        side: { color: '#f0f4ff', intensity: 4.5, radius: 20, forward: 6, spread: 1.15 },
+      },
+    },
     lights: [
-      ...[-200, -150, -100, -50, 50, 100, 150, 200].flatMap(x => [
-        { x, z: -29, height: 11 },
-        { x, z: 29, height: 11, rotation: Math.PI },
-      ]),
-      { x: -83, z: -111, height: 9, rotation: Math.PI / 2 },
-      { x: -58, z: -78, height: 9, rotation: Math.PI / 2 },
-      { x: 22, z: 76, height: 9, rotation: -Math.PI / 2 },
-      { x: 24, z: 130, height: 9, rotation: -Math.PI / 2 },
+      // Sodium light along both B1 carriageways, including the junction mouths.
+      ...[-200, -150, -100, -50, -26, 26, 50, 100, 150, 200].flatMap(x => {
+        // Broader, slightly softer corner pools also cover the central holding
+        // area, while lamps farther along the B1 retain their regular spacing.
+        const override = Math.abs(x) === 26
+          ? { lighting: { radius: 40, spread: 1.15, intensity: 4.8 } } : {};
+        return [
+          { x, z: -29, height: 11, profile: 'b1', ...override },
+          { x, z: 29, height: 11, rotation: Math.PI, profile: 'b1', ...override },
+        ];
+      }),
+      // White lamps follow each side-road tangent. Pairs stand 15 m from the
+      // reference centre, outside the curved asphalt, with arms facing inward.
+      // Entries are [centre x, centre z, tangent dx, tangent dz].
+      ...[
+        [-96, -150, 47, 58], [-65, -112, 39, 47],
+        [-34, -75, 39, 47], [-15, -49, 23, 33],
+        [3.5, 55, 7, 50], [7.3, 95, 2, 100],
+        [8.1, 135, 2, 100], [8.7, 165, 2, 100],
+      ].flatMap(([x, z, dx, dz]) => {
+        const length = Math.hypot(dx, dz), nx = dz / length, nz = -dx / length;
+        return [-1, 1].map(side => ({
+          x: x + side * nx * 15, z: z + side * nz * 15,
+          height: 9, rotation: Math.atan2(-side * nx, -side * nz), profile: 'side',
+        }));
+      }),
     ],
     directionSigns: [
       { x: -22, z: -35, rotation: Math.PI, lines: ['↑ DO-Hörde', '← B1 · Unna', 'B1 · Essen →'] },

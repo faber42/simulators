@@ -1,3 +1,5 @@
+import { createStreetLighting } from './street-lighting.mjs';
+
 /**
  * Reusable, procedural streetscape. All positions are metres: x east, y up,
  * z south. Geographic placement lives in the intersection configuration.
@@ -11,6 +13,9 @@ export function buildEnvironment(THREE, scene, config) {
   const geometries = new Set();
   const materials = new Set();
   const textures = new Set();
+  const streetLighting = createStreetLighting(THREE, env);
+  const streetLampMaterials = new Map();
+  let lampHalos = null;
   let seed = env.seed ?? 21783;
   const random = () => {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
@@ -50,6 +55,9 @@ export function buildEnvironment(THREE, scene, config) {
   });
   const glassOpaque = material('#536c76', { metalness: 0.36, roughness: 0.24 });
   const warmWhite = material('#f0e5c5', { emissive: '#c1b88f', emissiveIntensity: 0.16 });
+  const facadeGlass = material('#ffffff', { roughness: 0.29, metalness: 0.28 });
+  const litFacadeGlass = material('#ffffff', { roughness: 0.29, metalness: 0.28,
+    emissive: '#efc48b', emissiveIntensity: 0 });
   const foliageTexture = canvasTexture(256, 256, (ctx, w, h) => {
     ctx.fillStyle = '#dedfd5';
     ctx.fillRect(0, 0, w, h);
@@ -278,7 +286,11 @@ export function buildEnvironment(THREE, scene, config) {
     facade(w, -d / 2 - 0.06, false);
     facade(d, w / 2 + 0.06, true);
     facade(d, -w / 2 - 0.06, true);
-    instances(group, unitBox, material('#ffffff', { roughness: 0.29, metalness: 0.28 }), windowValues);
+    // A stable subset of occupied rooms glows after dusk. Split the existing
+    // instances, preserving geometry, daytime colours and the random layout.
+    const occupied = index => (index * 7 + Math.floor(index / 11)) % 9 < 3;
+    instances(group, unitBox, facadeGlass, windowValues.filter((_, index) => !occupied(index)));
+    instances(group, unitBox, litFacadeGlass, windowValues.filter((_, index) => occupied(index)));
     instances(group, unitBox, paleConcrete, sillValues);
 
     // A rounded stair tower and glazed entrance give the office its recognizable silhouette.
@@ -362,7 +374,7 @@ export function buildEnvironment(THREE, scene, config) {
     const tactile = material('#dfddd0');
     const blue = material('#174b92');
     [-1, 1].forEach(side => {
-      const pz = side * 7.5;
+      const pz = side * (station.platformOffset ?? 5.5);
       box(group, [length, 0.28, 3.45], [0, 0.14, pz], pavement, false);
       box(group, [length, 0.045, 0.42], [0, 0.3, pz - side * 1.32], tactile, false);
       // End ramps are intentionally shallow and unobstructed.
@@ -555,16 +567,42 @@ export function buildEnvironment(THREE, scene, config) {
   function buildStreetlight(spec) {
     const group = groupAt(spec, 'Streetlight');
     const height = spec.height || 10;
+    const profile = streetLighting.profileFor(spec);
+    if (!streetLampMaterials.has(profile.color)) streetLampMaterials.set(profile.color,
+      material(profile.color, { emissive: profile.color, emissiveIntensity: .16, roughness: .4 }));
+    const lampMaterial = streetLampMaterials.get(profile.color);
     cylinder(group, 0.11, height, [0, height / 2, 0], metal, 0.065);
     cylinder(group, 0.19, 0.65, [0, 0.325, 0], concrete);
     line3(group, [0, height - 0.2, 0], [0, height + 0.15, 2.1], 0.065, metal);
     box(group, [0.47, 0.16, 1.14], [0, height + 0.08, 2.25], metal);
-    box(group, [0.39, 0.025, 0.98], [0, height - 0.018, 2.25], warmWhite, false);
+    box(group, [0.39, 0.025, 0.98], [0, height - 0.018, 2.25], lampMaterial, false);
     if (spec.double) {
       line3(group, [0, height - 0.2, 0], [0, height + 0.15, -2.1], 0.065, metal);
       box(group, [0.47, 0.16, 1.14], [0, height + 0.08, -2.25], metal);
-      box(group, [0.39, 0.025, 0.98], [0, height - 0.018, -2.25], warmWhite, false);
+      box(group, [0.39, 0.025, 0.98], [0, height - 0.018, -2.25], lampMaterial, false);
     }
+  }
+
+  function buildLampHalos() {
+    if (!streetLighting.emitters.length) return;
+    const size = 32, pixels = new Uint8Array(size * size * 4);
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const distance = Math.hypot((x + .5) / size * 2 - 1, (y + .5) / size * 2 - 1);
+      const index = (y * size + x) * 4;
+      pixels[index] = pixels[index + 1] = pixels[index + 2] = 255;
+      pixels[index + 3] = Math.round(Math.max(0, Math.exp(-distance * distance * 6) - Math.exp(-6)) * 255);
+    }
+    const texture = new THREE.DataTexture(pixels, size, size, THREE.RGBAFormat);
+    texture.minFilter = texture.magFilter = THREE.LinearFilter; texture.needsUpdate = true; textures.add(texture);
+    const geometry = keepGeometry(new THREE.BufferGeometry());
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(streetLighting.emitters.flatMap(lamp => [lamp.x, lamp.height - .07, lamp.z]), 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(streetLighting.emitters.flatMap(lamp => lamp.color.toArray()), 3));
+    const material = new THREE.PointsMaterial({ map: texture, color: '#ffffff', vertexColors: true,
+      size: env.streetLights?.haloSize ?? 2.4, sizeAttenuation: true, transparent: true,
+      opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+    materials.add(material);
+    lampHalos = new THREE.Points(geometry, material); lampHalos.name = 'Street-lamp halos';
+    lampHalos.visible = false; root.add(lampHalos);
   }
 
   function buildDirectionSign(spec) {
@@ -738,19 +776,31 @@ export function buildEnvironment(THREE, scene, config) {
   if (env.fuelStation) buildFuelStation(env.fuelStation);
   buildTrees();
   (env.lights || []).forEach(buildStreetlight);
+  buildLampHalos();
   (env.directionSigns || []).forEach(buildDirectionSign);
   buildLandscapeBeds();
   buildBackground();
   batchStaticMeshes();
 
   return {
-    group: root,
+    group: root, streetLighting,
+    setLighting(profile = {}) {
+      const daylight = THREE.MathUtils.clamp(Number.isFinite(profile.daylight) ? profile.daylight : 1, 0, 1);
+      const night = 1 - daylight;
+      warmWhite.emissiveIntensity = .16 + night * 4.4;
+      litFacadeGlass.emissiveIntensity = night * .75;
+      streetLighting.setLighting({ daylight });
+      const strength = streetLighting.uniforms.streetLightStrength.value;
+      streetLampMaterials.forEach(material => { material.emissiveIntensity = .16 + strength * 5; });
+      if (lampHalos) { lampHalos.visible = strength > .001; lampHalos.material.opacity = strength * .65; }
+    },
     dispose() {
       root.removeFromParent();
       root.traverse(object => { if (object.isInstancedMesh) object.dispose(); });
       geometries.forEach(geometry => geometry.dispose());
       materials.forEach(mat => mat.dispose());
       textures.forEach(texture => texture.dispose());
+      streetLighting.dispose();
     },
   };
 }
