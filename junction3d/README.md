@@ -207,8 +207,10 @@ weiterhin. Beim nächsten gemeinsamen Grün lässt die Nebenstraße diese bereit
 eingefahrenen Abbieger zuerst ihre Kurve beenden. Das gilt symmetrisch und
 schließt Wendefahrten ein; es gibt keinen zeitlichen Grünvorsprung der Mitte.
 Die Nebenstraßenzufahrt darf bei Grün bereits ohne freien Mittelplatz bis vor
-die Abbiegekurve vorrollen. Bei belegter Kurve oder voller Mittelspur fährt sie
-dabei höchstens 1,4 m/s (etwa 5 km/h). Erst für die Weiterfahrt hinter diesem Wartepunkt
+die Abbiegekurve vorrollen. Blockieren B1-Abbieger die Kurve oder belegen sie
+noch eine volle Mittelspur, fährt sie dabei höchstens 1,4 m/s (etwa 5 km/h).
+Beim Nachfahren hinter Verkehr aus derselben Nebenstraßenrichtung gelten die
+normalen Fahrzeugabstände ohne dieses zusätzliche Tempolimit. Erst für die Weiterfahrt hinter diesem Wartepunkt
 reserviert sie Platz in ihrer Mittelspur. Frei liegende Zielspuren können
 B1-Abbieger auffüllen, ohne pauschal auf Fahrzeuge in anderen Zielspuren
 warten zu müssen; die Fahrzeugkörper müssen beim Vorbeifahren getrennt bleiben.
@@ -301,6 +303,7 @@ Umgebung, Signalpositionen und Kameras.
 | `engine.test.mjs` | Automatisierte Prüfungen der Fahr- und Signallogik. |
 | `spillback.test.mjs` | Rückstau der Voßkuhle-B1-Abbieger, Vorrang beim Räumen und kollisionsfreies Nachrücken der Nebenstraße. |
 | `creep.test.mjs` | Auffüllen freier Mittelspuren und langsames Vorrücken der Nebenstraße bis vor die belegte Abbiegekurve. |
+| `creep-following.test.mjs` | Normales Nachfahren hinter gleichgerichtetem Nebenstraßenverkehr ohne unnötiges Schritttempo. |
 | `opphoff.test.mjs` | Elf Signalstandorte, mehrstufige Linksabbieger, Speichersättigung und Langläufe mit unabhängiger Kollisionsprüfung. |
 | `time-model.test.mjs` | Ortszeitumrechnung, beide Sommerzeitwechsel, Fahrplangrenzen, Wochenenden sowie Verkehrs- und Lichtprofile. |
 
@@ -324,6 +327,8 @@ beiden B1-Abbiegerichtungen einschließlich Wendefahrten und des anschließenden
 Vorrangs vor neu einfahrendem Nebenstraßenverkehr.
 `node --test junction3d/creep.test.mjs` prüft zusätzlich das Vorrollen bei
 Grün, die Wartepunkte vor dem Kurvenbereich und das Auffüllen freier Spuren.
+`node --test junction3d/creep-following.test.mjs` prüft die Unterscheidung
+zwischen normalem Nachfahren und vorsichtigem Vorrücken hinter B1-Abbiegern.
 
 Alle Längen sind Meter, Zeiten Sekunden und Geschwindigkeiten Meter pro
 Sekunde. Ausnahmen: Absolute Uhrzeiten sind Unix-Zeitstempel in Millisekunden;
@@ -390,8 +395,11 @@ verändert weder Ampelfarbe noch Phasenzeit. Mit
 `yieldApproach: { point: [x, z], speed: 1.4 }` darf die Nebenstraße bei Grün
 bis zu diesem zusätzlichen Wartepunkt vorrollen. Die normale Haltemarge gilt
 vor dem Punkt; er muss vor den Fahrzeughüllen aller priorisierten Fahrwege
-liegen. Die Geschwindigkeitsgrenze greift bei belegter Kurve oder vollem
-Mittelbereich. Die Platzreservierung erfolgt dann erst bei der Weiterfahrt
+liegen. Die Geschwindigkeitsgrenze greift bei einer durch `yieldToGroups`
+belegten Kurve oder bei einer vollen Mittelspur, in der noch Fahrzeuge dieser
+Vorranggruppen reservieren. Reservierungen gleichgerichteter Nebenstraßenfahrzeuge
+allein lösen kein Schritttempo aus; die Kapazitätsgrenze am Wartepunkt gilt weiterhin.
+Die Platzreservierung erfolgt dann erst bei der Weiterfahrt
 über den Wartepunkt. Bereits über die äußere Haltelinie eingefahrene Fahrzeuge
 werden auch nach dem Schließen der äußeren Ampel im Nachlauf geräumt.
 Opphoff behält die feste Kapazität und das Warten am äußeren Signal.

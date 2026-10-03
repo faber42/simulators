@@ -598,9 +598,14 @@ export class TrafficSimulation {
       } else this.arrivals.set(route.id, 0);
     }
 
-    const occupiedStorage = new Map();
+    const occupiedStorage = new Map(), storageEntryGroups = new Map();
+    const occupyStorage = (id, group) => {
+      occupiedStorage.set(id, (occupiedStorage.get(id) ?? 0) + 1);
+      if (!storageEntryGroups.has(id)) storageEntryGroups.set(id, new Set());
+      storageEntryGroups.get(id).add(group);
+    };
     for (const vehicle of this.vehicles) for (const reservation of vehicle.reservations) {
-      occupiedStorage.set(reservation.id, (occupiedStorage.get(reservation.id) ?? 0) + 1);
+      occupyStorage(reservation.id, vehicle.route.stops[0].group);
     }
     for (const vehicle of this.vehicles) this.chooseRoute(vehicle, occupiedStorage);
     const vehiclesByRoute = new Map();
@@ -639,6 +644,12 @@ export class TrafficSimulation {
       const approachFull = pendingApproach && (occupiedStorage.get(approachStop.storage.id) ?? 0) >= approachStop.storage.capacity;
       const approachYields = pendingApproach && approachStop.yieldToGroups?.some(group => unclearedEntryGroups.has(group));
       const approachBlocked = approachFull || approachYields;
+      // Capacity alone still requires a free slot at the yield point, but
+      // following our own traffic is ordinary car-following, not cautious
+      // entry behind a crossing queue. Include priority cars already inside
+      // this median until their rears release their reservations.
+      const creepRequired = approachYields || (approachFull && approachStop.yieldToGroups?.some(
+        group => storageEntryGroups.get(approachStop.storage.id)?.has(group)));
       const limitAt = distance => {
         const distanceToStop = distance - vehicle.length / 2 - STOP_MARGIN - vehicle.distance;
         maximumAdvance = Math.min(maximumAdvance, Math.max(0, distanceToStop));
@@ -648,8 +659,8 @@ export class TrafficSimulation {
         acceleration = Math.min(acceleration, (targetSpeed - vehicle.speed) * 2.5);
       };
       if (stop && (this.getSignal(stop.group) !== 'green' || (!stop.yieldApproach && (storageFull || yields)))) limitAt(stop.distance);
-      if (approachBlocked) {
-        limitAt(approach.distance);
+      if (approachBlocked) limitAt(approach.distance);
+      if (creepRequired) {
         // Brake before the outer line so the admitted approach is walking pace,
         // with no instantaneous speed change when the gate becomes committed.
         const beforeEntry = Math.max(0, approachStop.distance - vehicle.length / 2 - vehicle.distance);
@@ -667,7 +678,7 @@ export class TrafficSimulation {
       const crossesApproach = pendingApproach && !approachBlocked && vehicle.distance + advance + vehicle.length / 2 > approach.distance;
       const reserves = crossesApproach ? approachStop : crossesGate && !stop.yieldApproach ? stop : null;
       if (reserves?.storage) {
-        occupiedStorage.set(reserves.storage.id, (occupiedStorage.get(reserves.storage.id) ?? 0) + 1);
+        occupyStorage(reserves.storage.id, approachStop.group);
         vehicle.reservations.push({ id: reserves.storage.id,
           releaseDistance: vehicle.route.stops[crossesApproach ? 1 : stopIndex + 1]?.distance ?? reserves.clearDistance });
       }
