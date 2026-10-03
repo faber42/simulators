@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#172b29">
+  <title>Westfalendamm · Kreuzung in 3D</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="back" href="../" aria-label="Zur Simulatoren-Übersicht">↗</a>
+    <div class="brand"><span class="brand-icon">╋</span><div><span class="eyebrow">KREUZUNGSATLAS <span class="edition">/ 01</span></span><h1>Westfalendamm<span> Dortmund</span></h1></div></div>
+    <div class="coordinates">51.50345° N &nbsp; 7.49722° E<span>B1 × Voßkuhle / Semmerteichstraße</span></div>
+    <span class="live"><i></i> SIMULATION</span>
+  </header>
+  <main>
+    <section class="viewport" aria-label="3D-Ansicht der Kreuzung">
+      <canvas id="scene" aria-label="3D-Kreuzung mit Fahrzeugen und Ampeln"></canvas>
+      <div class="view-label"><span id="camera-index">CAM 01</span><strong id="camera-label">Überblick</strong><small id="camera-description">Die gesamte Kreuzung</small></div>
+      <div class="view-time"><span id="simulation-clock">00:00:00</span><small>SIMULATIONSZEIT</small></div>
+      <div class="scene-toolbar"><button id="free-camera" title="Freie Kamera: ziehen zum Drehen, Mausrad zum Zoomen">↔ Freie Ansicht</button><button id="daylight" title="Zwischen Tageslicht und Abendlicht wechseln">◐ Abendlicht</button><button id="fullscreen" title="Vollbild umschalten" aria-label="Vollbild umschalten">⛶</button></div>
+      <div class="north-marker"><span> N </span><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3 29 32 20 26 11 32Z"/></svg><small>NORDEN</small></div>
+      <div id="view-hint">Ziehen zum Drehen · Scrollen zum Zoomen</div>
+      <div class="map-card"><div><span>LAGEPLAN</span><button id="place-camera" title="Eigene Verkehrskamera im Lageplan platzieren">+ Kamera</button></div><canvas id="minimap" width="440" height="300" aria-label="Lageplan: mit aktivierter Kameraplatzierung zuerst Standort, dann Blickziel anklicken" tabindex="0"></canvas><p id="map-hint" hidden></p></div>
+      <div id="loading" role="status"><span class="loader-symbol">╋</span><strong>Die Kreuzung entsteht.</strong><small>Straßen, Stadt und Verkehr werden geladen …</small></div>
+      <div id="toast" role="status"></div>
+    </section>
+    <aside class="panel">
+      <div class="panel-heading"><span class="eyebrow">VERKEHRSSTEUERUNG</span><span class="road-badge">B 1</span></div>
+      <section class="phase-section"><div class="section-title"><h2>Ampelumlauf</h2><span id="cycle-label">UMLAUF 01</span></div><p class="phase-explainer">Die B1 erhält jede zweite Grünphase.</p><ol id="phase-list"></ol><div class="phase-progress"><i id="phase-progress-bar"></i></div><div class="phase-status"><span id="stage-label">Grünphase</span><strong id="remaining">32 s</strong></div><button class="text-button" id="next-phase">Nächste Phase <span>→</span></button></section>
+      <section class="transport"><div class="section-title"><h2>Simulation</h2><button id="reset" title="Verkehr und Ampelumlauf zurücksetzen">↺ Neustart</button></div><div class="playback"><button id="pause" aria-pressed="false">Ⅱ Pause</button><div class="speed-buttons" aria-label="Simulationsgeschwindigkeit"><button data-speed="1" aria-pressed="true">1×</button><button data-speed="2" aria-pressed="false">2×</button><button data-speed="4" aria-pressed="false">4×</button></div></div><label class="range-label" for="density">Verkehrsaufkommen <output id="density-value">Normal</output></label><input id="density" type="range" min="0" max="180" value="80" step="10"><div class="range-ticks"><span>Leer</span><span>Berufsverkehr</span></div></section>
+      <section class="statistics"><div><strong id="active-count">0</strong><span>Fahrzeuge</span></div><div><strong id="waiting-count">0</strong><span>Wartend</span></div><div><strong id="passed-count">0</strong><span>Passiert</span></div></section>
+      <section id="camera-editor" hidden><div class="section-title"><h2>Eigene Kamera</h2><button id="cancel-camera">Schließen</button></div><p id="camera-help">Im Lageplan erst den Standort, dann das Blickziel wählen.</p><label class="range-label" for="camera-height">Montagehöhe <output id="height-value">8 m</output></label><input id="camera-height" type="range" min="3" max="40" value="8"><label class="range-label" for="camera-fov">Blickwinkel <output id="fov-value">55°</output></label><input id="camera-fov" type="range" min="25" max="85" value="55"><button id="save-camera" class="primary-button" disabled>Kamera speichern</button></section>
+      <div class="location-note"><span class="eyebrow">EIN ORT. VIELE PERSPEKTIVEN.</span><p>Die geteilte B1, die Haltestelle Voßkuhle und der Wechsel der Nebenstraßen.</p><details><summary>Über diese Nachbildung</summary><p>Räumliche Annäherung anhand der Referenzbilder. Grünfolge nach deiner Beschreibung; Maße, Verkehrsmengen und Sekundenwerte sind Modellannahmen. Stadtbahn und Fußwege sind als Umgebung dargestellt.</p><a href="https://www.google.de/maps/@51.5034529,7.4972166,17.99z/" target="_blank" rel="noreferrer">Ort in Google Maps ↗</a></details></div>
+    </aside>
+  </main>
+  <footer class="camera-dock"><div class="dock-heading"><span class="eyebrow">PERSPEKTIVEN</span><span>Die Kreuzung im Blick</span></div><nav id="camera-list" aria-label="Kameras"></nav><span class="keyboard-hint">1–6 Kamera<br>Leertaste Pause</span></footer>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>
