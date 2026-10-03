@@ -17,10 +17,10 @@ const laneWidth = 3.5;
 const laneStep = laneWidth * axisLength;
 const uv = (u, v) => [u + shear * v, v];
 const directions = {
-  east: { sign: 1, axis: 'ew', from: 'West', to: 'Ost', left: 'north', vector: [1, 0] },
-  west: { sign: -1, axis: 'ew', from: 'Ost', to: 'West', left: 'south', vector: [-1, 0] },
-  south: { sign: 1, axis: 'ns', from: 'Nord', to: 'Süd', left: 'east', vector: [shear / axisLength, 1 / axisLength] },
-  north: { sign: -1, axis: 'ns', from: 'Süd', to: 'Nord', left: 'west', vector: [-shear / axisLength, -1 / axisLength] },
+  east: { incoming: 'west', sign: 1, axis: 'ew', from: 'West', to: 'Ost', left: 'north', vector: [1, 0] },
+  west: { incoming: 'east', sign: -1, axis: 'ew', from: 'Ost', to: 'West', left: 'south', vector: [-1, 0] },
+  south: { incoming: 'north', sign: 1, axis: 'ns', from: 'Nord', to: 'Süd', left: 'east', vector: [shear / axisLength, 1 / axisLength] },
+  north: { incoming: 'south', sign: -1, axis: 'ns', from: 'Süd', to: 'Nord', left: 'west', vector: [-shear / axisLength, -1 / axisLength] },
 };
 
 function point(direction, along, lane) {
@@ -76,7 +76,7 @@ function bezier(start, controlA, controlB, end, steps = 9) {
 const add = (p, v, distance) => [p[0] + v[0] * distance, p[1] + v[1] * distance];
 
 const throughRoutes = Object.entries(directions).flatMap(([direction, d]) => [1, 2].map(lane => ({
-  id: `${direction}-through-${lane}`, label: `${d.from} → ${d.to} · Geradeaus ${lane}`,
+  id: `${direction}-through-${lane}`, label: `${d.from} → ${d.to} · Geradeaus ${lane}`, incoming: d.incoming,
   group: outerGroup(direction), laneId: laneId(direction, lane), exitId: laneId(direction, lane),
   turn: 'straight', points: [...approach(direction, lane).slice(0, -1), ...departure(direction, lane)],
   stopLine: gatePoint(direction, lane, 'outer'), stops: [ownOuterStop(direction, lane), ownInnerStop(direction, lane)],
@@ -92,7 +92,7 @@ const leftRoutes = Object.entries(directions).map(([direction, d]) => {
   const handle = d.axis === 'ew' ? 14 : 5.5;
   const bend = bezier(start, add(start, d.vector, handle), add(entry, targetDirection.vector, -handle), entry);
   return {
-    id: `${direction}-left`, label: `${d.from} → ${targetDirection.to} · Linksabbieger über die Mitte`,
+    id: `${direction}-left`, label: `${d.from} → ${targetDirection.to} · Linksabbieger über die Mitte`, incoming: d.incoming,
     group: outerGroup(direction), laneId: laneId(direction, 0), exitId: laneId(target, 1),
     turn: 'left', vehicleKinds: ['car', 'van'], rate: 60, speed: 6.5,
     points: [...approach(direction, 0), gatePoint(direction, 0, 'inner'), ...bend, ...departure(target, 1).slice(1)],
@@ -127,12 +127,20 @@ const slipRoutes = slipDefinitions.map(spec => {
     add(spec.end, target.vector, -spec.handleB), spec.end, 12);
   const stopLine = bend[4];
   const tail = [spec.end, point(spec.target, target.sign * extent(spec.target), 2)];
-  return { id: spec.id, label: `${incoming.from} → ${target.to} · separate Rechtsabbiegespur`,
+  return { id: spec.id, label: `${incoming.from} → ${target.to} · separate Rechtsabbiegespur`, incoming: incoming.incoming,
     group: spec.id, laneId: spec.id, exitId: laneId(spec.target, 2), turn: 'right',
     points: [...spec.prefix, ...bend, ...tail.slice(1)], stopLine,
     stops: [{ id: `${spec.id}-stop`, group: spec.id, point: stopLine, clearPoint: spec.end, arrow: 'right' }],
     mergePoint: spec.end, vehicleKinds: ['car', 'van'], rate: 95, speed: 7.5, renderFlare: false };
 });
+
+const routes = [...throughRoutes, ...leftRoutes, ...slipRoutes];
+// Group by where traffic arrives, not its outgoing road or signal phase.
+// A slip belongs to its source direction's shared two-minute minimum.
+const minimumArrivals = Object.values(directions).map(({ incoming }) => ({
+  id: `from-${incoming}`, interval: 120,
+  routeIds: routes.filter(route => route.incoming === incoming).map(route => route.id),
+}));
 
 const carriagewayRoads = [
   { id: 'surface-east', label: 'Rheinlanddamm / Westfalendamm · oberirdisch Richtung Ost', points: [uv(-230, 30), uv(230, 30)], width: 12, lanes: 3 },
@@ -168,6 +176,7 @@ export const opphoff = {
     note: 'Maße, Spuraufteilung und Signalzeiten sind Modellannahmen. Die unterirdische B1 und unterirdische Stadtbahn sind nicht Bestandteil der Szene.',
   },
   ui: { roadBadge: 'OPPHOFF', phaseExplainer: 'Ost–West und Nord–Süd wechseln sich ab. Außen- und Innenampeln derselben Richtung starten gleichzeitig.',
+    minimumTrafficNote: 'Mindestens ein Fahrzeug je zwei Minuten aus jeder der vier Zufahrtsrichtungen.',
     modelNote: 'Fahrbahnbreiten, Spuraufteilung, Verkehrsaufkommen, Sekundenwerte und die Zuordnung der Rechtsabbieger zu den Achsenphasen sind Modellannahmen. Tunnelverkehr und unterirdische Stadtbahn sind ausgelassen.',
     signalIndicators: [
       { group: 'middle-east', label: 'Mitte → Ost' }, { group: 'middle-west', label: 'Mitte → West' },
@@ -177,6 +186,7 @@ export const opphoff = {
       { group: 'south-east-slip', label: 'Rechts aus Süd → Ost' },
     ] },
   seed: 73, initialVehiclesPerLane: 2, laneWidth,
+  minimumArrivals,
   conflictBounds: { minX: -65, maxX: 65, minZ: -45, maxZ: 45 },
   timing: { yellow: 3, allRed: 3, redAmber: 1 },
   phases: [
@@ -191,7 +201,7 @@ export const opphoff = {
   ],
   roads: [...carriagewayRoads, ...slipRoutes.map(route => ({ id: `${route.id}-road`, label: route.label,
     points: route.points, width: 4.2, lanes: 1 }))],
-  routes: [...throughRoutes, ...leftRoutes, ...slipRoutes], signalGantries,
+  routes, signalGantries,
   laneMarkings: [
     ...Object.keys(directions).map(direction => ({ routeId: `${direction}-through-1`, section: 'full', offsets: [
       { offset: 5.25, style: 'solid' }, { offset: 1.75, style: 'dashed' },

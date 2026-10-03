@@ -126,6 +126,18 @@ Beim Start und beim Setzen einer Zeit wird auch die anfängliche Fahrzeugzahl
 an das Aufkommen angepasst. Nachts beginnt die Szene ohne künstliche
 Startwarteschlangen; einzelne Fahrzeuge können danach weiter eintreffen.
 
+Zusätzlich gilt im Automatikmodus ein Mindestzufluss je **Zufahrtsrichtung**:
+An der Voßkuhle kommt aus West und Ost jeweils spätestens nach einer Minute,
+aus Nord und Süd jeweils nach fünf Minuten ein Fahrzeug nach. Bei Opphoff
+beträgt dieser Abstand zwei Minuten aus jeder der vier Richtungen. Die Frist
+gilt gemeinsam für alle Spuren und Fahrziele einer Zufahrt, einschließlich
+ihrer Rechtsabbiegespur. Jedes regulär neu eintreffende Fahrzeug setzt sie
+zurück; zusätzlicher Mindestverkehr entsteht nur bei einer längeren Lücke.
+Ist die Einfahrt belegt, wartet das Nachrücken auf freien Platz.
+Alle Fristen verwenden Simulationszeit und folgen daher Pause und Tempo.
+Im manuellen Modus ist der Mindestzufluss ausgeschaltet; bei Verkehrsaufkommen
+null entstehen keine neuen Fahrzeuge, eine geleerte Szene bleibt leer.
+
 Die automatische Beleuchtung verwendet einen vereinfachten lokalen Tageslauf:
 Morgendämmerung **06–08 Uhr**, Tageslicht **08–18 Uhr**, Abenddämmerung
 **18–20 Uhr**, anschließend Nacht. Helligkeit und Lichtfarbe gehen fließend
@@ -304,6 +316,7 @@ Umgebung, Signalpositionen und Kameras.
 | `spillback.test.mjs` | Rückstau der Voßkuhle-B1-Abbieger, Vorrang beim Räumen und kollisionsfreies Nachrücken der Nebenstraße. |
 | `creep.test.mjs` | Auffüllen freier Mittelspuren und langsames Vorrücken der Nebenstraße bis vor die belegte Abbiegekurve. |
 | `creep-following.test.mjs` | Normales Nachfahren hinter gleichgerichtetem Nebenstraßenverkehr ohne unnötiges Schritttempo. |
+| `minimum-arrivals.test.mjs` | Nächtliche Mindestzuflüsse je Richtung, freie Zufahrten, Fristen und manueller Nullverkehr. |
 | `opphoff.test.mjs` | Elf Signalstandorte, mehrstufige Linksabbieger, Speichersättigung und Langläufe mit unabhängiger Kollisionsprüfung. |
 | `time-model.test.mjs` | Ortszeitumrechnung, beide Sommerzeitwechsel, Fahrplangrenzen, Wochenenden sowie Verkehrs- und Lichtprofile. |
 
@@ -329,6 +342,8 @@ Vorrangs vor neu einfahrendem Nebenstraßenverkehr.
 Grün, die Wartepunkte vor dem Kurvenbereich und das Auffüllen freier Spuren.
 `node --test junction3d/creep-following.test.mjs` prüft die Unterscheidung
 zwischen normalem Nachfahren und vorsichtigem Vorrücken hinter B1-Abbiegern.
+`node --test junction3d/minimum-arrivals.test.mjs` prüft Mindestzuflüsse an beiden
+Standorten, einschließlich Sonntag und Montag um 01:30 Uhr.
 
 Alle Längen sind Meter, Zeiten Sekunden und Geschwindigkeiten Meter pro
 Sekunde. Ausnahmen: Absolute Uhrzeiten sind Unix-Zeitstempel in Millisekunden;
@@ -342,6 +357,7 @@ Blickziele das Format `[x, y, z]`. Gebäude-Drehungen sind im Bogenmaß angegebe
 | `roads` | Sichtbare Straßen: Polylinie `points`, Breite `width`, Spurzahl `lanes`. |
 | `laneMarkings` | Äußere Fahrbahnmarkierungen entlang einer `routeId`; `section` wählt Zufahrt, Ausfahrt oder beide und `offsets` die seitlichen Linien. |
 | `routes` | Tatsächliche Fahrwege mit geordneten Signalhalten, Zufluss und Speicherkapazität. |
+| `minimumArrivals` | Mindestzufluss je Zufahrtsrichtung: eindeutige `id`, maximaler Abstand `interval` in Simulationssekunden und zugehörige `routeIds`. |
 | `transit` | Stadtbahnrouten, deterministische Ankunftszeiten, zulässige Phasen und während einer Bahnphase gesperrte Signalgruppen. |
 | `timeZone` | IANA-Zeitzone für Uhranzeige, Eingaben, Tagesprofile und Stadtbahnfahrplan. |
 | `phases` | Freigaben mit `groups`, Grünzeit `duration`, gruppenweisen Verzögerungen `groupDelays` und optionalen Nachlaufgruppen `drainGroups`. |
@@ -368,6 +384,15 @@ verwenden. `exitId` bezeichnet eine gemeinsame Ausfahrtsspur. Routen mit gleiche
 damit die Abstandsregelung beim Zusammenführen konsistent bleibt. `rate`
 definiert Fahrzeuge pro Stunde, `speed` die gewünschte Geschwindigkeit.
 `turn` ist `straight`, `left` oder `right`.
+Die Standortgeneratoren tragen zusätzlich `incoming` als Herkunftsrichtung
+(`west`, `east`, `north`, `south`) ein. Daraus bauen sie `minimumArrivals`;
+die Engine verwendet ausschließlich die expliziten `routeIds` und leitet
+keine Zufahrt aus Routennamen oder Ausfahrtrichtungen ab. Auch alternative
+Fahrwege mit `rate: 0` dürfen zur Gruppe gehören, erzeugen aber keinen eigenen
+Mindestzufluss. Als neue Fahrten wählt die Engine nur Routen mit positivem
+`rate`. Ein regulärer oder durch die Mindestregel erzeugter Fahrzeugeintritt
+setzt die gemeinsame Gruppenfrist neu; eine Gruppe ist kein zusätzlicher
+unabhängiger Zufluss pro Spur.
 Mit `vehicleKinds` kann eine Route auf eine Auswahl aus `car`, `van` und `bus`
 beschränkt werden. Ohne diese Angabe verwendet sie den allgemeinen Fahrzeugmix.
 Für einen gemeinsamen Links-/Geradeaus-Signalgeber wird `stop.arrow` auf
@@ -446,6 +471,14 @@ als relative Ankunftszeiten in Sekunden verfügbar; die Standortdaten enthalten
 beide Felder weiterhin auch für die allgemeine Routenvalidierung. Nur dieser ältere
 Engine-Modus verwendet die gespeicherten Startversätze 75/99 Sekunden;
 die Browseranwendung verwendet immer den ortszeitgebundenen Fahrplan.
+
+`new TrafficSimulation(config, { startTime: epochMs, minimumTraffic: true })`
+schaltet zusätzlich den konfigurierten Mindestzufluss ein. Ohne diese Option
+bleibt er aus. `setMinimumTraffic(enabled)` steuert ihn zur Laufzeit; beim
+Einschalten beginnen neue Fristen bei `elapsed + interval`. Die Browseranwendung
+aktiviert ihn nur im Automatikmodus. Auch bei aktivierter Option erzeugt die
+Engine mit `density: 0` keine Fahrzeuge. `minimumArrivalDue` enthält die
+Gruppenfristen als Map von Gruppen-ID auf absolute Simulationssekunden.
 
 `time-model.mjs` stellt `getLocalTime`, `localDateTimeToEpoch`,
 `nextTramDeparture`, `getTrafficProfile` und `getLightingProfile` bereit.

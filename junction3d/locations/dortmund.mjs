@@ -80,14 +80,14 @@ function medianSection(direction, lane, movement) {
 /** The innermost B1 lanes are dedicated left-turn lanes, never through lanes. */
 const mainRoutes = [17.3, 20.8].flatMap((z, index) => [
   {
-    id: `west-east-${index + 1}`, label: `B1 · West → Ost · Geradeaus ${index + 1}`,
+    id: `west-east-${index + 1}`, label: `B1 · West → Ost · Geradeaus ${index + 1}`, incoming: 'west',
     group: 'main', laneId: `w${index + 1}`, exitId: `east${index + 1}`, turn: 'straight',
     points: [[-220, z], [-80, z], [-28, z], [34, z], [100, z], [220, z]],
     stops: [{ id: `west-east-${index + 1}-entry`, group: 'main', point: [-28, z], arrow: 'straight' }],
     stopLine: [-28, z], rate: [560, 420][index], speed: 13.9,
   },
   {
-    id: `east-west-${index + 1}`, label: `B1 · Ost → West · Geradeaus ${index + 1}`,
+    id: `east-west-${index + 1}`, label: `B1 · Ost → West · Geradeaus ${index + 1}`, incoming: 'east',
     group: 'main', laneId: `e${index + 1}`, exitId: `west${index + 1}`, turn: 'straight',
     points: [[220, -z], [80, -z], [28, -z], [-34, -z], [-100, -z], [-220, -z]],
     stops: [{ id: `east-west-${index + 1}-entry`, group: 'main', point: [28, -z], arrow: 'straight' }],
@@ -112,7 +112,7 @@ function mainTurn({ id, from, direction, lane, movement, choiceGroup, rate, labe
     [m.entry[0] - radius * 0.1339746, 7 + radius * 0.5],
   ];
   return {
-    id, label, choiceGroup, rate, group, laneId: east ? 'e0' : 'w0',
+    id, label, incoming: from, choiceGroup, rate, group, laneId: east ? 'e0' : 'w0',
     vehicleKinds: ['car', 'van'], renderFlare: false,
     exitId: tail.exitId, turn: 'left', speed: 6.5, stopLine,
     points: [...prefix, ...bend, ...tail.points],
@@ -152,7 +152,7 @@ function sideRoute({ from, direction, lane, movement, id, rate, label }) {
   const m = median[direction][lane], tail = tails[direction][movement];
   const stopLine = approach.at(-1), entryId = `${from}-${lane}-entry`;
   return {
-    id, label, rate, group: from, laneId: `${north ? 'n' : 's'}${laneIndex}`,
+    id, label, incoming: from, rate, group: from, laneId: `${north ? 'n' : 's'}${laneIndex}`,
     vehicleKinds: ['car', 'van'], exitId: tail.exitId,
     turn: movement === 'left' || movement === 'sharedLeft' ? 'left' : 'straight',
     speed: movement === 'left' || movement === 'sharedLeft' ? 5.5 : 9.7,
@@ -179,6 +179,17 @@ const sideRoutes = [
   sideRoute({ from: 'south', direction: 'north', lane: 'through', movement: 'through', id: 'south-through', rate: 50, label: 'Semmerteichstraße → Voßkuhle · Geradeausspur' }),
 ];
 
+const routes = [...mainRoutes, ...mainTurnRoutes, ...sideRoutes];
+// One minimum arrival per source direction, shared by all its lanes and turns.
+// Zero-rate lane alternatives remain listed; the engine selects active demand.
+const minimumArrivals = [
+  { incoming: 'west', interval: 60 }, { incoming: 'east', interval: 60 },
+  { incoming: 'north', interval: 300 }, { incoming: 'south', interval: 300 },
+].map(({ incoming, interval }) => ({
+  id: `from-${incoming}`, interval,
+  routeIds: routes.filter(route => route.incoming === incoming).map(route => route.id),
+}));
+
 export const dortmund = {
   id: 'dortmund-westfalendamm',
   name: 'Voßkuhle',
@@ -186,6 +197,7 @@ export const dortmund = {
   subtitle: 'Dortmund · B1 × Voßkuhle / Semmerteichstraße',
   ui: {
     roadBadge: 'B 1',
+    minimumTrafficNote: 'Mindestens ein Fahrzeug je Minute aus West und Ost sowie je fünf Minuten aus Nord und Süd.',
     phaseExplainer: 'Die B1 erhält jede zweite Grünphase. Innere und äußere Nebenstraßenampeln starten gemeinsam.',
     signalIndicators: [
       { group: 'mainLeftSouth', label: 'B1 links → Süd' },
@@ -202,6 +214,7 @@ export const dortmund = {
     note: 'Eigenständig modellierte Szene, keine Google-Kacheln oder Fototexturen. Kein amtlicher Signalplan.',
   },
   seed: 42,
+  minimumArrivals,
   conflictBounds: { minX: -34, maxX: 34, minZ: -32, maxZ: 32 },
   timing: { yellow: 3, allRed: 3, redAmber: 1 },
   phases: [
@@ -272,7 +285,7 @@ export const dortmund = {
         schedule: { minuteOffset: 2, intervalMinutes: 10, sundayIntervalMinutes: 20, serviceStart: 300, serviceEnd: 1410 } },
     ],
   },
-  routes: [...mainRoutes, ...mainTurnRoutes, ...sideRoutes],
+  routes,
   cameras: [
     { id: 'overview', label: 'Übersicht', description: 'Freier Blick über den gesamten Knotenpunkt', position: [165, 180, 210], target: [0, 0, 0], fov: 48 },
     { id: 'north', label: 'Voßkuhle', description: 'Nordmast · Blick Richtung Süd', position: [-30, 10, -47], target: [0, 1.2, 16], fov: 58 },

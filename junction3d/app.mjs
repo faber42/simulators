@@ -43,7 +43,7 @@ function start() {
   const initialVehicleCount = density => clamp(Math.round(3 * density / .8), 0, 6);
   const initialDensity = getTrafficProfile(clockBase, timeZone).density;
   const simulation = new TrafficSimulation({ ...config, density: initialDensity,
-    initialVehiclesPerLane: initialVehicleCount(initialDensity) }, { startTime: clockBase });
+    initialVehiclesPerLane: initialVehicleCount(initialDensity) }, { startTime: clockBase, minimumTraffic: true });
   const view = createScene($('scene'), config);
   const { THREE, camera } = view;
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -83,7 +83,9 @@ function start() {
     $('density').value = String(Math.round(simulation.density * 100));
     $('density').disabled = automatic;
     $('density-value').textContent = `${trafficLabel} · ${Math.round(simulation.density * 100)} %`;
-    $('density-note').textContent = automatic ? 'Zufluss nach Wochentag und Uhrzeit. Im Modus Manuell frei einstellbar.' : 'Der Regler steuert neue Zufahrten; vorhandene Fahrzeuge fahren weiter.';
+    $('density-note').textContent = automatic
+      ? `Zufluss nach Wochentag und Uhrzeit. ${config.ui?.minimumTrafficNote || 'Im Modus Manuell frei einstellbar.'}`
+      : 'Der Regler steuert neue Zufahrten; vorhandene Fahrzeuge fahren weiter.';
     $('mode-auto').setAttribute('aria-pressed', String(automatic));
     $('mode-manual').setAttribute('aria-pressed', String(!automatic));
     $('manual-light-row').hidden = automatic; $('manual-light').value = manualLight;
@@ -104,7 +106,7 @@ function start() {
     $('clock-input').value = `${local.date}T${local.time}`;
     applyEnvironment(true); updateStatus(); invalidateModels();
   }
-  function setMode(value) { automatic = value; applyEnvironment(true); updateStatus(); }
+  function setMode(value) { automatic = value; simulation.setMinimumTraffic(value); applyEnvironment(true); updateStatus(); }
   $('mode-auto').addEventListener('click', () => setMode(true));
   $('mode-manual').addEventListener('click', () => setMode(false));
   $('clock-now').addEventListener('click', () => { $('time-preset').value = ''; setClock(Date.now()); toast('Simulationsuhr auf die aktuelle Dortmunder Zeit gesetzt.'); });

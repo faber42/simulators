@@ -120,10 +120,11 @@ function lastConflictDistance(path, bounds, stopDistance) {
 }
 
 export class TrafficSimulation {
-  constructor(config, { startTime = null } = {}) {
+  constructor(config, { startTime = null, minimumTraffic = false } = {}) {
     if (!config?.phases?.length || !config?.routes?.length) throw new Error('TrafficSimulation needs phases and routes.');
     this.config = config;
     this.startEpochMs = startTime === null ? null : validateClockTime(startTime);
+    this.minimumTraffic = Boolean(minimumTraffic);
     this.phases = config.phases.map(phase => {
       const duration = Math.max(1, Number(phase.duration) || 25);
       if (!Array.isArray(phase.groups) || !phase.groups.length || phase.groups.some(group => typeof group !== 'string' || !group)) {
@@ -202,6 +203,20 @@ export class TrafficSimulation {
         if (route.id === other.id || route.laneId === other.laneId || route.exitId === other.exitId || sections.length) route.followRouteIds.push(other.id);
       }
     }
+    const minimumIds = new Set();
+    this.minimumArrivalByRoute = new Map();
+    this.minimumArrivals = (config.minimumArrivals ?? []).map(spec => {
+      if (!spec.id || minimumIds.has(spec.id) || !Number.isFinite(spec.interval) || spec.interval <= 0 ||
+        !Array.isArray(spec.routeIds) || !spec.routeIds.length) throw new Error('Invalid minimum arrival group.');
+      minimumIds.add(spec.id);
+      const routes = spec.routeIds.map(id => {
+        const route = this.routes.find(candidate => candidate.id === id);
+        if (!route || this.minimumArrivalByRoute.has(id)) throw new Error(`Unknown or repeated minimum arrival route: ${id}`);
+        this.minimumArrivalByRoute.set(id, spec);
+        return route;
+      });
+      return { ...spec, routes };
+    });
     this.transitConfig = { greenGroups: [], blockedGroups: [], ...config.transit };
     this.transitRoutes = (config.transit?.routes ?? []).map(route => {
       const path = buildPath(route.points);
@@ -230,6 +245,7 @@ export class TrafficSimulation {
   reset() {
     this.randomState = (this.config.seed ?? 42) | 0;
     this.elapsed = 0;
+    this.resetMinimumArrivalDeadlines();
     this.passed = 0;
     this.phaseIndex = 0;
     this.stage = 'green';
@@ -296,6 +312,7 @@ export class TrafficSimulation {
     const wasZero = this.density === 0;
     const oldDensity = this.density;
     this.density = clamp(value, 0, 5);
+    if (wasZero && this.density > 0) this.resetMinimumArrivalDeadlines();
     for (const route of this.routes) {
       if (this.density === 0) this.arrivals.set(route.id, Infinity);
       else if (wasZero) this.arrivals.set(route.id, this.arrivalInterval(route));
@@ -306,6 +323,46 @@ export class TrafficSimulation {
   arrivalInterval(route) {
     const rate = route.rate * this.density;
     return rate > 0 ? Math.max(0.7, -Math.log(Math.max(1e-9, 1 - this.random())) * 3600 / rate) : Infinity;
+  }
+
+  resetMinimumArrivalDeadlines() {
+    this.minimumArrivalDue = new Map(this.minimumArrivals.map(group => [group.id, this.elapsed + group.interval]));
+  }
+
+  setMinimumTraffic(enabled) {
+    enabled = Boolean(enabled);
+    if (enabled === this.minimumTraffic) return;
+    this.minimumTraffic = enabled;
+    // No catch-up burst after manual control or an empty-traffic interval.
+    this.resetMinimumArrivalDeadlines();
+  }
+
+  hasArrivalSpace(route) {
+    return !this.vehicles.some(vehicle => vehicle.route.laneId === route.laneId &&
+      vehicle.distance - vehicle.route.stopDistance < 18 - route.stopDistance);
+  }
+
+  spawnArrival(route) {
+    const vehicle = this.createVehicle(route);
+    vehicle.speed = Math.min(route.speed, 8);
+    this.vehicles.push(vehicle);
+    this.arrivals.set(route.id, this.arrivalInterval(route));
+    const group = this.minimumArrivalByRoute.get(route.id);
+    if (group) this.minimumArrivalDue.set(group.id, this.elapsed + group.interval);
+  }
+
+  spawnMinimumArrivals() {
+    if (!this.minimumTraffic || this.density === 0) return;
+    for (const group of this.minimumArrivals) {
+      if (this.elapsed + 1e-9 < this.minimumArrivalDue.get(group.id)) continue;
+      // One deadline covers the whole incoming direction. Zero-rate routing
+      // alternatives never create extra demand, and a full lane is not forced.
+      const available = group.routes.filter(route => route.rate > 0 && this.hasArrivalSpace(route));
+      if (!available.length) continue;
+      let pick = this.random() * available.reduce((sum, route) => sum + route.rate, 0);
+      const route = available.find(candidate => (pick -= candidate.rate) <= 0) ?? available.at(-1);
+      this.spawnArrival(route);
+    }
   }
 
   createVehicle(route, distance = 0) {
@@ -587,16 +644,11 @@ export class TrafficSimulation {
     this.moveTrams(dt);
     if (this.density > 0) for (const route of this.routes) {
       const due = this.arrivals.get(route.id) - dt;
-      if (due > 0) { this.arrivals.set(route.id, due); continue; }
-      const free = !this.vehicles.some(vehicle => vehicle.route.laneId === route.laneId &&
-        vehicle.distance - vehicle.route.stopDistance < 18 - route.stopDistance);
-      if (free) {
-        const vehicle = this.createVehicle(route);
-        vehicle.speed = Math.min(route.speed, 8);
-        this.vehicles.push(vehicle);
-        this.arrivals.set(route.id, this.arrivalInterval(route));
-      } else this.arrivals.set(route.id, 0);
+      if (due > 1e-9) { this.arrivals.set(route.id, due); continue; }
+      if (this.hasArrivalSpace(route)) this.spawnArrival(route);
+      else this.arrivals.set(route.id, 0);
     }
+    this.spawnMinimumArrivals();
 
     const occupiedStorage = new Map(), storageEntryGroups = new Map();
     const occupyStorage = (id, group) => {
