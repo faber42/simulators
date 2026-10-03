@@ -307,12 +307,24 @@ export function createScene(canvas, config) {
     }
     const anchor = cluster.anchor ? new THREE.Vector3(cluster.anchor[0], 0, cluster.anchor[1])
       : center.clone().addScaledVector(right, cluster.stops.length * 1.8 + 1).addScaledVector(dir, 1.1);
-    const farthest = cluster.stops.reduce((result, stop) => Math.hypot(stop.x - anchor.x, stop.z - anchor.z) > Math.hypot(result.x - anchor.x, result.z - anchor.z) ? stop : result);
-    const outer = new THREE.Vector3(farthest.x, 0, farthest.z).addScaledVector(dir, 1.1);
     const height = cluster.height || 6.6;
-    const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(anchor.x, 0, anchor.z), new THREE.Vector3(anchor.x, height - 2.5, anchor.z), new THREE.Vector3(anchor.x, height - .7, anchor.z), new THREE.Vector3(center.x + dir.x, height, center.z + dir.z), new THREE.Vector3(outer.x, height, outer.z)]);
+    const joint = new THREE.Vector3(center.x + dir.x, height, center.z + dir.z);
+    const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(anchor.x, 0, anchor.z), new THREE.Vector3(anchor.x, height - 2.5, anchor.z), new THREE.Vector3(anchor.x, height - .7, anchor.z), joint]);
     const pole = new THREE.Mesh(new THREE.TubeGeometry(curve, 28, .11, 8, false), metal); pole.castShadow = true; scene.add(pole);
-    for (const stop of cluster.stops) addHead(new THREE.Vector3(stop.x + dir.x, height - 1, stop.z + dir.z), heading, stop);
+    // A diagonally offset island mast does not pass above every signal head.
+    // Join it to a full crossbar through the exact head positions on both sides.
+    const beamPoints = [...cluster.stops.map(stop => new THREE.Vector3(stop.x + dir.x, height, stop.z + dir.z)), joint]
+      .sort((a, b) => a.dot(right) - b.dot(right))
+      .filter((point, index, points) => index === 0 || point.distanceToSquared(points[index - 1]) > 1e-8);
+    if (beamPoints.length > 1) {
+      const beam = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(beamPoints), (beamPoints.length - 1) * 12, .11, 8, false), metal);
+      beam.castShadow = true; scene.add(beam);
+    }
+    for (const stop of cluster.stops) {
+      const position = new THREE.Vector3(stop.x + dir.x, height - 1, stop.z + dir.z);
+      box(scene, metal, position.x, height - .1, position.z, .09, .24, .09);
+      addHead(position, heading, stop);
+    }
     // Separate groups on one beam retain separate lower indications as well.
     const repeats = [...new Set(cluster.stops.map(stop => stop.group))].map(group => {
       const members = cluster.stops.filter(stop => stop.group === group);
