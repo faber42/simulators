@@ -323,6 +323,19 @@ export function createScene(canvas, config) {
     const shape = new THREE.Shape(); points.forEach(([x, z], i) => i ? shape.lineTo(x, -z) : shape.moveTo(x, -z)); shape.closePath();
     const geometry = new THREE.ExtrudeGeometry(shape, { depth: island.height || .18, bevelEnabled: false }); geometry.rotateX(-Math.PI / 2);
     const curb = new THREE.Mesh(geometry, pavement); curb.position.y = .035; curb.castShadow = curb.receiveShadow = true; scene.add(curb);
+    if (island.surface === 'grass') {
+      const center = points.reduce((sum, point) => [sum[0] + point[0] / points.length, sum[1] + point[1] / points.length], [0, 0]);
+      const turfShape = new THREE.Shape();
+      points.forEach(([x, z], index) => {
+        const dx = x - center[0], dz = z - center[1], distance = Math.hypot(dx, dz);
+        const inset = Math.max(0, distance - (island.curbWidth || .32)) / (distance || 1);
+        const px = center[0] + dx * inset, pz = center[1] + dz * inset;
+        if (index) turfShape.lineTo(px, -pz); else turfShape.moveTo(px, -pz);
+      });
+      turfShape.closePath();
+      const turfGeometry = new THREE.ShapeGeometry(turfShape); turfGeometry.rotateX(-Math.PI / 2);
+      const turf = new THREE.Mesh(turfGeometry, grass); turf.position.y = .038 + (island.height || .18); turf.receiveShadow = true; scene.add(turf);
+    }
     if (island.keepRight) {
       const [x, z] = island.keepRight.position;
       box(scene, metal, x, .72, z, .065, 1.4, .065);

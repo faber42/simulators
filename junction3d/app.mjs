@@ -1,4 +1,4 @@
-import config from './locations/dortmund.mjs';
+import { getLocation } from './locations/index.mjs';
 import { TrafficSimulation } from './engine.mjs';
 import { createScene } from './scene.mjs';
 import { createFrameLoop } from './frame-loop.mjs';
@@ -6,11 +6,19 @@ import { getLocalTime, localDateTimeToEpoch, getTrafficProfile, getLightingProfi
 
 const $ = id => document.getElementById(id);
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
-const storageKey = `junction3d-cameras-${config.id}`;
+const locationEntry = getLocation(new URLSearchParams(window.location.search).get('location'));
+let config, storageKey;
 let toastTimeout;
 function toast(message) { $('toast').textContent = message; $('toast').classList.add('visible'); clearTimeout(toastTimeout); toastTimeout = setTimeout(() => $('toast').classList.remove('visible'), 3500); }
 
-try { start(); } catch (error) {
+try {
+  if (!locationEntry) window.location.replace('./');
+  else {
+    config = await locationEntry.load();
+    storageKey = `junction3d-cameras-${config.id}`;
+    start();
+  }
+} catch (error) {
   console.error(error);
   $('loading').classList.add('error');
   $('loading').querySelector('strong').textContent = 'Die 3D-Ansicht konnte nicht starten.';
@@ -19,6 +27,7 @@ try { start(); } catch (error) {
 
 function start() {
   document.title = `${config.name} · Kreuzung in 3D`;
+  document.querySelector('.edition').textContent = `/ ${locationEntry.number}`;
   const title = document.querySelector('h1'); title.firstChild.textContent = config.name;
   title.querySelector('span').textContent = ` ${config.city || config.subtitle.split(' · ')[0]}`;
   document.querySelector('.coordinates').firstChild.textContent = `${config.coordinates.latitude.toFixed(5)}° N   ${config.coordinates.longitude.toFixed(5)}° E`;
@@ -26,6 +35,7 @@ function start() {
   document.querySelector('.road-badge').textContent = config.ui?.roadBadge || '3D';
   document.querySelector('.phase-explainer').textContent = config.ui?.phaseExplainer || 'Die Freigaben folgen dem konfigurierten Umlauf.';
   document.querySelector('.location-note > p').textContent = config.description;
+  document.querySelector('.location-note details p').textContent = `${config.source.credit} ${config.ui?.modelNote || `${config.source.note} Maße, Verkehrsmengen und Sekundenwerte sind Modellannahmen.`}`;
   document.querySelector('.location-note a').href = config.source.url;
   document.querySelector('.keyboard-hint').firstChild.textContent = `1–${Math.min(9, config.cameras.length)} Kamera`;
   const timeZone = config.timeZone || 'Europe/Berlin';
@@ -82,7 +92,7 @@ function start() {
     $('daylight').textContent = automatic ? `${lightLabel} · Auto` : manualLight === 'day' ? '◐ Abendlicht' : manualLight === 'evening' ? '☾ Nacht' : '☀ Tageslicht';
     if (darkUI !== dark) { darkUI = dark; invalidateMap(); }
     document.body.classList.toggle('evening', darkUI);
-    $('time-summary').textContent = automatic ? `${trafficLabel} · ${lightLabel}. Licht und Zufluss folgen der Uhr.` : 'Licht und Zufluss sind manuell. Die Stadtbahn fährt weiterhin nach Uhrzeit.';
+    $('time-summary').textContent = automatic ? `${trafficLabel} · ${lightLabel}. Licht und Zufluss folgen der Uhr.` : `Licht und Zufluss sind manuell.${config.transit?.routes?.length ? ' Die Stadtbahn fährt weiterhin nach Uhrzeit.' : ' Pause und Tempo gelten auch für die Uhr.'}`;
     if (force) invalidateView();
   }
   function setClock(epoch) {
@@ -201,9 +211,11 @@ function start() {
     $('phase-progress-bar').style.background = ['green', 'drain'].includes(status.stage) ? '#74a168' : status.stage === 'clearance' ? '#bd715b' : '#d3a653';
     const tramProtected = status.transit?.protected === true;
     const pending = status.stage === 'green' ? Object.entries(phase.groupDelays || {}).filter(([group, delay]) => delay > simulation.stageElapsed && !(tramProtected && config.transit?.blockedGroups.includes(group))) : [];
-    $('release-note').textContent = tramProtected ? 'Stadtbahnphase: Beide B1-Linksabbiegerichtungen setzen für diese Hauptstraßenphase aus.' : pending.length ? `Geradeaus fährt zuerst. Linksabbieger in ${Math.ceil(Math.min(...pending.map(([, delay]) => delay - simulation.stageElapsed)))} s grün.` : status.stage === 'drain' || (status.stage === 'yellow' && phase.drainGroups?.length) ? 'Die Mittelampel bleibt für bereits eingefahrene Fahrzeuge grün.' : phase.uiNote || '';
+    $('release-note').textContent = tramProtected ? 'Stadtbahnphase: Kreuzende Linksabbieger setzen für diese Grünphase aus.' : pending.length ? `Geradeaus fährt zuerst. Linksabbieger in ${Math.ceil(Math.min(...pending.map(([, delay]) => delay - simulation.stageElapsed)))} s grün.` : status.stage === 'drain' || (status.stage === 'yellow' && phase.drainGroups?.length) ? 'Die Mittelampel bleibt für bereits eingefahrene Fahrzeuge grün.' : phase.uiNote || '';
     $('transit-section').classList.toggle('protected', tramProtected);
-    $('transit-status').textContent = !serviceOpen ? '23:30–05:00 keine neuen Fahrten. Bereits eingelassene Bahnen räumen die Kreuzung.' : tramProtected ? 'Gleise freihalten · Linksabbieger warten außen.' : local.weekday === 0 ? 'Sonntag: Aplerbeck :09 / :29 / :49 · Innenstadt :02 / :22 / :42. Freigabe mit der B1.' : 'Aplerbeck ab :09, Innenstadt ab :02, jeweils alle 10 Minuten. Freigabe mit der B1.';
+    const scheduledRoutes = (config.transit?.routes || []).filter(route => route.schedule);
+    const serviceTime = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+    $('transit-status').textContent = !serviceOpen ? `${serviceTime(service.serviceEnd)}–${serviceTime(service.serviceStart)} keine neuen Fahrten. Bereits eingelassene Bahnen räumen die Kreuzung.` : tramProtected ? 'Gleise freihalten · Linksabbieger warten außen.' : scheduledRoutes.map(route => `${route.destination} ab :${String(route.schedule.minuteOffset).padStart(2, '0')}, alle ${local.weekday === 0 ? route.schedule.sundayIntervalMinutes : route.schedule.intervalMinutes} Minuten`).join(' · ');
     for (const { id, row, state } of transitRows) {
       const trams = (simulation.trams || []).filter(tram => tram.routeId === id);
       const next = status.transit?.nextArrivals?.find(arrival => arrival.id === id);
@@ -314,11 +326,19 @@ function start() {
     const colors = darkUI ? mapColors.night : mapColors.day;
     ctx.clearRect(0, 0, 440, 300); ctx.fillStyle = colors.ground; ctx.fillRect(0, 0, 440, 300);
     ctx.fillStyle = colors.building;
-    for (const building of config.environment?.buildings || []) { ctx.fillRect(mapX(building.x - building.width / 2), mapZ(building.z - building.depth / 2), building.width * mapScale, building.depth * mapScale); }
+    for (const building of [...(config.environment?.buildings || []), ...(config.environment?.pavilions || [])]) {
+      ctx.save(); ctx.translate(mapX(building.x), mapZ(building.z)); ctx.rotate(-(building.rotation || 0));
+      ctx.fillRect(-building.width * mapScale / 2, -building.depth * mapScale / 2, building.width * mapScale, building.depth * mapScale); ctx.restore();
+    }
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (const road of view.roads) {
       ctx.strokeStyle = colors.road; ctx.lineWidth = (road.width + 3) * mapScale; ctx.beginPath();
       road.path.samples.forEach((p, i) => { if (i === 0) ctx.moveTo(mapX(p.x), mapZ(p.z)); else ctx.lineTo(mapX(p.x), mapZ(p.z)); }); ctx.stroke();
+    }
+    for (const island of config.islands || []) {
+      ctx.fillStyle = colors.ground; ctx.strokeStyle = colors.outline; ctx.lineWidth = .8;
+      ctx.beginPath(); island.points.forEach(([x, z], i) => i ? ctx.lineTo(mapX(x), mapZ(z)) : ctx.moveTo(mapX(x), mapZ(z)));
+      ctx.closePath(); ctx.fill(); ctx.stroke();
     }
     const rails = config.environment?.rails;
     if (rails) { ctx.strokeStyle = colors.rails; ctx.lineWidth = 1; for (const z of rails.tracks) { ctx.beginPath(); ctx.moveTo(mapX(rails.from), mapZ(z)); ctx.lineTo(mapX(rails.to), mapZ(z)); ctx.stroke(); } }

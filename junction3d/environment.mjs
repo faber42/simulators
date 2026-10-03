@@ -193,6 +193,8 @@ export function buildEnvironment(THREE, scene, config) {
     const group = groupAt(spec, spec.id || spec.label || 'Building');
     const isGlass = style === 'glass';
     const isMuseum = style === 'museum';
+    const isResidence = style === 'residential';
+    const isShowroom = style === 'showroom';
     const body = material(spec.color || (isGlass ? '#647b80' : isMuseum ? '#c2beb0' : '#d3d3c7'),
       isGlass ? {} : { map: masonryTexture });
     box(group, [w + 1.6, 0.24, d + 1.6], [0, 0.12, 0], pavement, false);
@@ -226,14 +228,14 @@ export function buildEnvironment(THREE, scene, config) {
     const windowValues = [];
     const sillValues = [];
     const facade = (length, outwardZ, rotated) => {
-      const columns = Math.max(1, Math.floor((length - 2) / (isGlass ? 3.2 : 2.55)));
+      const columns = Math.max(1, Math.floor((length - 2) / (isGlass || isShowroom ? 3.2 : 2.55)));
       const spacing = (length - 1.2) / columns;
       for (let floor = 0; floor < floors; floor++) {
         for (let col = 0; col < columns; col++) {
           const horizontal = -length / 2 + 0.6 + spacing * (col + 0.5);
           const y = 0.25 + floorHeight * (floor + 0.5);
-          const width = spacing * (isGlass ? 0.91 : 0.6);
-          const height = floorHeight * (isGlass ? 0.87 : 0.61);
+          const width = spacing * (isGlass || isShowroom ? 0.91 : 0.6);
+          const height = floorHeight * (isGlass || isShowroom ? 0.87 : 0.61);
           const position = rotated ? [outwardZ, y, horizontal] : [horizontal, y, outwardZ];
           const scale = rotated ? [0.1, height, width] : [width, height, 0.1];
           const shades = isGlass ? ['#486a77', '#5a7d88', '#739099', '#4b6b76', '#6b8993']
@@ -293,6 +295,18 @@ export function buildEnvironment(THREE, scene, config) {
     instances(group, unitBox, litFacadeGlass, windowValues.filter((_, index) => occupied(index)));
     instances(group, unitBox, paleConcrete, sillValues);
 
+    if (isResidence) {
+      // Repeated projecting balconies and parapets distinguish housing from
+      // the office blocks without requiring a location-specific model.
+      for (let floor = 1; floor < floors; floor++) for (let x = -w / 2 + 5; x < w / 2 - 3; x += 7.8) {
+        const y = .25 + floor * floorHeight;
+        box(group, [3.55, .16, 1.9], [x, y + .05, d / 2 + .86], paleConcrete);
+        box(group, [3.5, .83, .11], [x, y + .57, d / 2 + 1.72], concrete);
+        [-1.69, 1.69].forEach(side => box(group, [.1, .83, 1.7], [x + side, y + .57, d / 2 + .86], concrete));
+        line3(group, [x - 1.77, y + 1.03, d / 2 + 1.74], [x + 1.77, y + 1.03, d / 2 + 1.74], .026, metal);
+      }
+    }
+
     // A rounded stair tower and glazed entrance give the office its recognizable silhouette.
     if (isGlass) {
       const radius = Math.min(3.4, w * 0.1);
@@ -306,7 +320,7 @@ export function buildEnvironment(THREE, scene, config) {
     box(group, [0.1, 3.1, 0.2], [0, 1.7, d / 2 + bow + 0.25], metal);
     box(group, [entranceWidth + 1.5, 0.25, 2.3], [0, 3.5, d / 2 + bow + 0.95], isMuseum ? darkMetal : paleConcrete);
     if (spec.label) sign(group, spec.label, [Math.min(w * 0.7, 19), isMuseum ? 1.5 : 0.95],
-      [0, isMuseum ? Math.min(h - 1.5, 7.2) : 4.65, d / 2 + bow + 0.13],
+      [0, isMuseum ? Math.min(h - 1.5, 7.2) : isShowroom ? h - .7 : 4.65, d / 2 + bow + 0.13],
       isMuseum ? { background: '#292f2e', color: '#eeeeea' } : {});
 
     const equipmentCount = Math.max(1, Math.floor(w * d / 440));
@@ -334,6 +348,94 @@ export function buildEnvironment(THREE, scene, config) {
       box(group, [0.08, 0.58, 0.08], [x, 0.3, 0.1], darkMetal);
       box(group, [0.08, 1.15, 0.08], [x, 0.58, 0.48], darkMetal);
     });
+  }
+
+  function buildSurfacePatch(spec) {
+    if (!spec.points?.length) return;
+    const shape = new THREE.Shape();
+    spec.points.forEach(([x, z], index) => index ? shape.lineTo(x, -z) : shape.moveTo(x, -z)); shape.closePath();
+    const geometry = keepGeometry(new THREE.ShapeGeometry(shape)); geometry.rotateX(-Math.PI / 2);
+    const mat = material(spec.color || '#b5aea1', spec.surface === 'grass' ? { map: foliageTexture } : {});
+    const mesh = new THREE.Mesh(geometry, mat); mesh.position.y = spec.height ?? .052; mesh.receiveShadow = true;
+    mesh.name = spec.id || 'Surface landscaping'; root.add(mesh);
+    if (spec.curb) for (let index = 0; index < spec.points.length; index++) {
+      segment(root, spec.points[index], spec.points[(index + 1) % spec.points.length], .24, .13, paleConcrete);
+    }
+  }
+
+  function buildParkingLot(spec) {
+    const { width: w, depth: d } = spec;
+    if (!(w > 5 && d > 8)) return;
+    const group = groupAt(spec, spec.id || 'Parking');
+    box(group, [w + .55, .12, d + .55], [0, .06, 0], pavement, false);
+    box(group, [w, .025, d], [0, .136, 0], material(spec.color || '#818580'), false);
+    const paint = material('#dfded3');
+    const rows = spec.rows === 1 ? [0] : [-1, 1], pitch = spec.spacing || 2.85;
+    const stallLength = 5.3, count = Math.floor((w - 3) / pitch);
+    const bodies = [], cabins = [], tires = [], lamps = [], trims = [];
+    const colors = ['#eeeae0', '#38434b', '#b5b9b5', '#687a85', '#973a35', '#ddd1b4', '#d4d8d6'];
+    for (const side of rows) {
+      const z = rows.length === 1 ? -d / 2 + 3.2 : side * (d / 2 - 3.2);
+      for (let column = 0; column <= count; column++) {
+        const x = (column - count / 2) * pitch;
+        box(group, [.085, .013, stallLength], [x, .16, z], paint, false);
+        if (column === count || random() > (spec.occupancy ?? .76)) continue;
+        const px = x + pitch / 2, pz = z + (random() - .5) * .22;
+        const angle = side < 0 ? 0 : Math.PI, color = colors[Math.floor(random() * colors.length)];
+        bodies.push({ position: [px, .82, pz], scale: [1.83, .6, 4.4], color });
+        bodies.push({ position: [px, 1.48, pz - .24], scale: [1.43, .095, 1.78], color });
+        cabins.push({ position: [px, 1.22, pz - .18], scale: [1.62, .64, 2.1] });
+        for (const sign of [-1, 1]) for (const along of [-1, 1]) {
+          tires.push({ position: [px + sign * .91, .51, pz + along * 1.37], scale: [.2, .63, .63] });
+          trims.push({ position: [px + sign * .93, .51, pz + along * 1.37], scale: [.022, .29, .29] });
+        }
+        [-1, 1].forEach(sign => lamps.push({ position: [px + sign * .59, .85, pz + (angle ? -2.215 : 2.215)], scale: [.38, .16, .025] }));
+      }
+    }
+    instances(group, unitBox, material('#ffffff', { metalness: .35, roughness: .38 }), bodies);
+    instances(group, unitBox, glassOpaque, cabins);
+    instances(group, unitBox, rubber, tires);
+    instances(group, unitBox, metal, trims);
+    instances(group, unitBox, warmWhite, lamps);
+    [-1, 1].forEach(side => box(group, [.22, .17, d], [side * (w / 2 + .1), .18, 0], paleConcrete, false));
+    if (spec.label) {
+      cylinder(group, .06, 2.9, [-w / 2 + 1, 1.5, d / 2 - 1], metal);
+      sign(group, ['P', spec.label], [1.3, 1.5], [-w / 2 + 1, 2.75, d / 2 - .95], { background: '#275880', color: '#ffffff' });
+    }
+  }
+
+  function buildPavilion(spec) {
+    const { width: w, depth: d, height: h = 5 } = spec;
+    if (!(w > 0 && d > 0)) return;
+    const group = groupAt(spec, spec.id || 'Pavilion');
+    const base = material('#555c5d'), glazing = material('#344f5b', { metalness: .38, roughness: .23 });
+    box(group, [w, .36, d], [0, .2, 0], base);
+    box(group, [w - 1, h - .7, d - 1], [0, h / 2, 0], glazing);
+    const shape = new THREE.Shape(), radius = Math.min(2.6, w / 5, d / 5), hw = w / 2 + .7, hd = d / 2 + .7;
+    shape.moveTo(-hw + radius, -hd); shape.lineTo(hw - radius, -hd); shape.quadraticCurveTo(hw, -hd, hw, -hd + radius);
+    shape.lineTo(hw, hd - radius); shape.quadraticCurveTo(hw, hd, hw - radius, hd);
+    shape.lineTo(-hw + radius, hd); shape.quadraticCurveTo(-hw, hd, -hw, hd - radius);
+    shape.lineTo(-hw, -hd + radius); shape.quadraticCurveTo(-hw, -hd, -hw + radius, -hd); shape.closePath();
+    const roof = keepGeometry(new THREE.ExtrudeGeometry(shape, { depth: .34, bevelEnabled: true, bevelSegments: 2, steps: 1, bevelSize: .1, bevelThickness: .06 })); roof.rotateX(-Math.PI / 2);
+    const canopy = new THREE.Mesh(roof, paleConcrete); canopy.position.y = h; canopy.castShadow = canopy.receiveShadow = true; group.add(canopy);
+    box(group, [w * .68, .13, d * .6], [0, h + .44, 0], roofMaterial, false);
+    for (const side of [-1, 1]) {
+      for (let x = -w / 2 + .8; x < w / 2; x += 3.3) box(group, [.13, h - .6, .14], [x, h / 2, side * (d / 2 - .42)], metal);
+      for (let z = -d / 2 + 1; z < d / 2; z += 3.1) box(group, [.14, h - .6, .13], [side * (w / 2 - .42), h / 2, z], metal);
+    }
+    box(group, [2.3, 2.7, .1], [0, 1.65, d / 2 - .33], glass);
+    if (spec.label) sign(group, spec.label, [Math.min(12, w * .65), .63], [0, h - .7, d / 2 - .27], { background: '#354348', color: '#eeeee3' });
+    [-1, 1].forEach(side => bench(group, side * (w / 2 + 3), 0, side * Math.PI / 2));
+  }
+
+  function buildShrubs() {
+    const values = [];
+    for (const spec of env.shrubs || []) {
+      const radius = spec.radius || 1.5, height = spec.height || radius * .9;
+      values.push({ position: [spec.x, height * .62 + (spec.elevation || .15), spec.z],
+        scale: [radius, height * .75, radius * (spec.depthScale || .9)], rotation: [0, spec.rotation || 0, 0], color: spec.color || '#6c814d' });
+    }
+    instances(root, crownGeometry, foliageMaterial, values);
   }
 
   function buildRails(rails) {
@@ -506,7 +608,7 @@ export function buildEnvironment(THREE, scene, config) {
   }
 
   function insideBuilding(x, z) {
-    return (env.buildings || []).some(spec => {
+    return [...(env.buildings || []), ...(env.pavilions || []), ...(env.parkingLots || [])].some(spec => {
       const angle = -(spec.rotation || 0);
       const dx = x - spec.x;
       const dz = z - spec.z;
@@ -759,6 +861,7 @@ export function buildEnvironment(THREE, scene, config) {
     });
   }
 
+  (env.surfacePatches || []).forEach(buildSurfacePatch);
   (env.pavement || []).forEach(spec => {
     const group = groupAt(spec, 'Pavement');
     box(group, [spec.width, 0.16, spec.depth], [0, 0.08, 0], pavement, false);
@@ -771,6 +874,9 @@ export function buildEnvironment(THREE, scene, config) {
   });
   if (env.park) buildPark(env.park);
   (env.buildings || []).forEach(buildBuilding);
+  (env.pavilions || []).forEach(buildPavilion);
+  (env.parkingLots || []).forEach(buildParkingLot);
+  buildShrubs();
   if (env.rails) buildRails(env.rails);
   if (env.station) buildStation(env.station);
   if (env.fuelStation) buildFuelStation(env.fuelStation);

@@ -1,15 +1,60 @@
-# Voßkuhle · Kreuzung in 3D
+# Kreuzungsatlas · Dortmund in 3D
 
-Voßkuhle ist eine eigenständige 3D-Simulation der Kreuzung B1 / Westfalendamm
-mit Voßkuhle und Semmerteichstraße in Dortmund. Die vorhandene Simulation in
-`trafficsim/` bleibt unabhängig davon bestehen. Die Darstellung verwendet
-Three.js wie die anderen 3D-Projekte in dieser Sammlung.
+Zwei Kreuzungen nutzen dieselbe 3D-Darstellung, Verkehrslogik, Simulationsuhr
+und Kamerasteuerung: **Voßkuhle** (B1 / Voßkuhle / Semmerteichstraße) und
+**Opphoff** (Märkische Straße / oberirdische Seitenarme des Westfalen- und
+Rheinlanddamms). Die vorhandene Simulation in `trafficsim/` bleibt unabhängig.
+Die Darstellung verwendet Three.js wie die anderen 3D-Projekte dieser Sammlung.
 
 ## Starten
 
 Im Repository `npm start` ausführen und
 <http://localhost:3000/junction3d/> öffnen. Es ist kein Build erforderlich.
 Ein Browser mit WebGL-Unterstützung ist notwendig.
+
+Die Startseite bietet die Kreuzungsauswahl mit Lageplänen aus den jeweiligen
+Standortdaten; sie startet noch keine 3D-Zeichenschleife. Direkte Einstiege:
+
+- Voßkuhle: `simulation.html?location=vosskuhle`
+- Opphoff: `simulation.html?location=opphoff`
+
+Der Pfeil links oben führt zurück zur Auswahl. Ein unbekannter oder fehlender
+Standort in der Simulationsadresse führt ebenfalls dorthin. Eigene Kameras
+werden getrennt nach Standort gespeichert; bestehende Voßkuhle-Kameras bleiben
+erhalten. Beide Standorte teilen sich `simulation.html` und `app.mjs`.
+
+## Opphoff
+
+Die schräg verlaufende Märkische Straße trifft auf zwei getrennte oberirdische
+Seitenarme. Die unterirdische B1 wird weder als Straße noch als Verkehrsstrom
+dargestellt. Es gibt auch keine oberirdischen Stadtbahngleise oder Zugfahrten.
+Pavillon, Autohaus mit Stellflächen, Wohngebäude, Baumreihen und begrünte
+Mittelinsel bilden die Umgebung anhand der lokalen Referenzbilder nach.
+
+Der Umlauf hat zwei Achsenphasen: Ost–West und Nord–Süd. Beide Richtungen einer
+Achse kommen in jedem Umlauf dran, einschließlich ihrer Linksabbieger.
+Außen- und Mittelampeln derselben Richtung beginnen gleichzeitig mit Grün.
+Linksabbieger passieren ihre Außen- und Innenampel und warten anschließend
+am inneren Signal der Zielrichtung. Speicherplätze und gemeinsam genutzte
+Ausfahrtsspuren verhindern Überfüllung und Fahrzeugüberschneidungen.
+
+Die elf markierten Signalstandorte bestehen aus acht äußeren/inneren Standorten
+und drei gesonderten Rechtsabbiegern: aus Osten nach Norden, aus Norden nach
+Westen und aus Süden nach Osten. Pro mehrspurigem Standort gibt es mehrere
+Signalgeber. Die drei Rechtsabbieger erhalten ihre eigene Freigabe in der Phase
+der Zufahrtsachse; dies ist eine Modellannahme, kein vermessener Signalplan.
+
+Spurzahl (je eine linke und zwei geradeaus führende Spuren auf den durchgehenden
+Fahrbahnen), Breiten, Radien, Zuflüsse und Sekundenwerte sind angenähert.
+Die Daten sind in `locations/opphoff.mjs` und `locations/opphoff-environment.mjs`
+gekapselt. Der gemeinsame Motor unterstützt hierfür auch drei aufeinanderfolgende
+Haltepunkte: Ist der nachfolgende Mittelbereich voll, dürfen bereits sicher
+wartende Fahrzeuge den Wechsel zur entlastenden Querphase nicht blockieren.
+Die Fahrbahnmarkierungen folgen denselben Kurven wie die Fahrzeuge.
+
+`opphoff/` enthält ausschließlich lokale Referenzbilder und ist in `.gitignore`
+ausgeschlossen, ebenso wie die früheren Diagnoseframes. Die Anwendung lädt
+keines dieser Bilder.
 
 ## Bedienung
 
@@ -37,12 +82,14 @@ Ein Browser mit WebGL-Unterstützung ist notwendig.
   gewählten eigenen Werte wieder her: Der Regler **Verkehrsaufkommen** steuert
   neue Zufahrten; bei null fahren vorhandene Fahrzeuge weiter. Die Auswahl
   **Beleuchtung** bietet Tageslicht, Abendlicht und Nacht. Der Stadtbahnfahrplan
-  folgt in beiden Modi weiterhin der Simulationsuhr. **Neustart** setzt Verkehr,
+  folgt an der Voßkuhle in beiden Modi weiterhin der Simulationsuhr. **Neustart** setzt Verkehr,
   Ampelumlauf und Uhr auf die zuletzt gewählte Startzeit zurück.
 - **Ampeln:** **Nächste Phase** beendet die aktuelle Grünphase vorzeitig.
   Gelb, Räumzeit und Rot-Gelb werden weiterhin durchlaufen. Die inneren Ampeln
-  bleiben während des Nachlaufs grün, bis der bereits eingelassene Verkehr
-  ausgefahren ist; erst anschließend wechseln auch sie über Gelb auf Rot.
+  bleiben während des Nachlaufs grün, bis die Konfliktbereiche sicher geräumt
+  sind; erst anschließend wechseln auch sie über Gelb auf Rot. Bei vollem
+  Ziel-Mittelbereich können Fahrzeuge vor einer inneren Ampel sicher warten,
+  während die nächste Achsenphase Platz schafft.
 - **Darstellung:** Im manuellen Modus wechselt auch die Lichttaste zwischen
   Tageslicht, Abendlicht und Nacht. **⛶** öffnet das Vollbild. Während der
   Browser-Tab verborgen ist, pausieren Verkehr und Simulationsuhr automatisch;
@@ -95,7 +142,7 @@ Dunkelheit zu. Weiche Lichtfelder hellen Straßen und vorbeifahrende Fahrzeuge
 auf. Dafür wird eine gemeinsame Beleuchtungskarte verwendet; separate
 Schatten für jede Straßenlampe werden nicht berechnet.
 
-## Standort und Modellannahmen
+## Voßkuhle: Standort und Modellannahmen
 
 Die Straßenform, der breite Mittelstreifen mit Stadtbahngleisen, die Haltestelle
 Voßkuhle, die schräg einmündende nördliche Zufahrt, der südöstliche Grünbereich
@@ -215,14 +262,17 @@ nicht ab; Busse bleiben deshalb auf den geraden B1-Routen.
 
 ## Aufbau
 
-Standortdaten stehen in `locations/dortmund.mjs`. Das Modul exportiert
-`dortmund` sowohl benannt als auch als Standardexport. Die Simulationslogik
+Standortdaten stehen in `locations/dortmund.mjs` (Voßkuhle) und
+`locations/opphoff.mjs`, die Umgebung von Opphoff in einem separaten Datenmodul.
+`locations/index.mjs` registriert beide Standorte. Die Simulationslogik
 arbeitet mit Routen, Signalgruppen und räumlichen Grenzen; sie benötigt keine
 Dortmunder Straßennamen. Die Darstellung liest dieselben Daten für Fahrbahnen,
 Umgebung, Signalpositionen und Kameras.
 
 | Datei | Verantwortung |
 | --- | --- |
+| `index.html`, `selection.mjs`, `selection.css` | Kreuzungsauswahl mit statischen Lageplänen aus den Standortdaten. |
+| `simulation.html` | Gemeinsame Oberfläche für alle Kreuzungen. |
 | `app.mjs` | Bedienung, Simulationsuhr, Kameraauswahl und Lageplan. |
 | `frame-loop.mjs` | Auf 30 FPS begrenzte, bedarfsgesteuerte Zeichenschleife mit Ruhemodus. |
 | `time-model.mjs` | Ortszeit und Zeitumstellungen, Straßenbahn-Minutenraster, Verkehrs- und Lichtprofile ohne Browserabhängigkeit. |
@@ -231,8 +281,11 @@ Umgebung, Signalpositionen und Kameras.
 | `lane-markings.mjs` | Spurgrenzen entlang der Fahrwege oder zwischen benachbarten Fahrspuren. |
 | `environment.mjs` | Wiederverwendbare Modellbausteine für Gebäude, Grün und Straßenausstattung. |
 | `street-lighting.mjs` | Gemeinsame ortsfeste Beleuchtungskarte für Straßenlampen, Straßen und bewegte Fahrzeuge. |
-| `locations/dortmund.mjs` | Konkrete Ortsgeometrie und Betriebsparameter. |
+| `locations/index.mjs` | Verzeichnis der auswählbaren Kreuzungen und ihrer Modulimporte. |
+| `locations/dortmund.mjs` | Voßkuhle: Ortsgeometrie, Betriebsparameter und Umgebung. |
+| `locations/opphoff.mjs`, `locations/opphoff-environment.mjs` | Opphoff: Straßen, Signale und eigenständige Umgebung. |
 | `engine.test.mjs` | Automatisierte Prüfungen der Fahr- und Signallogik. |
+| `opphoff.test.mjs` | Elf Signalstandorte, mehrstufige Linksabbieger, Speichersättigung und Langläufe mit unabhängiger Kollisionsprüfung. |
 | `time-model.test.mjs` | Ortszeitumrechnung, beide Sommerzeitwechsel, Fahrplangrenzen, Wochenenden sowie Verkehrs- und Lichtprofile. |
 
 Die Engine-Prüfungen lassen sich vom Repository-Hauptverzeichnis mit
@@ -246,6 +299,10 @@ die interpolierte Darstellung bei unregelmäßigen Bildabständen.
 Fahrbahnmarkierungen auf geraden und gebogenen Zufahrten und Ausfahrten.
 `node --test junction3d/time-model.test.mjs` prüft das Zeitmodell unabhängig
 von der Szene und der lokalen Zeitzone des Rechners.
+`node --test junction3d/opphoff.test.mjs` prüft Opphoff über zehn Minuten
+Normalverkehr und zwanzig Minuten Berufsverkehr; alle Fahrbeziehungen müssen
+passieren, ohne rote Haltepunkte zu überfahren, Fahrzeughüllen zu überschneiden
+oder den Mittelbereich zu überfüllen.
 
 Alle Längen sind Meter, Zeiten Sekunden und Geschwindigkeiten Meter pro
 Sekunde. Ausnahmen: Absolute Uhrzeiten sind Unix-Zeitstempel in Millisekunden;
@@ -384,6 +441,17 @@ Metern entlang und quer zur Straße. Einzelne Lampen können Profilwerte mit
 `Math.PI / 2` nach Osten. Die Nebenstraßenmasten folgen der jeweiligen
 Straßenkurve und stehen außerhalb der Fahrbahnflächen.
 
+Für weitere Stadtumgebungen stehen optionale Datenfelder zur Verfügung:
+`environment.surfacePatches` zeichnet Polygone mit `points`, `color` und
+optional `surface: 'grass'` / `curb`. `parkingLots` verwendet `x`, `z`,
+`width`, `depth`, `rotation`, `rows` und `occupancy` für Stellplätze samt
+stehenden Autos. `pavilions` nutzt dieselben Positions-/Maßfelder und
+`height` / `label`. `shrubs` platziert niedrige Pflanzen mit `radius`,
+`height` und optionaler `elevation`. Gebäude unterstützen zusätzlich
+`style: 'residential'` für Balkone und `style: 'showroom'` für große Fenster.
+Inseln können mit `surface: 'grass'` begrünt werden. Alle Bausteine sind
+optional und enthalten keine festen Ortskoordinaten in der Darstellung.
+
 ## Eine andere Kreuzung vorbereiten
 
 1. `locations/dortmund.mjs` als neues Standortmodul kopieren und ID,
@@ -409,7 +477,10 @@ Straßenkurve und stehen außerhalb der Fahrbahnflächen.
 6. Gebäude, Grünflächen, Baumzonen und optionale Anlagen konfigurieren;
    Objekte von den Fahrwegen fernhalten. Kamera-Masten außerhalb der
    Fahrbahnen mit Blickzielen im Kreuzungsbereich platzieren.
-7. Den Standortimport in der Anwendung auf das neue Modul umstellen.
+7. Einen Eintrag mit eindeutigem `slug`, Beschreibung und `load`-Funktion in
+   `locations/index.mjs` ergänzen. Auswahl und gemeinsame Simulation greifen
+   über dieses Verzeichnis auf die Standortkonfiguration zu; ein Wechsel des
+   Imports in `app.mjs` ist nicht erforderlich.
    Einen vollständigen Umlauf mit geringem und hohem Verkehrsaufkommen
    beobachten und aus jeder Kamera Haltepunkte, Abbieger, Rückstau und
    Phasenwechsel kontrollieren.

@@ -1,5 +1,10 @@
 :root{font-family:Inter,"Segoe UI",Arial,sans-serif;color:#233a37;background:#eff1ec;font-synthesis:none;--ink:#193a34;--muted:#7b8580;--line:#dce0d8;--green:#26715a;--accent:#c6df85}
 main,.camera-dock,.camera-dock nav{min-width:0}
+/* Location-specific signal names must also fit a narrow control panel. */
+.panel #signal-monitor{grid-template-columns:repeat(2,minmax(0,1fr))}
+.signal-indicator{min-width:0}
+.panel .signal-indicator span{white-space:normal;line-height:1.4;overflow-wrap:anywhere}
+.range-label{gap:8px}.range-label output{text-align:right}
 .time-controls{padding-bottom:19px;margin-bottom:20px;border-bottom:1px solid var(--line)}
 .mode-buttons{display:flex;background:#e8ede2;padding:3px;border-radius:5px;margin:13px 0 10px;gap:3px}
 .mode-buttons button{flex:1;padding:7px 4px;font-size:10px;border-radius:4px}

@@ -446,11 +446,21 @@ export class TrafficSimulation {
 
   hasPhaseTraffic() {
     const drainGroups = this.phases[this.phaseIndex].drainGroups ?? [];
-    return this.trams.some(tram => tram.committed && tram.distance - tram.length / 2 <= tram.route.clearDistance) || this.vehicles.some(vehicle => vehicle.committedStops.some(commitment =>
-      commitment.phaseSerial === this.phaseSerial && vehicle.distance - vehicle.length / 2 <= vehicle.route.stops[commitment.index].clearDistance) ||
-      // A manual early phase change must still release traffic waiting in the
-      // median, even if its front has not yet crossed the newly green gate.
-      (vehicle.passedGateIndex >= 0 && drainGroups.includes(vehicle.route.stops[vehicle.passedGateIndex + 1]?.group)));
+    const occupancy = new Map();
+    for (const vehicle of this.vehicles) for (const reservation of vehicle.reservations) {
+      occupancy.set(reservation.id, (occupancy.get(reservation.id) ?? 0) + 1);
+    }
+    return this.trams.some(tram => tram.committed && tram.distance - tram.length / 2 <= tram.route.clearDistance) || this.vehicles.some(vehicle => {
+      if (vehicle.committedStops.some(commitment => commitment.phaseSerial === this.phaseSerial &&
+        vehicle.distance - vehicle.length / 2 <= vehicle.route.stops[commitment.index].clearDistance)) return true;
+      const nextStop = vehicle.route.stops[vehicle.passedGateIndex + 1];
+      const storageFull = nextStop?.storage && (occupancy.get(nextStop.storage.id) ?? 0) >= nextStop.storage.capacity;
+      // Drain admitted cars, including a manually shortened phase. A vehicle
+      // whose receiving median is full can remain at this middle signal once
+      // its rear has cleared the preceding gate's safe holding point. Waiting
+      // for that perpendicular median to empty here would deadlock both axes.
+      return vehicle.passedGateIndex >= 0 && drainGroups.includes(nextStop?.group) && !storageFull;
+    });
   }
 
   chooseRoute(vehicle, occupiedStorage) {

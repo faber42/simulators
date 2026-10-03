@@ -4,49 +4,25 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#172b29">
-  <title>Voßkuhle · Kreuzung in 3D</title>
-  <link rel="stylesheet" href="style.css">
+  <title>Kreuzungsatlas · Dortmund in 3D</title>
+  <link rel="stylesheet" href="selection.css">
 </head>
 <body>
-  <header class="topbar">
-    <a class="back" href="../" aria-label="Zur Simulatoren-Übersicht">↗</a>
-    <div class="brand"><span class="brand-icon">╋</span><div><span class="eyebrow">KREUZUNGSATLAS <span class="edition">/ 01</span></span><h1>Voßkuhle<span> Dortmund</span></h1></div></div>
-    <div class="coordinates">51.50345° N &nbsp; 7.49722° E<span>B1 × Voßkuhle / Semmerteichstraße</span></div>
-    <span class="live"><i></i> SIMULATION</span>
+  <header class="atlas-header">
+    <a class="all-simulators" href="../" aria-label="Zur Simulatoren-Übersicht">← <span>Simulatoren</span></a>
+    <a class="wordmark" href="./"><span aria-hidden="true">╋</span> KREUZUNGSATLAS</a>
+    <span class="atlas-city">DORTMUND <i></i> 51° N / 7° E</span>
   </header>
   <main>
-    <section class="viewport" aria-label="3D-Ansicht der Kreuzung">
-      <canvas id="scene" aria-label="3D-Kreuzung mit Fahrzeugen und Ampeln"></canvas>
-      <div class="view-label"><span id="camera-index">CAM 01</span><strong id="camera-label">Überblick</strong><small id="camera-description">Die gesamte Kreuzung</small></div>
-      <div class="view-time"><span id="simulation-clock">00:00:00</span><small id="clock-day">SIMULATIONSZEIT · DORTMUND</small></div>
-      <div class="scene-toolbar"><button id="free-camera" title="Freie Kamera: ziehen zum Drehen, Mausrad zum Zoomen">↔ Freie Ansicht</button><button id="daylight" title="Zwischen Tageslicht und Abendlicht wechseln">◐ Abendlicht</button><button id="fullscreen" title="Vollbild umschalten" aria-label="Vollbild umschalten">⛶</button></div>
-      <div class="north-marker"><span> N </span><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3 29 32 20 26 11 32Z"/></svg><small>NORDEN</small></div>
-      <div id="view-hint">Ziehen zum Drehen · Scrollen zum Zoomen</div>
-      <div class="map-card"><div><span>LAGEPLAN</span><button id="place-camera" title="Eigene Verkehrskamera im Lageplan platzieren">+ Kamera</button></div><canvas id="minimap" width="440" height="300" aria-label="Lageplan: mit aktivierter Kameraplatzierung zuerst Standort, dann Blickziel anklicken" tabindex="0"></canvas><p id="map-hint" hidden></p></div>
-      <div id="loading" role="status"><span class="loader-symbol">╋</span><strong>Die Kreuzung entsteht.</strong><small>Straßen, Stadt und Verkehr werden geladen …</small></div>
-      <div id="toast" role="status"></div>
-    </section>
-    <aside class="panel">
-      <div class="panel-heading"><span class="eyebrow">VERKEHRSSTEUERUNG</span><span class="road-badge">B 1</span></div>
-      <section class="time-controls" aria-labelledby="time-heading">
-        <div class="section-title"><h2 id="time-heading">Zeit & Alltag</h2><button id="clock-now" title="Auf die aktuelle Dortmunder Uhrzeit setzen">↻ Jetzt</button></div>
-        <div class="mode-buttons" aria-label="Steuerungsmodus"><button id="mode-auto" aria-pressed="true">Automatisch</button><button id="mode-manual" aria-pressed="false">Manuell</button></div>
-        <p id="time-summary"></p>
-        <label class="time-label" for="time-preset">Zeitvorlage</label>
-        <select id="time-preset"><option value="">Zeitvorlage wählen …</option><option value="monday-morning">Montag um 8 · Berufsverkehr</option><option value="friday-afternoon">Freitag um 15:30 · Berufsverkehr</option><option value="wednesday-midday">Mittwoch um 11 · Alltag</option><option value="saturday-noon">Samstag um 12 · Wochenende</option><option value="sunday-night">Sonntag um 23:45 · Nacht</option></select>
-        <form id="clock-form"><label class="time-label" for="clock-input">Datum & Uhrzeit · Dortmund</label><div class="clock-input-row"><input id="clock-input" type="datetime-local" required step="60"><button type="submit">Setzen</button></div></form>
-        <p class="time-note" id="clock-note">Zeitwechsel starten den Verkehr neu. Pause und Tempo gelten auch für die Uhr.</p>
-        <div id="manual-light-row" hidden><label class="time-label" for="manual-light">Beleuchtung</label><select id="manual-light"><option value="day">Tageslicht</option><option value="evening">Abendlicht</option><option value="night">Nacht</option></select></div>
-      </section>
-      <section class="phase-section"><div class="section-title"><h2>Ampelumlauf</h2><span id="cycle-label">UMLAUF 01</span></div><p class="phase-explainer">Die B1 erhält jede zweite Grünphase.</p><ol id="phase-list"></ol><div class="phase-progress"><i id="phase-progress-bar"></i></div><div class="phase-status"><span id="stage-label">Grünphase</span><strong id="remaining">32 s</strong></div><p id="release-note"></p><div id="signal-monitor" aria-label="Linksabbieger- und Mittelampeln"></div><div id="median-status"><span>Im Mittelabschnitt wartend</span><strong id="median-count">0</strong></div><button class="text-button" id="next-phase">Nächste Phase <span>→</span></button></section>
-      <section class="transport"><div class="section-title"><h2>Simulation</h2><button id="reset" title="Verkehr und Ampelumlauf zurücksetzen">↺ Neustart</button></div><div class="playback"><button id="pause" aria-pressed="false">Ⅱ Pause</button><div class="speed-buttons" aria-label="Simulationsgeschwindigkeit"><button data-speed="1" aria-pressed="true">1×</button><button data-speed="2" aria-pressed="false">2×</button><button data-speed="4" aria-pressed="false">4×</button></div></div><label class="range-label" for="density">Verkehrsaufkommen <output id="density-value">Normal</output></label><input id="density" type="range" min="0" max="180" value="80" step="1"><div class="range-ticks"><span>Leer</span><span>Berufsverkehr</span></div><p class="time-note" id="density-note">Wird im Automatikmodus von der Uhrzeit gesteuert.</p></section>
-      <section class="transit-section" id="transit-section" hidden><div class="section-title"><h2>Stadtbahn</h2><span id="transit-frequency"></span></div><p id="transit-status"></p><div id="transit-arrivals" aria-label="Stadtbahn je Richtung"></div></section>
-      <section class="statistics"><div><strong id="active-count">0</strong><span>Fahrzeuge</span></div><div><strong id="waiting-count">0</strong><span>Wartend</span></div><div><strong id="passed-count">0</strong><span>Passiert</span></div></section>
-      <section id="camera-editor" hidden><div class="section-title"><h2>Eigene Kamera</h2><button id="cancel-camera">Schließen</button></div><p id="camera-help">Im Lageplan erst den Standort, dann das Blickziel wählen.</p><label class="range-label" for="camera-height">Montagehöhe <output id="height-value">8 m</output></label><input id="camera-height" type="range" min="3" max="40" value="8"><label class="range-label" for="camera-fov">Blickwinkel <output id="fov-value">55°</output></label><input id="camera-fov" type="range" min="25" max="85" value="55"><button id="save-camera" class="primary-button" disabled>Kamera speichern</button></section>
-      <div class="location-note"><span class="eyebrow">EIN ORT. VIELE PERSPEKTIVEN.</span><p>Die geteilte B1, die Haltestelle Voßkuhle und der Wechsel der Nebenstraßen.</p><details><summary>Über diese Nachbildung</summary><p>Räumliche Annäherung anhand der Referenzbilder. Grünfolge und Stadtbahnvorrang nach deiner Beschreibung; Maße, Verkehrsmengen und Sekundenwerte sind Modellannahmen. Fußwege und Haltestelle sind als Umgebung dargestellt.</p><a href="https://www.google.de/maps/@51.5034529,7.4972166,17.99z/" target="_blank" rel="noreferrer">Ort in Google Maps ↗</a></details></div>
-    </aside>
+    <div class="intro">
+      <div><p class="eyebrow">STADT IN BEWEGUNG</p><h1>Jede Kreuzung hat<br>ihren eigenen Rhythmus.</h1></div>
+      <p>Zwei Orte am Westfalendamm.<br> Wähle eine Kreuzung und beobachte den Verkehr aus deiner Perspektive.</p>
+    </div>
+    <section class="locations" id="locations" aria-label="Kreuzung auswählen"></section>
+    <noscript><p>Bitte JavaScript aktivieren, um die 3D-Simulation zu starten.</p></noscript>
+    <div class="shared-features"><span><i aria-hidden="true">◉</i> Frei platzierbare Kameras</span><span><i aria-hidden="true">◷</i> Tageszeit & Berufsverkehr</span><span><i aria-hidden="true">◐</i> Tag, Dämmerung & Nacht</span></div>
   </main>
-  <footer class="camera-dock"><div class="dock-heading"><span class="eyebrow">PERSPEKTIVEN</span><span>Die Kreuzung im Blick</span></div><nav id="camera-list" aria-label="Kameras"></nav><span class="keyboard-hint">1–6 Kamera<br>Leertaste Pause</span></footer>
-  <script type="module" src="app.mjs"></script>
+  <footer><span>Echte Orte. Eigenständig in 3D nachgebildet.</span><span>ANSICHTEN / DORTMUND</span></footer>
+  <script type="module" src="selection.mjs"></script>
 </body>
 </html>
