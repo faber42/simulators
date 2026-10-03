@@ -96,7 +96,22 @@ export class TrafficSimulation {
   constructor(config) {
     if (!config?.phases?.length || !config?.routes?.length) throw new Error('TrafficSimulation needs phases and routes.');
     this.config = config;
-    this.phases = config.phases.map(phase => ({ ...phase, duration: Math.max(1, Number(phase.duration) || 25) }));
+    this.phases = config.phases.map(phase => {
+      const duration = Math.max(1, Number(phase.duration) || 25);
+      if (!Array.isArray(phase.groups) || !phase.groups.length || phase.groups.some(group => typeof group !== 'string' || !group)) {
+        throw new Error('Each phase needs named signal groups.');
+      }
+      const groups = [...new Set(phase.groups)];
+      for (const [group, delay] of Object.entries(phase.groupDelays ?? {})) {
+        if (!groups.includes(group) || !Number.isFinite(delay) || delay < 0 || delay >= duration) {
+          throw new Error(`Invalid delay for signal group ${group}.`);
+        }
+      }
+      if (phase.drainGroups && (!Array.isArray(phase.drainGroups) || phase.drainGroups.some(group => !groups.includes(group)))) {
+        throw new Error('Drain groups must belong to their phase.');
+      }
+      return { ...phase, groups, duration };
+    });
     this.timing = { yellow: 3, allRed: 3, redAmber: 1, ...config.timing };
     for (const key of ['yellow', 'allRed', 'redAmber']) {
       if (!Number.isFinite(this.timing[key]) || this.timing[key] < 0) throw new Error(`Invalid timing: ${key}`);
@@ -106,13 +121,29 @@ export class TrafficSimulation {
       if (!route.id || ids.has(route.id)) throw new Error('Route ids must be present and unique.');
       ids.add(route.id);
       const path = buildPath(route.points);
-      const stopDistance = clamp(route.stopDistance ?? (route.stopLine ? projectedDistance(path, route.stopLine) : path.length * 0.35), 0, path.length);
-      const clearDistance = clamp(route.clearDistance ?? lastConflictDistance(path, config.conflictBounds, stopDistance), stopDistance, path.length);
+      const rawStops = route.stops ?? [{ id: `${route.id}-stop`, group: route.group, point: route.stopLine, distance: route.stopDistance }];
+      if (!rawStops.length) throw new Error(`Route ${route.id} needs at least one stop.`);
+      const stops = rawStops.map((stop, index) => {
+        const distance = clamp(stop.distance ?? (stop.point ? projectedDistance(path, stop.point) : path.length * 0.35), 0, path.length);
+        const clearDistance = clamp(stop.clearDistance ?? (stop.clearPoint ? projectedDistance(path, stop.clearPoint) :
+          route.clearDistance ?? lastConflictDistance(path, config.conflictBounds, distance)), distance, path.length);
+        if (stop.storage && (!stop.storage.id || !Number.isInteger(stop.storage.capacity) || stop.storage.capacity < 1)) {
+          throw new Error(`Invalid storage on ${route.id} stop ${index}.`);
+        }
+        return { ...stop, id: stop.id ?? `${route.id}-stop-${index}`, distance, clearDistance };
+      });
+      if (stops.some((stop, index) => index > 0 && stop.distance <= stops[index - 1].distance)) {
+        throw new Error(`Stops on ${route.id} must follow route order.`);
+      }
+      const stopDistance = stops[0].distance;
+      const clearDistance = stops.at(-1).clearDistance;
       const vehicleKinds = route.vehicleKinds ?? Object.keys(VEHICLE_TYPES);
       if (!Array.isArray(vehicleKinds) || !vehicleKinds.length || vehicleKinds.some(kind => !VEHICLE_TYPES[kind])) {
         throw new Error(`Route ${route.id} needs valid vehicleKinds: car, van or bus.`);
       }
-      return { ...route, path, length: path.length, stopDistance, clearDistance,
+      return { ...route, path, length: path.length, stops, group: stops[0].group,
+        stopLine: stops[0].point ?? route.stopLine, stopDistance, clearDistance,
+        mergeDistance: route.mergePoint ? projectedDistance(path, route.mergePoint) : clearDistance - 22,
         vehicleKinds: [...new Set(vehicleKinds)],
         laneId: route.laneId ?? route.id, exitId: route.exitId ?? route.id,
         rate: Math.max(0, Number(route.rate) || 0), speed: Math.max(1, Number(route.speed) || 13.9) };
@@ -137,6 +168,8 @@ export class TrafficSimulation {
     this.phaseIndex = 0;
     this.stage = 'green';
     this.stageElapsed = 0;
+    this.closedGreenElapsed = 0;
+    this.phaseSerial = 0;
     this.cycle = 1;
     this.accumulator = 0;
     this.nextId = 1;
@@ -189,15 +222,27 @@ export class TrafficSimulation {
     const length = VEHICLE_TYPES[kind].length;
     return { id: this.nextId++, routeId: route.id, route, distance, speed: 0, length, kind,
       color: Math.floor(this.random() * 10), turn: route.turn ?? 'straight', braking: false,
-      committed: false, ...samplePath(route.path, distance) };
+      committed: false, passedGateIndex: -1, committedStops: [], reservations: [],
+      ...samplePath(route.path, distance) };
   }
 
   getSignal(group) {
-    return this.stage !== 'clearance' && this.phases[this.phaseIndex].groups.includes(group) ? this.stage : 'red';
+    const phase = this.phases[this.phaseIndex];
+    if (!phase.groups.includes(group) || this.stage === 'clearance') return 'red';
+    const delay = Math.max(0, phase.groupDelays?.[group] ?? 0);
+    const opened = this.closedGreenElapsed + 1e-9 >= delay;
+    const drains = phase.drainGroups?.includes(group);
+    if (this.stage === 'drain') return drains && opened ? 'green' : 'red';
+    if (this.stage === 'drainYellow') return drains && opened ? 'yellow' : 'red';
+    if (this.stage === 'redAmber') return delay === 0 ? 'redAmber' : 'red';
+    if (this.stage === 'yellow') return opened ? drains ? 'green' : 'yellow' : 'red';
+    if (this.stageElapsed + 1e-9 >= delay) return 'green';
+    return this.stageElapsed + 1e-9 >= delay - this.timing.redAmber ? 'redAmber' : 'red';
   }
 
   requestNextPhase() {
     if (this.stage === 'green') {
+      this.closedGreenElapsed = this.stageElapsed;
       this.stage = 'yellow';
       this.stageElapsed = 0;
     }
@@ -205,10 +250,14 @@ export class TrafficSimulation {
 
   getStatus() {
     const duration = this.stage === 'green' ? this.phases[this.phaseIndex].duration :
-      this.stage === 'yellow' ? this.timing.yellow : this.stage === 'clearance' ? this.timing.allRed : this.timing.redAmber;
+      this.stage === 'yellow' || this.stage === 'drainYellow' ? this.timing.yellow :
+        this.stage === 'clearance' ? this.timing.allRed : this.stage === 'drain' ? 0 : this.timing.redAmber;
+    const groups = new Set(this.phases.flatMap(phase => phase.groups));
     return { phaseIndex: this.phaseIndex, stage: this.stage, remaining: Math.max(0, duration - this.stageElapsed),
       elapsed: this.elapsed, passed: this.passed, waiting: this.vehicles.filter(vehicle => vehicle.speed < 0.5).length,
-      active: this.vehicles.length, cycle: this.cycle };
+      active: this.vehicles.length, cycle: this.cycle,
+      stagedWaiting: this.vehicles.filter(vehicle => vehicle.passedGateIndex >= 0 && vehicle.passedGateIndex < vehicle.route.stops.length - 1 && vehicle.speed < 0.5).length,
+      signals: Object.fromEntries([...groups].map(group => [group, this.getSignal(group)])) };
   }
 
   /** Fixed simulation ticks make browser frame rate independent of traffic. */
@@ -224,17 +273,32 @@ export class TrafficSimulation {
   advanceSignal(dt) {
     this.stageElapsed += dt;
     if (this.stage === 'green' && this.stageElapsed + 1e-9 >= this.phases[this.phaseIndex].duration) {
+      this.closedGreenElapsed = this.stageElapsed;
       this.stage = 'yellow'; this.stageElapsed = 0;
     } else if (this.stage === 'yellow' && this.stageElapsed + 1e-9 >= this.timing.yellow) {
+      this.stage = this.phases[this.phaseIndex].drainGroups?.length ? 'drain' : 'clearance'; this.stageElapsed = 0;
+    } else if (this.stage === 'drain' && !this.hasPhaseTraffic()) {
+      this.stage = 'drainYellow'; this.stageElapsed = 0;
+    } else if (this.stage === 'drainYellow' && this.stageElapsed + 1e-9 >= this.timing.yellow) {
       this.stage = 'clearance'; this.stageElapsed = 0;
     } else if (this.stage === 'clearance' && this.stageElapsed + 1e-9 >= this.timing.allRed &&
-      !this.vehicles.some(vehicle => vehicle.committed && vehicle.distance - vehicle.length / 2 <= vehicle.route.clearDistance)) {
+      !this.hasPhaseTraffic()) {
       this.phaseIndex = (this.phaseIndex + 1) % this.phases.length;
       if (this.phaseIndex === 0) this.cycle++;
+      this.phaseSerial++;
       this.stage = 'redAmber'; this.stageElapsed = 0;
     } else if (this.stage === 'redAmber' && this.stageElapsed + 1e-9 >= this.timing.redAmber) {
       this.stage = 'green'; this.stageElapsed = 0;
     }
+  }
+
+  hasPhaseTraffic() {
+    const drainGroups = this.phases[this.phaseIndex].drainGroups ?? [];
+    return this.vehicles.some(vehicle => vehicle.committedStops.some(commitment =>
+      commitment.phaseSerial === this.phaseSerial && vehicle.distance - vehicle.length / 2 <= vehicle.route.stops[commitment.index].clearDistance) ||
+      // A manual early phase change must still release traffic waiting in the
+      // median, even if its front has not yet crossed the newly green gate.
+      (vehicle.passedGateIndex >= 0 && drainGroups.includes(vehicle.route.stops[vehicle.passedGateIndex + 1]?.group)));
   }
 
   // Signed lane-relative center separation; Infinity means unrelated paths.
@@ -245,7 +309,9 @@ export class TrafficSimulation {
     if (route.laneId === other.laneId && follower.distance <= route.stopDistance + 7 && leader.distance <= other.stopDistance + 7) {
       return (leader.distance - other.stopDistance) - (follower.distance - route.stopDistance);
     }
-    if (route.exitId === other.exitId && follower.distance >= route.clearDistance - 22 && leader.distance >= other.clearDistance - 22) {
+    // Begin checking a shared outlet before the physical join, so a vehicle
+    // cannot enter the shared segment inside an existing queue's headway.
+    if (route.exitId === other.exitId && follower.distance >= route.mergeDistance - follower.length - GAP && leader.distance >= other.mergeDistance - leader.length - GAP) {
       return (route.length - follower.distance) - (other.length - leader.distance);
     }
     return Infinity;
@@ -253,6 +319,16 @@ export class TrafficSimulation {
 
   tick(dt) {
     this.elapsed += dt;
+    for (const vehicle of this.vehicles) {
+      if (vehicle.committed && vehicle.passedGateIndex < 0) {
+        vehicle.passedGateIndex = 0;
+        vehicle.committedStops.push({ index: 0, phaseSerial: this.phaseSerial });
+      }
+      vehicle.committedStops = vehicle.committedStops.filter(commitment =>
+        vehicle.distance - vehicle.length / 2 <= vehicle.route.stops[commitment.index].clearDistance);
+      vehicle.committed = vehicle.committedStops.length > 0;
+      vehicle.reservations = vehicle.reservations.filter(reservation => vehicle.distance - vehicle.length / 2 <= reservation.releaseDistance);
+    }
     this.advanceSignal(dt);
     if (this.density > 0) for (const route of this.routes) {
       const due = this.arrivals.get(route.id) - dt;
@@ -267,6 +343,10 @@ export class TrafficSimulation {
       } else this.arrivals.set(route.id, 0);
     }
 
+    const occupiedStorage = new Map();
+    for (const vehicle of this.vehicles) for (const reservation of vehicle.reservations) {
+      occupiedStorage.set(reservation.id, (occupiedStorage.get(reservation.id) ?? 0) + 1);
+    }
     const moves = this.vehicles.map(vehicle => {
       let maximumAdvance = Infinity;
       let acceleration = 2.1 * (1 - (vehicle.speed / vehicle.route.speed) ** 4);
@@ -282,8 +362,11 @@ export class TrafficSimulation {
         const separation = this.separation(vehicle, leader);
         if (separation > 0 && Number.isFinite(separation)) considerObstacle(separation, leader.length, leader.speed);
       }
-      if (!vehicle.committed && this.getSignal(vehicle.route.group) !== 'green') {
-        const distanceToStop = vehicle.route.stopDistance - vehicle.length / 2 - STOP_MARGIN - vehicle.distance;
+      const stopIndex = vehicle.passedGateIndex + 1;
+      const stop = vehicle.route.stops[stopIndex];
+      const storageFull = stop?.storage && (occupiedStorage.get(stop.storage.id) ?? 0) >= stop.storage.capacity;
+      if (stop && (this.getSignal(stop.group) !== 'green' || storageFull)) {
+        const distanceToStop = stop.distance - vehicle.length / 2 - STOP_MARGIN - vehicle.distance;
         maximumAdvance = Math.min(maximumAdvance, Math.max(0, distanceToStop));
         // A virtual leader produces smooth approach braking; the final clamp
         // guarantees the front bumper cannot jump a stop line in a long frame.
@@ -293,13 +376,23 @@ export class TrafficSimulation {
       let speed = Math.max(0, vehicle.speed + clamp(acceleration, -5, 2.1) * dt);
       let advance = speed * dt;
       if (advance > maximumAdvance) { advance = maximumAdvance; speed = advance / dt; }
-      return { vehicle, speed, advance, braking: speed < vehicle.speed - 0.015 || speed < 0.15 };
+      const crossesGate = stop && vehicle.distance + advance + vehicle.length / 2 > stop.distance && this.getSignal(stop.group) === 'green' && !storageFull;
+      if (crossesGate && stop.storage) {
+        occupiedStorage.set(stop.storage.id, (occupiedStorage.get(stop.storage.id) ?? 0) + 1);
+        vehicle.reservations.push({ id: stop.storage.id,
+          releaseDistance: vehicle.route.stops[stopIndex + 1]?.distance ?? stop.clearDistance });
+      }
+      return { vehicle, speed, advance, crossesGate, stopIndex, braking: speed < vehicle.speed - 0.015 || speed < 0.15 };
     });
-    for (const { vehicle, speed, advance, braking } of moves) {
+    for (const { vehicle, speed, advance, braking, crossesGate, stopIndex } of moves) {
       vehicle.distance += advance;
       vehicle.speed = speed;
       vehicle.braking = braking;
-      if (vehicle.distance + vehicle.length / 2 > vehicle.route.stopDistance && this.getSignal(vehicle.route.group) === 'green') vehicle.committed = true;
+      if (crossesGate) {
+        vehicle.passedGateIndex = stopIndex;
+        vehicle.committedStops.push({ index: stopIndex, phaseSerial: this.phaseSerial });
+        vehicle.committed = true;
+      }
       Object.assign(vehicle, samplePath(vehicle.route.path, vehicle.distance));
     }
     const count = this.vehicles.length;

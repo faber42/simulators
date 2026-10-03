@@ -2,6 +2,62 @@ import * as THREE from '../pinsim/three.module.min.js';
 import { buildPath, samplePath } from './engine.mjs';
 import { buildEnvironment } from './environment.mjs';
 
+/** Resolve route-local gates into unique physical stop lines and shared gantries. */
+export function buildSignalLayout(config) {
+  const physicalStops = new Map();
+  const routes = config.routes.map(route => {
+    const path = buildPath(route.points);
+    const definitions = route.stops?.length ? route.stops : [{
+      id: route.laneId || route.id, group: route.group, point: route.stopLine,
+    }];
+    const stops = definitions.map((stop, index) => {
+      let nearest = 0, distance = Infinity;
+      for (let i = 1; i < path.samples.length; i++) {
+        const a = path.samples[i - 1], b = path.samples[i];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const t = Math.max(0, Math.min(1, ((stop.point[0] - a.x) * dx + (stop.point[1] - a.z) * dz) / (dx * dx + dz * dz || 1)));
+        const error = Math.hypot(stop.point[0] - a.x - t * dx, stop.point[1] - a.z - t * dz);
+        if (error < distance) { distance = error; nearest = a.distance + t * (b.distance - a.distance); }
+      }
+      const tangent = samplePath(path, nearest);
+      const resolved = { ...stop, id: stop.id || `${route.id}-${index}`, distance: nearest,
+        x: stop.point[0], z: stop.point[1], heading: stop.heading ?? tangent.heading,
+        arrow: stop.arrow || (index === 0 ? route.turn : 'straight'), inner: stop.inner ?? index > 0 };
+      if (!physicalStops.has(resolved.id)) physicalStops.set(resolved.id, resolved);
+      return resolved;
+    });
+    return { ...route, path, stops, stopDistance: stops[0].distance };
+  });
+  const stops = [...physicalStops.values()];
+  const clusters = [];
+  const assigned = new Set();
+  for (const spec of config.signalGantries || []) {
+    const members = spec.stopIds.map(id => physicalStops.get(id)).filter(Boolean);
+    if (!members.length) continue;
+    members.forEach(stop => assigned.add(stop.id));
+    clusters.push({ ...spec, stops: members, heading: spec.heading ?? members[0].heading });
+  }
+  for (const stop of stops) {
+    if (assigned.has(stop.id)) continue;
+    const cluster = clusters.find(candidate => {
+      if (candidate.stopIds) return false;
+      const other = candidate.stops[0];
+      const dx = stop.x - other.x, dz = stop.z - other.z;
+      const along = dx * Math.sin(other.heading) + dz * Math.cos(other.heading);
+      const across = dx * Math.cos(other.heading) - dz * Math.sin(other.heading);
+      return Math.cos(stop.heading - other.heading) > 0.9 && Math.abs(along) < 2.6 && Math.abs(across) < 14;
+    });
+    if (cluster) cluster.stops.push(stop);
+    else clusters.push({ id: `gantry-${stop.id}`, heading: stop.heading, stops: [stop] });
+  }
+  for (const cluster of clusters) {
+    cluster.center = { x: cluster.stops.reduce((sum, stop) => sum + stop.x, 0) / cluster.stops.length,
+      z: cluster.stops.reduce((sum, stop) => sum + stop.z, 0) / cluster.stops.length };
+    cluster.inner = cluster.stops.every(stop => stop.inner);
+  }
+  return { routes, stops, clusters };
+}
+
 // The renderer knows road geometry, routes and scene objects, never street names.
 export function createScene(canvas, config) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -102,70 +158,155 @@ export function createScene(canvas, config) {
   }
   const arrows = { straight: arrow('straight'), left: arrow('left'), right: arrow('right') };
   const signalHeads = [];
-  const occupiedLanes = new Set();
   const lampGeo = new THREE.SphereGeometry(.16, 12, 8);
   const darkLamp = ['#541c14', '#60511e', '#133c28'].map(color => new THREE.MeshStandardMaterial({ color, roughness: .3 }));
   const litLamp = ['#ff281c', '#ffc338', '#36fa80'].map(color => new THREE.MeshBasicMaterial({ color, toneMapped: false }));
-  const processedRoutes = config.routes.map(route => {
-    const path = buildPath(route.points);
-    let nearest = 0, distance = Infinity;
-    for (let s = 0; s <= path.length; s += .25) { const p = samplePath(path, s), d = Math.hypot(p.x - route.stopLine[0], p.z - route.stopLine[1]); if (d < distance) { distance = d; nearest = s; } }
-    return { ...route, path, stopDistance: nearest };
-  });
-  // Turning-lane flares soften the road joins without filling the planted median.
-  for (const route of processedRoutes.filter(r => r.turn !== 'straight')) {
-    let end = route.stopDistance;
-    while (end < route.path.length && inJunction(samplePath(route.path, end))) end += 1;
-    strip(route.path, 4.5, asphalt, .034, Math.max(0, route.stopDistance - 3), end + 2);
+  const { routes: processedRoutes, stops: physicalStops, clusters } = buildSignalLayout(config);
+  const islandPolygons = (config.islands || []).map(island => island.points || island.polygon);
+  function pointInIsland(x, z, margin = 0) {
+    return islandPolygons.some(points => {
+      let inside = false;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const a = points[i], b = points[j];
+        if ((a[1] > z) !== (b[1] > z) && x < (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+        if (margin > 0) {
+          const dx = b[0] - a[0], dz = b[1] - a[1];
+          const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1)));
+          if (Math.hypot(x - a[0] - t * dx, z - a[1] - t * dz) < margin) return true;
+        }
+      }
+      return inside;
+    });
   }
-  const clusters = [];
-  for (const route of processedRoutes) {
-    if (occupiedLanes.has(route.laneId)) continue;
-    occupiedLanes.add(route.laneId);
-    const p = samplePath(route.path, route.stopDistance);
-    const line = box(scene, marking, p.x, .063, p.z, 3.2, .02, .45); line.rotation.y = p.heading; line.castShadow = false;
-    for (const before of [14, 35, 60]) {
-      const a = samplePath(route.path, route.stopDistance - before);
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(1.65, 4.1), arrows[route.turn]);
-      m.rotation.set(-Math.PI / 2, 0, a.heading + Math.PI); m.position.set(a.x, .067, a.z); scene.add(m);
+  function onRoad(x, z, extra = 0) {
+    return roads.some(road => road.path.samples.some(p => Math.hypot(x - p.x, z - p.z) < road.width / 2 + extra));
+  }
+  // Paint and paving follow the configured road footprint. A turning route is
+  // never permission to pave the entire median or put guides through a refuge.
+  for (const route of processedRoutes.filter(r => r.turn !== 'straight' && r.renderFlare !== false)) {
+    let start = null;
+    for (let s = Math.max(0, route.stopDistance - 3); s < route.path.length; s += 1) {
+      const p = samplePath(route.path, s);
+      const valid = inJunction(p) && onRoad(p.x, p.z, .9) && !pointInIsland(p.x, p.z, 2.3);
+      if (valid && start === null) start = s;
+      if ((!valid || s + 1 >= route.path.length) && start !== null) {
+        if (s - start > 1) strip(route.path, 4.3, asphalt, .034, start, s - .2);
+        start = null;
+      }
+      if (!inJunction(p) && s > route.stopDistance + 5) break;
     }
-    let cluster = clusters.find(c => c.group === route.group && Math.hypot(c.center.x - p.x, c.center.z - p.z) < 16);
-    if (!cluster) { cluster = { group: route.group, center: p, stops: [] }; clusters.push(cluster); }
-    cluster.stops.push(p);
   }
-  // Short boundary dashes guide traffic across the separate carriageways.
+  const paintedStops = new Set();
+  for (const route of processedRoutes) {
+    for (let index = 0; index < route.stops.length; index++) {
+      const stop = route.stops[index];
+      if (paintedStops.has(stop.id)) continue;
+      paintedStops.add(stop.id);
+      const line = box(scene, marking, stop.x, .063, stop.z, stop.width || 3.2, .02, .45);
+      line.rotation.y = stop.heading; line.castShadow = false;
+      for (const before of stop.inner ? [6] : [14, 35, 60]) {
+        if (stop.distance < before + 2 || index > 0 && stop.distance - before < route.stops[index - 1].distance + 3) continue;
+        const a = samplePath(route.path, stop.distance - before);
+        if (pointInIsland(a.x, a.z, 1) || !onRoad(a.x, a.z)) continue;
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(1.65, stop.inner ? 3.2 : 4.1), arrows[stop.arrow] || arrows.straight);
+        m.rotation.set(-Math.PI / 2, 0, a.heading + Math.PI); m.position.set(a.x, .067, a.z); scene.add(m);
+      }
+    }
+  }
+  const guidePositions = new Set();
   for (const route of processedRoutes) {
     for (let s = route.stopDistance + 6; s < route.path.length; s += 5) {
       const p = samplePath(route.path, s);
       if (!inJunction(p)) break;
-      const m = box(scene, marking, p.x + Math.cos(p.heading) * 1.65, .061, p.z - Math.sin(p.heading) * 1.65, .1, .014, 1.3);
+      const x = p.x + Math.cos(p.heading) * 1.65, z = p.z - Math.sin(p.heading) * 1.65;
+      const key = `${Math.round(x * 2)},${Math.round(z * 2)}`;
+      if (!onRoad(x, z) || pointInIsland(x, z, .8) || guidePositions.has(key)) continue;
+      guidePositions.add(key);
+      const m = box(scene, marking, x, .061, z, .1, .014, 1.3);
       m.rotation.y = p.heading; m.castShadow = false;
     }
   }
+  const signalArrows = new Map();
+  function signalArrow(turn) {
+    if (signalArrows.has(turn)) return signalArrows.get(turn);
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const ctx = c.getContext('2d'); ctx.strokeStyle = ctx.fillStyle = '#36fa80'; ctx.lineWidth = 15;
+    ctx.lineCap = 'square'; ctx.beginPath();
+    if (turn === 'straight') {
+      ctx.moveTo(64, 104); ctx.lineTo(64, 29); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(64, 13); ctx.lineTo(32, 52); ctx.lineTo(96, 52);
+    } else {
+      const side = turn === 'left' ? -1 : 1;
+      ctx.moveTo(64 - side * 29, 102); ctx.lineTo(64 - side * 29, 62); ctx.lineTo(64 + side * 24, 62); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(64 + side * 51, 62); ctx.lineTo(64 + side * 11, 29); ctx.lineTo(64 + side * 11, 94);
+    }
+    ctx.closePath(); ctx.fill();
+    const texture = new THREE.CanvasTexture(c); texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false });
+    signalArrows.set(turn, material); return material;
+  }
+  function addHead(position, heading, stop, scale = 1) {
+    const group = new THREE.Group(); group.position.copy(position); group.rotation.y = heading + Math.PI; group.scale.setScalar(scale); scene.add(group);
+    box(group, black, 0, 0, 0, .66, 1.85, .34);
+    const lamps = [0, 1, 2].map(n => {
+      const lamp = new THREE.Mesh(lampGeo, darkLamp[n]); lamp.position.set(0, .57 - n * .57, .2); lamp.scale.z = .45; group.add(lamp);
+      box(group, black, 0, .81 - n * .57, .33, .58, .055, .5); return lamp;
+    });
+    let arrowLamp;
+    if (stop.arrow && stop.arrow !== 'all') {
+      arrowLamp = new THREE.Mesh(new THREE.PlaneGeometry(.39, .39), signalArrow(stop.arrow));
+      arrowLamp.position.set(0, -.57, .279); arrowLamp.visible = false; group.add(arrowLamp);
+    }
+    signalHeads.push({ lamps, arrowLamp, group: stop.group, stopId: stop.id, object: group });
+  }
   for (const cluster of clusters) {
-    const heading = cluster.center.heading;
+    const heading = cluster.heading;
     const dir = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
     const right = new THREE.Vector3(-Math.cos(heading), 0, Math.sin(heading));
-    const center = new THREE.Vector3(); cluster.stops.forEach(p => center.add(new THREE.Vector3(p.x, 0, p.z))); center.divideScalar(cluster.stops.length);
-    for (const ahead of [2.5, 5]) for (let across = -cluster.stops.length * 1.75; across <= cluster.stops.length * 1.75; across += 1.15) {
-      const p = center.clone().addScaledVector(dir, ahead).addScaledVector(right, across);
-      const m = box(scene, marking, p.x, .061, p.z, .6, .015, .35); m.rotation.y = heading; m.castShadow = false;
+    const center = new THREE.Vector3(cluster.center.x, 0, cluster.center.z);
+    // Inner storage lines are vehicle gates, not pedestrian crossings.
+    if (!cluster.inner && cluster.crossing !== false) {
+      for (const ahead of [2.5, 5]) for (let across = -cluster.stops.length * 1.75; across <= cluster.stops.length * 1.75; across += 1.15) {
+        const p = center.clone().addScaledVector(dir, ahead).addScaledVector(right, across);
+        if (pointInIsland(p.x, p.z, .45) || !onRoad(p.x, p.z)) continue;
+        const m = box(scene, marking, p.x, .061, p.z, .6, .015, .35); m.rotation.y = heading; m.castShadow = false;
+      }
     }
-    const anchor = center.clone().addScaledVector(right, cluster.stops.length * 1.8 + 1).addScaledVector(dir, 1.1);
-    const outer = center.clone().addScaledVector(right, -cluster.stops.length * 1.8 + .8).addScaledVector(dir, 1.1);
-    const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(anchor.x, 0, anchor.z), new THREE.Vector3(anchor.x, 4.1, anchor.z), new THREE.Vector3(anchor.x, 5.9, anchor.z), new THREE.Vector3(center.x + dir.x, 6.6, center.z + dir.z), new THREE.Vector3(outer.x, 6.6, outer.z)]);
+    const anchor = cluster.anchor ? new THREE.Vector3(cluster.anchor[0], 0, cluster.anchor[1])
+      : center.clone().addScaledVector(right, cluster.stops.length * 1.8 + 1).addScaledVector(dir, 1.1);
+    const farthest = cluster.stops.reduce((result, stop) => Math.hypot(stop.x - anchor.x, stop.z - anchor.z) > Math.hypot(result.x - anchor.x, result.z - anchor.z) ? stop : result);
+    const outer = new THREE.Vector3(farthest.x, 0, farthest.z).addScaledVector(dir, 1.1);
+    const height = cluster.height || 6.6;
+    const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(anchor.x, 0, anchor.z), new THREE.Vector3(anchor.x, height - 2.5, anchor.z), new THREE.Vector3(anchor.x, height - .7, anchor.z), new THREE.Vector3(center.x + dir.x, height, center.z + dir.z), new THREE.Vector3(outer.x, height, outer.z)]);
     const pole = new THREE.Mesh(new THREE.TubeGeometry(curve, 28, .11, 8, false), metal); pole.castShadow = true; scene.add(pole);
-    for (const p of cluster.stops) {
-      const group = new THREE.Group(); group.position.set(p.x + dir.x, 5.6, p.z + dir.z); group.rotation.y = heading + Math.PI; scene.add(group);
-      box(group, black, 0, 0, 0, .66, 1.85, .34);
-      const lamps = [0, 1, 2].map((n) => { const lamp = new THREE.Mesh(lampGeo, darkLamp[n]); lamp.position.set(0, .57 - n * .57, .2); lamp.scale.z = .45; group.add(lamp); box(group, black, 0, .81 - n * .57, .33, .58, .055, .5); return lamp; });
-      signalHeads.push({ lamps, group: cluster.group });
+    for (const stop of cluster.stops) addHead(new THREE.Vector3(stop.x + dir.x, height - 1, stop.z + dir.z), heading, stop);
+    // Separate groups on one beam retain separate lower indications as well.
+    const repeats = [...new Set(cluster.stops.map(stop => stop.group))].map(group => {
+      const members = cluster.stops.filter(stop => stop.group === group);
+      return { ...members[0], arrow: members.every(stop => stop.arrow === members[0].arrow) ? members[0].arrow : null };
+    });
+    repeats.forEach((stop, index) => {
+      const position = anchor.clone().addScaledVector(right, (index - (repeats.length - 1) / 2) * .65);
+      position.y = 2.65;
+      addHead(position, heading, stop, .77);
+    });
+  }
+
+  for (const island of config.islands || []) {
+    const points = island.points || island.polygon;
+    const shape = new THREE.Shape(); points.forEach(([x, z], i) => i ? shape.lineTo(x, -z) : shape.moveTo(x, -z)); shape.closePath();
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: island.height || .18, bevelEnabled: false }); geometry.rotateX(-Math.PI / 2);
+    const curb = new THREE.Mesh(geometry, pavement); curb.position.y = .035; curb.castShadow = curb.receiveShadow = true; scene.add(curb);
+    if (island.keepRight) {
+      const [x, z] = island.keepRight.position;
+      box(scene, metal, x, .72, z, .065, 1.4, .065);
+      const sign = new THREE.Group(); sign.position.set(x, 1.65, z); sign.rotation.y = island.keepRight.heading || 0; scene.add(sign);
+      const blue = new THREE.MeshStandardMaterial({ color: '#16529b', roughness: .55 });
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(.36, 24), blue); sign.add(disc);
+      const shaft = box(sign, marking, .01, 0, .015, .105, .37, .018); shaft.rotation.z = Math.PI / 4;
+      const tip = new THREE.Shape(); tip.moveTo(.22, -.22); tip.lineTo(.22, .02); tip.lineTo(-.02, -.22); tip.closePath();
+      const head = new THREE.Mesh(new THREE.ShapeGeometry(tip), marking); head.position.z = .028; sign.add(head);
     }
-    // A lower repeat signal makes the indication visible in roadside views.
-    const repeat = new THREE.Group(); repeat.position.set(anchor.x, 2.6, anchor.z); repeat.rotation.y = heading + Math.PI; scene.add(repeat);
-    box(repeat, black, 0, 0, 0, .48, 1.43, .3);
-    const lamps = [0, 1, 2].map(n => { const m = new THREE.Mesh(lampGeo, darkLamp[n]); m.position.set(0, .43 - n * .43, .18); m.scale.set(.8, .8, .4); repeat.add(m); return m; });
-    signalHeads.push({ lamps, group: cluster.group });
   }
 
   // Hundreds of road-paint segments share one draw call instead of one each.
@@ -247,7 +388,7 @@ export function createScene(canvas, config) {
   function setMounts(cameras) {
     mounts.clear();
     for (const c of cameras) {
-      if (c.position[1] > 45) continue;
+      if (c.mount === false || c.position[1] > 45) continue;
       const [x, y, z] = c.position;
       box(mounts, metal, x, y / 2, z, .13, y, .13);
       const rig = new THREE.Group(); rig.position.set(x, y, z); rig.lookAt(...c.target); mounts.add(rig);
@@ -266,15 +407,25 @@ export function createScene(canvas, config) {
       model.scale.z = vehicle.length / actualLength;
       model.position.set(vehicle.x, .04, vehicle.z); model.rotation.y = vehicle.heading;
       const blink = Math.floor(simulation.elapsed * 2.5) % 2 === 0;
+      const entryStop = vehicle.route.stops?.[0];
+      let blinkEnd = vehicle.route.clearDistance;
+      if (entryStop?.storage && Number.isFinite(entryStop.clearDistance)) {
+        const approach = samplePath(vehicle.route.path, entryStop.distance ?? vehicle.route.stopDistance).heading;
+        const holding = samplePath(vehicle.route.path, entryStop.clearDistance).heading;
+        // Side-road left turns have the same storage metadata but turn after
+        // the median signal; only an already-completed entry turn stops blinking.
+        if (Math.cos(holding - approach) < Math.SQRT1_2) blinkEnd = entryStop.clearDistance;
+      }
       model.children.forEach(m => {
         if (m.name === 'brake') m.material = vehicle.braking ? brakeMat : tailMat;
-        else if (m.name.startsWith('blink-')) m.material = vehicle.turn !== 'straight' && m.name === `blink-${vehicle.turn}` && blink && vehicle.distance < vehicle.route.clearDistance ? blinkMat : blinkOff;
+        else if (m.name.startsWith('blink-')) m.material = vehicle.turn !== 'straight' && m.name === `blink-${vehicle.turn}` && blink && vehicle.distance < blinkEnd ? blinkMat : blinkOff;
       });
     }
     for (const [id, mesh] of carMeshes) { if (!live.has(id)) { scene.remove(mesh); carMeshes.delete(id); } }
     for (const head of signalHeads) {
       const state = simulation.getSignal(head.group);
-      head.lamps.forEach((m, n) => { m.material = (n === 0 && (state === 'red' || state === 'redAmber')) || (n === 1 && (state === 'yellow' || state === 'redAmber')) || (n === 2 && state === 'green') ? litLamp[n] : darkLamp[n]; });
+      head.lamps.forEach((m, n) => { m.material = (n === 0 && (state === 'red' || state === 'redAmber')) || (n === 1 && (state === 'yellow' || state === 'redAmber')) || (n === 2 && state === 'green' && !head.arrowLamp) ? litLamp[n] : darkLamp[n]; });
+      if (head.arrowLamp) head.arrowLamp.visible = state === 'green';
     }
   }
   function setEvening(enabled) {
@@ -286,5 +437,5 @@ export function createScene(canvas, config) {
   }
   function resize() { const { width, height } = canvas.getBoundingClientRect(); renderer.setSize(width, height, false); camera.aspect = width / Math.max(1, height); camera.updateProjectionMatrix(); }
   function render() { renderer.render(scene, camera); }
-  return { scene, camera, renderer, roads, update, resize, render, setEvening, setMounts, THREE };
+  return { scene, camera, renderer, roads, signalHeads, signalLayout: { stops: physicalStops, clusters }, update, resize, render, setEvening, setMounts, THREE };
 }

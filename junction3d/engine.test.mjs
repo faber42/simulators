@@ -24,6 +24,27 @@ function config(overrides = {}) {
   };
 }
 
+function stagedConfig() {
+  return {
+    seed: 42, density: 0, initialVehiclesPerLane: 0,
+    timing: { yellow: 0.3, allRed: 0.3, redAmber: 1 },
+    conflictBounds: { minX: -32, maxX: 32, minZ: -32, maxZ: 32 },
+    phases: [
+      { id: 'main-a', groups: ['main', 'leftSouth'], groupDelays: { leftSouth: 7 }, duration: 24 },
+      { id: 'side-south', groups: ['middleSouth', 'north'], groupDelays: { north: 5 }, drainGroups: ['middleSouth'], duration: 14 },
+      { id: 'main-b', groups: ['main', 'leftNorth'], groupDelays: { leftNorth: 7 }, duration: 16 },
+      { id: 'side-north', groups: ['middleNorth', 'south'], groupDelays: { south: 5 }, drainGroups: ['middleNorth'], duration: 14 },
+    ],
+    routes: [{ id: 'staged-left', laneId: 'left', exitId: 'south', turn: 'left', group: 'leftSouth',
+      points: [[-10, -120], [-10, -40], [-10, -12], [-10, 9], [-10, 120]], vehicleKinds: ['car'], rate: 0, speed: 9,
+      stops: [
+        { id: 'entry', group: 'leftSouth', point: [-10, -40], clearPoint: [-10, -12], storage: { id: 'median-south', capacity: 2 } },
+        { id: 'middle', group: 'middleSouth', point: [-10, 9] },
+      ],
+    }],
+  };
+}
+
 test('path sampling uses metres and the renderer +Z heading convention', () => {
   const path = buildPath([[0, 0], [0, 100]]);
   assert.ok(Math.abs(path.length - 100) < 1e-9);
@@ -60,6 +81,124 @@ test('four phases alternate main, southbound, main, northbound with protected tr
   }
   assert.deepEqual(order.slice(0, 5), [0, 1, 2, 3, 0]);
   assert.ok(simulation.cycle >= 2);
+});
+
+test('delayed left entry alternates with main phases and never flashes on when skipped early', () => {
+  const simulation = new TrafficSimulation(stagedConfig());
+  assert.equal(simulation.getSignal('main'), 'green');
+  assert.equal(simulation.getSignal('leftSouth'), 'red');
+  simulation.update(6);
+  assert.equal(simulation.getSignal('leftSouth'), 'redAmber');
+  simulation.update(1);
+  assert.equal(simulation.getSignal('leftSouth'), 'green');
+  assert.equal(simulation.getSignal('leftNorth'), 'red');
+  while (!(simulation.phaseIndex === 2 && simulation.stage === 'redAmber')) simulation.update(1 / 30);
+  assert.equal(simulation.getSignal('leftNorth'), 'red', 'Delayed group must stay red during global red-amber');
+  simulation.update(1);
+  assert.equal(simulation.getSignal('leftNorth'), 'red');
+  simulation.update(7);
+  assert.equal(simulation.getSignal('leftNorth'), 'green');
+  assert.equal(simulation.getSignal('leftSouth'), 'red');
+
+  const early = new TrafficSimulation(stagedConfig());
+  early.requestNextPhase();
+  assert.equal(early.getSignal('leftSouth'), 'red');
+  early.update(0.1);
+  assert.equal(early.getSignal('leftSouth'), 'red');
+});
+
+test('two-stage storage admits at most two vehicles, holds at inner red, then drains before outer release', () => {
+  const simulation = new TrafficSimulation(stagedConfig());
+  const route = simulation.routes[0];
+  for (let index = 0; index < 5; index++) simulation.vehicles.push(simulation.createVehicle(route, route.stopDistance - 5 - index * 9));
+  for (let tick = 0; tick < 23 * 30; tick++) {
+    simulation.update(1 / 30);
+    assert.ok(simulation.vehicles.filter(vehicle => vehicle.reservations.length).length <= 2);
+    for (const vehicle of simulation.vehicles) {
+      assert.ok(vehicle.passedGateIndex <= 0, 'Second red light must still stop cars after the first green');
+      assert.ok(vehicle.distance + vehicle.length / 2 < route.stops[1].distance);
+    }
+  }
+  assert.equal(simulation.vehicles.filter(vehicle => vehicle.passedGateIndex === 0).length, 2);
+  assert.equal(simulation.getStatus().stagedWaiting, 2);
+  const staged = simulation.vehicles.filter(vehicle => vehicle.passedGateIndex === 0);
+  assert.ok(staged.every(vehicle => vehicle.distance - vehicle.length / 2 > route.stops[0].clearDistance), 'All admitted tails fit beyond the through-traffic conflict');
+  simulation.requestNextPhase();
+  while (!(simulation.phaseIndex === 1 && simulation.stage === 'green')) simulation.update(1 / 30);
+  assert.equal(simulation.getSignal('middleSouth'), 'green');
+  assert.equal(simulation.getSignal('north'), 'red');
+  simulation.update(5);
+  assert.equal(simulation.getSignal('north'), 'green');
+  assert.ok(staged.every(vehicle => vehicle.passedGateIndex === 1), 'Staged traffic receives the early inner green');
+  simulation.update(200);
+  assert.ok(simulation.cycle >= 3, 'Safe parked cars must not deadlock phase clearance');
+  assert.equal(simulation.passed, 5);
+});
+
+test('late side entrants see two real greens: inner drain stays green until their tails clear', () => {
+  const options = stagedConfig();
+  options.phases = [{ groups: ['north', 'middleSouth'], drainGroups: ['middleSouth'], duration: 5 }, { groups: ['main'], duration: 10 }];
+  const routeConfig = options.routes[0];
+  routeConfig.stops[0] = { id: 'outer', group: 'north', point: [-10, -40] };
+  const simulation = new TrafficSimulation(options);
+  const route = simulation.routes[0];
+  const vehicle = simulation.createVehicle(route, route.stopDistance - 3.3);
+  vehicle.speed = 9;
+  simulation.vehicles.push(vehicle);
+  simulation.stageElapsed = 4.8;
+  let sawDrain = false, sawSecondGreen = false;
+  for (let tick = 0; tick < 900 && simulation.phaseIndex === 0; tick++) {
+    const previousGate = vehicle.passedGateIndex;
+    simulation.update(1 / 30);
+    if (simulation.stage === 'drain') {
+      sawDrain = true;
+      assert.equal(simulation.getSignal('north'), 'red');
+      assert.equal(simulation.getSignal('middleSouth'), 'green');
+    }
+    if (vehicle.passedGateIndex === 1 && previousGate === 0) {
+      assert.equal(simulation.getSignal('middleSouth'), 'green');
+      sawSecondGreen = true;
+    }
+    if (simulation.stage === 'drainYellow') assert.ok(vehicle.distance - vehicle.length / 2 > route.clearDistance);
+  }
+  assert.equal(sawDrain, true);
+  assert.equal(sawSecondGreen, true);
+  assert.equal(simulation.phaseIndex, 1);
+});
+
+test('an immediate manual end of the side phase still releases waiting median vehicles', () => {
+  const simulation = new TrafficSimulation(stagedConfig());
+  const route = simulation.routes[0];
+  const vehicle = simulation.createVehicle(route, route.stops[1].distance - 3.05);
+  vehicle.passedGateIndex = 0;
+  vehicle.reservations.push({ id: 'median-south', releaseDistance: route.stops[1].distance });
+  simulation.vehicles.push(vehicle);
+  simulation.phaseIndex = 1;
+  simulation.phaseSerial = 1;
+  simulation.requestNextPhase();
+  assert.equal(simulation.getSignal('north'), 'red', 'Outer delay never opened, so it must not flash yellow');
+  let drained = false;
+  for (let tick = 0; tick < 900 && simulation.phaseIndex === 1; tick++) {
+    simulation.update(1 / 30);
+    if (vehicle.passedGateIndex === 1) drained = true;
+    if (simulation.stage === 'drain') assert.equal(simulation.getSignal('middleSouth'), 'green');
+  }
+  assert.equal(drained, true);
+  assert.equal(simulation.phaseIndex, 2);
+});
+
+test('invalid group delays and drain group membership are rejected', () => {
+  for (const delay of [-1, NaN, Infinity, 24]) {
+    const options = stagedConfig();
+    options.phases[0].groupDelays.leftSouth = delay;
+    assert.throws(() => new TrafficSimulation(options), /delay/);
+  }
+  const unknown = stagedConfig();
+  unknown.phases[0].groupDelays.otherGroup = 1;
+  assert.throws(() => new TrafficSimulation(unknown), /delay/);
+  const invalidDrain = stagedConfig();
+  invalidDrain.phases[0].drainGroups = ['middleSouth'];
+  assert.throws(() => new TrafficSimulation(invalidDrain), /Drain/);
 });
 
 test('red stops front bumpers before the stop line and queues do not overlap', () => {
@@ -158,6 +297,8 @@ test('route vehicleKinds restrict the fleet to vehicles supported by its geometr
 
 test('Dortmund side turns and shared exits do not overlap vehicle bodies over ten minutes', () => {
   const simulation = new TrafficSimulation(dortmund);
+  const capacities = new Map(simulation.routes.flatMap(route => route.stops.filter(stop => stop.storage).map(stop => [stop.storage.id, stop.storage.capacity])));
+  const stagedDirections = new Set();
   const widths = { car: 1.82, van: 2.05, bus: 2.5 };
   // Independent separating-axis check: longitudinal headway alone cannot catch
   // a long bus clipping an adjacent lane with its tail on a tight side turn.
@@ -178,6 +319,13 @@ test('Dortmund side turns and shared exits do not overlap vehicle bodies over te
   for (let tick = 0; tick < 18000; tick++) {
     simulation.update(1 / 30);
     if (tick % 10 !== 0) continue;
+    const occupancy = new Map();
+    for (const vehicle of simulation.vehicles) {
+      for (const reservation of vehicle.reservations) occupancy.set(reservation.id, (occupancy.get(reservation.id) ?? 0) + 1);
+      const nextStop = vehicle.route.stops[vehicle.passedGateIndex + 1];
+      if (vehicle.passedGateIndex >= 0 && nextStop && vehicle.speed < 0.5 && simulation.getSignal(nextStop.group) === 'red') stagedDirections.add(nextStop.group);
+    }
+    for (const [id, count] of occupancy) assert.ok(count <= capacities.get(id), `Median storage ${id} exceeded its reserved capacity`);
     for (let a = 0; a < simulation.vehicles.length; a++) {
       for (let b = a + 1; b < simulation.vehicles.length; b++) {
         const first = simulation.vehicles[a], second = simulation.vehicles[b];
@@ -185,7 +333,9 @@ test('Dortmund side turns and shared exits do not overlap vehicle bodies over te
       }
     }
   }
-  assert.ok(simulation.passed > 500, 'Collision avoidance must preserve flowing traffic');
+  assert.ok(simulation.passed > 250, 'Collision avoidance must preserve flowing traffic with dedicated turning lanes');
+  assert.ok(simulation.cycle >= 3, 'Staged vehicles must not deadlock later phases');
+  assert.ok(stagedDirections.has('middleNorth') && stagedDirections.has('middleSouth'), 'Both alternating B1 turns must actually wait at their second red light');
 });
 
 test('ten-minute traffic run stays finite, passes vehicles, and preserves lane headway', () => {

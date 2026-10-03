@@ -25,6 +25,7 @@ function start() {
   document.querySelector('.phase-explainer').textContent = config.ui?.phaseExplainer || 'Die Freigaben folgen dem konfigurierten Umlauf.';
   document.querySelector('.location-note > p').textContent = config.description;
   document.querySelector('.location-note a').href = config.source.url;
+  document.querySelector('.keyboard-hint').firstChild.textContent = `1–${Math.min(9, config.cameras.length)} Kamera`;
   const simulation = new TrafficSimulation(config);
   simulation.setDensity(Number($('density').value) / 100);
   const view = createScene($('scene'), config);
@@ -83,14 +84,33 @@ function start() {
     const split = phase.label.split(' · '); title.textContent = split[0]; detail.textContent = split.slice(1).join(' · ');
     const dot = document.createElement('span'); dot.className = 'signal-dot'; texts.append(title, detail); li.append(num, texts, dot); $('phase-list').append(li); return li;
   });
+  const signalIndicators = (config.ui?.signalIndicators || []).map(indicator => {
+    const row = document.createElement('div'); row.className = 'signal-indicator'; row.dataset.signalGroup = indicator.group;
+    const dot = document.createElement('i'); dot.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span'); label.textContent = indicator.label;
+    const state = document.createElement('strong'); row.append(dot, label, state); $('signal-monitor').append(row);
+    return { ...indicator, row, state };
+  });
+  $('signal-monitor').hidden = signalIndicators.length === 0;
+  $('median-status').hidden = signalIndicators.length === 0;
   function updateStatus() {
     const status = simulation.getStatus();
+    const phase = config.phases[status.phaseIndex];
     phaseElements.forEach((li, i) => { li.className = i === status.phaseIndex ? `active ${status.stage}` : ''; li.setAttribute('aria-current', i === status.phaseIndex ? 'step' : 'false'); });
-    const labels = { green: 'Grünphase', yellow: 'Gelb · Ausfahrt räumen', clearance: 'Alle rot · Kreuzung räumen', redAmber: 'Rot-Gelb · Freigabe folgt' };
-    $('stage-label').textContent = labels[status.stage]; $('remaining').textContent = status.stage === 'clearance' && status.remaining <= .05 ? 'räumt …' : `${Math.ceil(status.remaining)} s`;
-    const duration = status.stage === 'green' ? config.phases[status.phaseIndex].duration : status.stage === 'yellow' ? config.timing.yellow : status.stage === 'redAmber' ? config.timing.redAmber : config.timing.allRed;
-    $('phase-progress-bar').style.width = `${clamp(1 - status.remaining / duration, 0, 1) * 100}%`;
-    $('phase-progress-bar').style.background = status.stage === 'green' ? '#74a168' : status.stage === 'clearance' ? '#bd715b' : '#d3a653';
+    const labels = { green: 'Grünphase', yellow: 'Gelb · Einfahrt schließen', drain: 'Nachlauf · Mittelampel grün', drainYellow: 'Mittelampel · Gelb', clearance: 'Alle rot · Kreuzung räumen', redAmber: 'Rot-Gelb · Freigabe folgt' };
+    $('stage-label').textContent = labels[status.stage]; $('remaining').textContent = status.stage === 'drain' || (status.stage === 'clearance' && status.remaining <= .05) ? 'räumt …' : `${Math.ceil(status.remaining)} s`;
+    const duration = status.stage === 'green' ? phase.duration : ['yellow', 'drainYellow'].includes(status.stage) ? config.timing.yellow : status.stage === 'redAmber' ? config.timing.redAmber : config.timing.allRed;
+    $('phase-progress-bar').style.width = status.stage === 'drain' ? '100%' : `${clamp(1 - status.remaining / duration, 0, 1) * 100}%`;
+    $('phase-progress-bar').style.background = ['green', 'drain'].includes(status.stage) ? '#74a168' : status.stage === 'clearance' ? '#bd715b' : '#d3a653';
+    const pending = status.stage === 'green' ? Object.entries(phase.groupDelays || {}).filter(([, delay]) => delay > simulation.stageElapsed) : [];
+    $('release-note').textContent = pending.length ? `${phase.drainGroups?.length ? 'Mitte räumt zuerst. Äußere Ampel' : 'Geradeaus fährt zuerst. Linksabbieger'} in ${Math.ceil(Math.min(...pending.map(([, delay]) => delay - simulation.stageElapsed)))} s grün.` : status.stage === 'drain' || (status.stage === 'yellow' && phase.drainGroups?.length) ? 'Die Mittelampel bleibt für bereits eingefahrene Fahrzeuge grün.' : phase.uiNote || '';
+    for (const indicator of signalIndicators) {
+      const state = simulation.getSignal(indicator.group);
+      const names = { red: 'Rot', green: 'Grün', yellow: 'Gelb', redAmber: 'Rot-Gelb' };
+      indicator.row.dataset.state = state; indicator.state.textContent = names[state];
+      indicator.row.setAttribute('aria-label', `${indicator.label}: ${names[state]}`);
+    }
+    $('median-count').textContent = status.stagedWaiting ?? simulation.vehicles.filter(v => v.speed < .5 && v.route.stops?.some((stop, i) => i > 0 && v.distance > v.route.stops[i - 1].distance && v.distance < stop.distance)).length;
     $('cycle-label').textContent = `UMLAUF ${String(status.cycle).padStart(2, '0')}`;
     $('active-count').textContent = status.active; $('waiting-count').textContent = status.waiting; $('passed-count').textContent = status.passed;
     const time = Math.floor(status.elapsed); $('simulation-clock').textContent = [Math.floor(time / 3600), Math.floor(time / 60) % 60, time % 60].map(n => String(n).padStart(2, '0')).join(':');
@@ -120,7 +140,7 @@ function start() {
     if (event.key === 'Escape' && placing) { cancelPlacement(); return; }
     if (event.target.matches('input,textarea,select,[contenteditable=true]')) return;
     if (event.code === 'Space' && !event.target.matches('button')) { event.preventDefault(); togglePause(); }
-    if (/^[1-6]$/.test(event.key)) selectCamera(config.cameras[Number(event.key) - 1]?.id);
+    if (/^[1-9]$/.test(event.key)) selectCamera(config.cameras[Number(event.key) - 1]?.id);
   });
 
   function cancelPlacement(restore = true) {
@@ -178,7 +198,14 @@ function start() {
     const rails = config.environment?.rails;
     if (rails) { ctx.strokeStyle = '#7d9476'; ctx.lineWidth = 1; for (const z of rails.tracks) { ctx.beginPath(); ctx.moveTo(mapX(rails.from), mapZ(z)); ctx.lineTo(mapX(rails.to), mapZ(z)); ctx.stroke(); } }
     for (const v of simulation.vehicles) { ctx.save(); ctx.translate(mapX(v.x), mapZ(v.z)); ctx.rotate(-v.heading); ctx.fillStyle = v.speed < .5 ? '#aa6b42' : '#3e6451'; ctx.fillRect(-1.3, -2.5, 2.6, 5); ctx.restore(); }
-    for (const r of simulation.routes) { const state = simulation.getSignal(r.group); ctx.fillStyle = state === 'green' ? '#5d9f67' : state === 'yellow' || state === 'redAmber' ? '#d8a752' : '#b57361'; ctx.beginPath(); ctx.arc(mapX(r.stopLine[0]), mapZ(r.stopLine[1]), 2.5, 0, Math.PI * 2); ctx.fill(); }
+    const shownStops = new Set();
+    for (const route of simulation.routes) for (const [index, stop] of (route.stops || [{ id: route.id, point: route.stopLine, group: route.group }]).entries()) {
+      if (shownStops.has(stop.id)) continue; shownStops.add(stop.id);
+      const state = simulation.getSignal(stop.group);
+      ctx.fillStyle = state === 'green' ? '#4caa62' : state === 'yellow' || state === 'redAmber' ? '#e0af45' : '#bf6658';
+      ctx.beginPath(); ctx.arc(mapX(stop.point[0]), mapZ(stop.point[1]), index > 0 ? 3.3 : 2.5, 0, Math.PI * 2); ctx.fill();
+      if (index > 0) { ctx.strokeStyle = '#f5f8ed'; ctx.lineWidth = 1; ctx.stroke(); }
+    }
     const position = draftCamera && placementStep > 0 ? new THREE.Vector3(...draftCamera.position) : camera.position;
     const target = draftCamera && placementStep > 0 ? new THREE.Vector3(...draftCamera.target) : lookTarget;
     const angle = Math.atan2(target.z - position.z, target.x - position.x), radius = 46;
