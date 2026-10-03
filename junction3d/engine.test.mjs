@@ -583,7 +583,12 @@ for (const scenario of [
     if (simulation.stage === 'green' && simulation.phaseIndex === 3) assert.equal(simulation.getSignal('south'), simulation.getSignal('middleNorth'));
     const occupancy = new Map();
     for (const vehicle of simulation.vehicles) {
-      for (const reservation of vehicle.reservations) occupancy.set(reservation.id, (occupancy.get(reservation.id) ?? 0) + 1);
+      for (const reservation of vehicle.reservations) {
+        // B1 turns may queue beyond the nominal holding spaces. Other entries
+        // still reserve bounded storage; their combined occupancy stays capped.
+        const admission = vehicle.route.stops.find(stop => stop.storage?.id === reservation.id);
+        if (!admission?.storage.allowOverflow) occupancy.set(reservation.id, (occupancy.get(reservation.id) ?? 0) + 1);
+      }
       if (vehicle.routeId.includes('uturn')) observedUTurns.add(vehicle.routeId.startsWith('east') ? 'east' : 'west');
       const nextStop = vehicle.route.stops[vehicle.passedGateIndex + 1];
       if (vehicle.passedGateIndex >= 0 && nextStop && vehicle.speed < 0.5 && simulation.getSignal(nextStop.group) === 'red') stagedDirections.add(nextStop.group);

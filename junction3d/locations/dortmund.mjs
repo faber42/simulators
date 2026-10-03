@@ -58,11 +58,12 @@ const tails = {
   },
 };
 
-function medianStops(direction, lane, entryId, outerGroup, outerPoint, arrow) {
+function medianStops(direction, lane, entryId, outerGroup, outerPoint, arrow, { allowOverflow = false, yieldToGroups } = {}) {
   const m = median[direction][lane];
   return [
     { id: entryId, group: outerGroup, point: outerPoint, clearPoint: m.entry,
-      storage: { id: `holding-${m.id}`, capacity: 2 }, arrow },
+      storage: { id: `holding-${m.id}`, capacity: 2, allowOverflow }, arrow,
+      ...(yieldToGroups ? { yieldToGroups } : {}) },
     { id: `middle-${m.id}`, group: direction === 'south' ? 'middleSouth' : 'middleNorth', point: m.point, arrow: m.arrow },
   ];
 }
@@ -120,12 +121,14 @@ function mainTurn({ id, from, direction, lane, movement, choiceGroup, rate, labe
       { id: east ? 'e0-entry' : 'w0-entry', from: prefix[0], to: east ? [4.4, -13.8] : [-5.5, 13.8] },
       medianSection(direction, lane, movement),
     ],
-    stops: medianStops(direction, lane, `${from}-${direction}-entry`, group, stopLine, 'left'),
+    // Local driving behaviour: an open B1 turn fills its curve beyond the two
+    // regular median spaces. The next side phase lets those admitted cars out.
+    stops: medianStops(direction, lane, `${from}-${direction}-entry`, group, stopLine, 'left', { allowOverflow: true }),
   };
 }
 
 // A choice group's first route owns the arrival rate; alternatives must stay at 0.
-// The engine chooses a lane with room before admission, never a new destination.
+// The engine favours the least occupied compatible lane, never a new destination.
 const mainTurnRoutes = [
   mainTurn({ id: 'east-south', from: 'east', direction: 'south', lane: 'shared', movement: 'sharedStraight', choiceGroup: 'east-to-south', rate: 45, label: 'B1 aus Ost → Semmerteichstraße · gemeinsame Spur' }),
   mainTurn({ id: 'east-south-outer', from: 'east', direction: 'south', lane: 'through', movement: 'through', choiceGroup: 'east-to-south', rate: 0, label: 'B1 aus Ost → Semmerteichstraße · Geradeausspur' }),
@@ -155,7 +158,8 @@ function sideRoute({ from, direction, lane, movement, id, rate, label }) {
       { id: `${north ? 'n' : 's'}${laneIndex}-entry`, from: approach[0], to: m.entry },
       medianSection(direction, lane, movement),
     ],
-    stops: medianStops(direction, lane, entryId, from, stopLine, m.arrow),
+    stops: medianStops(direction, lane, entryId, from, stopLine, m.arrow,
+      { yieldToGroups: [direction === 'south' ? 'mainLeftSouth' : 'mainLeftNorth'] }),
   };
 }
 
@@ -199,11 +203,11 @@ export const dortmund = {
     { id: 'main-a', label: 'Hauptstraße · West ↔ Ost', groups: ['main', 'mainLeftSouth'], groupDelays: { mainLeftSouth: 7 }, duration: 32,
       uiNote: 'B1 geradeaus; nach 7 s links aus Ost in den Wartebereich Richtung Süd.' },
     { id: 'north', label: 'Nebenstraße → Süd · Mitte und Voßkuhle gemeinsam', groups: ['middleSouth', 'north'], drainGroups: ['middleSouth'], duration: 22,
-      uiNote: 'Voßkuhle und Mittelbereich werden gleichzeitig frei: links, links/geradeaus und geradeaus.' },
+      uiNote: 'Voßkuhle und Mittelbereich werden gleichzeitig frei. Noch in der Kurve wartende B1-Abbieger räumen zuerst.' },
     { id: 'main-b', label: 'Hauptstraße · West ↔ Ost', groups: ['main', 'mainLeftNorth'], groupDelays: { mainLeftNorth: 7 }, duration: 32,
       uiNote: 'B1 geradeaus; nach 7 s links aus West in den Wartebereich Richtung Nord.' },
     { id: 'south', label: 'Nebenstraße → Nord · Mitte und Semmerteichstraße gemeinsam', groups: ['middleNorth', 'south'], drainGroups: ['middleNorth'], duration: 22,
-      uiNote: 'Semmerteichstraße und Mittelbereich werden gleichzeitig frei: links, links/geradeaus und geradeaus.' },
+      uiNote: 'Semmerteichstraße und Mittelbereich werden gleichzeitig frei. Noch in der Kurve wartende B1-Abbieger räumen zuerst.' },
   ],
   roads: [
     { id: 'b1-west', label: 'Westfalendamm · Richtung West', points: [[-220, -18], [220, -18]], width: 12, lanes: 3 },

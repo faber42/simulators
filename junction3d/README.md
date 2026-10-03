@@ -162,14 +162,16 @@ markierten Ansichten des Nutzers:
 2. **Voßkuhle und Mittelbereich Richtung Süd gemeinsam.** Die äußeren und
    inneren Signale werden gleichzeitig grün. Wartende B1-Linksabbieger fahren
    in die Semmerteichstraße aus; Wendefahrten biegen nochmals links auf die B1
-   Richtung Ost ab. Der Verkehr aus der Voßkuhle kann zugleich nachrücken.
+   Richtung Ost ab. Der Verkehr aus der Voßkuhle lässt noch in der Kurve
+   stehende B1-Abbieger zuerst räumen und rückt anschließend nach.
 3. **B1 wieder geradeaus in beiden Richtungen.** Nach 7 Sekunden wird die
    eigene Linksabbiegerspur aus Westen freigegeben. Diese Fahrzeuge biegen in
    den Mittelbereich Richtung Nord ein und warten an dessen roter Ampel.
 4. **Semmerteichstraße und Mittelbereich Richtung Nord gemeinsam.** Auch hier
    starten die äußeren und inneren Signale gleichzeitig. Wartende B1-Abbieger
    fahren in die Voßkuhle aus oder biegen für ihre Wendefahrt links auf die B1
-   Richtung West ab. Gleichzeitig rückt Verkehr aus der Semmerteichstraße nach.
+   Richtung West ab. Verkehr aus der Semmerteichstraße wartet trotz Grün,
+   solange B1-Abbieger noch seine Einfahrt in den Mittelbereich blockieren.
 
 Ist in einer B1-Phase eine Stadtbahnpassage vorgesehen, bleiben **beide
 B1-Linksabbiegersignale während dieser gesamten Phase rot**. Die B1-Spuren für
@@ -191,17 +193,23 @@ B1-Ausfahrtsspuren. Die innersten B1-Zufahrtsspuren sind ausschließlich
 Linksabbiegerspuren; daneben bleiben je zwei Geradeausspuren. Rechtsabbieger
 sind in dieser Standortkonfiguration nicht enthalten.
 
-Jede der drei mittleren Spuren fasst höchstens zwei Fahrzeuge. B1-Abbieger mit
+Jede der drei mittleren Spuren hat zwei reguläre Aufstellplätze. B1-Abbieger mit
 Ziel Nebenstraße können die gemeinsame oder die reine Geradeausspur wählen.
 B1-Wendefahrten wählen die reine Linksabbiegespur oder die gemeinsame Spur.
 Die Entscheidung fällt vor der äußeren Haltelinie anhand freier Aufstellplätze;
 das ursprüngliche Fahrtziel bleibt erhalten. Danach teilen sie die jeweilige
 Spur mit den Fahrzeugen aus der Nebenstraße, auch wenn diese erst später
-unterschiedlich abbiegen. Eine volle Mitte sperrt weitere Einfahrten an der
-äußeren Haltelinie, auch bei Grün. Ein reservierter Platz
-wird erst frei, wenn das Fahrzeug die innere Haltelinie vollständig passiert
-hat. Zwei kleine Inseln tragen die inneren Ampelmasten; dazwischen bleiben die
-Stadtbahngleise und die Fahrzeugbreite der Bahn frei.
+unterschiedlich abbiegen. Entsprechend der vom Nutzer beschriebenen Praxis
+fahren B1-Linksabbieger bei Grün auch dann weiter ein, wenn diese Plätze belegt
+sind: Der Rückstau reicht entlang der Abbiegekurve in die Kreuzung zurück.
+Die rote Mittelampel und die Abstände zu vorausfahrenden Fahrzeugen gelten
+weiterhin. Beim nächsten gemeinsamen Grün lässt die Nebenstraße diese bereits
+eingefahrenen Abbieger zuerst ihre Kurve beenden. Das gilt symmetrisch und
+schließt Wendefahrten ein; es gibt keinen zeitlichen Grünvorsprung der Mitte.
+Die Nebenstraßenzufahrt wartet weiterhin auf freien Platz. Ein reservierter
+Platz wird erst frei, wenn das Fahrzeug die innere Haltelinie vollständig
+passiert hat. Zwei kleine Inseln tragen die inneren Ampelmasten; die
+Stadtbahnfreigabe wartet auf die Räumung aller reservierten Wartebereiche.
 
 Die Stadtbahn fährt auf beiden Gleisen durch den Mittelstreifen. Der vom Nutzer
 vorgegebene Minutenraster gilt für geplante Ankünfte an der Kreuzung in
@@ -229,10 +237,11 @@ nach Nutzervorgabe, kein bestätigter offizieller U47-Fahrplan.
 Am Ende einer Nebenstraßenphase werden zuerst die äußeren Zufahrten
 geschlossen. Die inneren Ampeln bleiben als **Nachlauf** grün, bis der bereits
 eingelassene Verkehr ausgefahren ist, und wechseln danach ebenfalls über Gelb
-auf Rot. Fahrzeuge, die während einer B1-Phase vollständig im Mittelbereich
-warten, blockieren den Phasenwechsel dagegen nicht. Die Prüfungen unterscheiden
-deshalb den ersten geräumten Konfliktabschnitt vom noch ausstehenden zweiten
-Signalhalt.
+auf Rot. Während einer B1-Phase bereits eingelassene Abbieger dürfen auch im
+Rückstau vor der Mitte auf die folgende, entlastende Nebenstraßenphase warten.
+Sie blockieren deren Freigabe nicht; der neu anfahrende Nebenstraßenverkehr
+gibt ihnen beim Einordnen Vorrang. Vor einer folgenden B1- oder Bahnfreigabe
+muss dieser Rückstau dagegen geräumt sein.
 
 Grünzeiten (32 / 22 / 32 / 22 Sekunden), Gelb (3 Sekunden), Räumzeit
 (3 Sekunden), Rot-Gelb (1 Sekunde) sowie die Verzögerung von 7 Sekunden für
@@ -285,6 +294,7 @@ Umgebung, Signalpositionen und Kameras.
 | `locations/dortmund.mjs` | Voßkuhle: Ortsgeometrie, Betriebsparameter und Umgebung. |
 | `locations/opphoff.mjs`, `locations/opphoff-environment.mjs` | Opphoff: Straßen, Signale und eigenständige Umgebung. |
 | `engine.test.mjs` | Automatisierte Prüfungen der Fahr- und Signallogik. |
+| `spillback.test.mjs` | Rückstau der Voßkuhle-B1-Abbieger, Vorrang beim Räumen und kollisionsfreies Nachrücken der Nebenstraße. |
 | `opphoff.test.mjs` | Elf Signalstandorte, mehrstufige Linksabbieger, Speichersättigung und Langläufe mit unabhängiger Kollisionsprüfung. |
 | `time-model.test.mjs` | Ortszeitumrechnung, beide Sommerzeitwechsel, Fahrplangrenzen, Wochenenden sowie Verkehrs- und Lichtprofile. |
 
@@ -303,6 +313,9 @@ von der Szene und der lokalen Zeitzone des Rechners.
 Normalverkehr und zwanzig Minuten Berufsverkehr; alle Fahrbeziehungen müssen
 passieren, ohne rote Haltepunkte zu überfahren, Fahrzeughüllen zu überschneiden
 oder den Mittelbereich zu überfüllen.
+`node --test junction3d/spillback.test.mjs` prüft den erlaubten Rückstau in
+beiden B1-Abbiegerichtungen einschließlich Wendefahrten und des anschließenden
+Vorrangs vor neu einfahrendem Nebenstraßenverkehr.
 
 Alle Längen sind Meter, Zeiten Sekunden und Geschwindigkeiten Meter pro
 Sekunde. Ausnahmen: Absolute Uhrzeiten sind Unix-Zeitstempel in Millisekunden;
@@ -358,7 +371,15 @@ letzten dort zulässig wartenden Fahrzeugs genügend Abstand lassen.
 `storage: { id, capacity }` am ersten Halt reserviert Platz bis zum folgenden
 Signalhalt. Identische `storage.id` bedeutet einen gemeinsamen Wartebereich,
 auch wenn Fahrzeuge aus verschiedenen Straßen kommen. Eine Kapazität von zwei
-setzt entsprechend lange nutzbare Aufstellflächen voraus. `mergePoint` markiert
+setzt entsprechend lange nutzbare Aufstellflächen voraus. Optional erlaubt
+`storage.allowOverflow: true` das Einfahren bei Grün trotz belegter Plätze,
+während Fahrzeugfolge und der folgende Signalhalt den Rückstau begrenzen.
+Das ist an der Voßkuhle nur für B1-Linksabbieger aktiviert. Die anschließende
+Phase muss das folgende innere Signal öffnen und als `drainGroups` räumen.
+`yieldToGroups` am äußeren Halt der Nebenstraße lässt bereits eingelassene
+Fahrzeuge dieser Gruppen zuerst bis hinter ihren `clearPoint` fahren. Es
+verändert weder Ampelfarbe noch Phasenzeit. Opphoff behält die feste Kapazität.
+`mergePoint` markiert
 den Beginn einer gemeinsamen Ausfahrtsspur; zusammenführende Routen müssen ab
 dort dieselben Leitpunkte und dieselbe `exitId` verwenden. Wiederholte
 Signalhalt-IDs stehen für denselben physischen Signalgeber und dürfen daher

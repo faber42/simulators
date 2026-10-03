@@ -145,6 +145,12 @@ export class TrafficSimulation {
         if (stop.storage && (!stop.storage.id || !Number.isInteger(stop.storage.capacity) || stop.storage.capacity < 1)) {
           throw new Error(`Invalid storage on ${route.id} stop ${index}.`);
         }
+        if (stop.yieldToGroups && (!Array.isArray(stop.yieldToGroups) || stop.yieldToGroups.some(group => typeof group !== 'string' || !group))) {
+          throw new Error(`Invalid yield groups on ${route.id} stop ${index}.`);
+        }
+        if (stop.storage?.allowOverflow && (index !== 0 || rawStops.length < 2)) {
+          throw new Error(`Overflow storage on ${route.id} requires an entry gate followed by a middle gate.`);
+        }
         return { ...stop, id: stop.id ?? `${route.id}-stop-${index}`, distance, clearDistance };
       });
       if (stops.some((stop, index) => index > 0 && stop.distance <= stops[index - 1].distance)) {
@@ -446,15 +452,28 @@ export class TrafficSimulation {
 
   hasPhaseTraffic() {
     const drainGroups = this.phases[this.phaseIndex].drainGroups ?? [];
+    const successor = this.phases[(this.phaseIndex + 1) % this.phases.length];
     const occupancy = new Map();
     for (const vehicle of this.vehicles) for (const reservation of vehicle.reservations) {
       occupancy.set(reservation.id, (occupancy.get(reservation.id) ?? 0) + 1);
     }
     return this.trams.some(tram => tram.committed && tram.distance - tram.length / 2 <= tram.route.clearDistance) || this.vehicles.some(vehicle => {
-      if (vehicle.committedStops.some(commitment => commitment.phaseSerial === this.phaseSerial &&
-        vehicle.distance - vehicle.length / 2 <= vehicle.route.stops[commitment.index].clearDistance)) return true;
+      if (vehicle.committedStops.some(commitment => {
+        if (commitment.phaseSerial !== this.phaseSerial) return false;
+        const stop = vehicle.route.stops[commitment.index];
+        if (vehicle.distance - vehicle.length / 2 > stop.clearDistance) return false;
+        const receivingGroup = vehicle.route.stops[commitment.index + 1]?.group;
+        // A queue intentionally extending into its entry curve can hand over
+        // only to the phase that opens AND drains its receiving middle signal.
+        // Its side entry yields to that curve; the middle signal then remains
+        // green until every inherited vehicle has cleared. Other locations
+        // retain the ordinary requirement to reach a safe holding area first.
+        const handsOver = stop.storage?.allowOverflow && vehicle.passedGateIndex === commitment.index &&
+          successor.groups.includes(receivingGroup) && successor.drainGroups?.includes(receivingGroup);
+        return !handsOver;
+      })) return true;
       const nextStop = vehicle.route.stops[vehicle.passedGateIndex + 1];
-      const storageFull = nextStop?.storage && (occupancy.get(nextStop.storage.id) ?? 0) >= nextStop.storage.capacity;
+      const storageFull = nextStop?.storage && !nextStop.storage.allowOverflow && (occupancy.get(nextStop.storage.id) ?? 0) >= nextStop.storage.capacity;
       // Drain admitted cars, including a manually shortened phase. A vehicle
       // whose receiving median is full can remain at this middle signal once
       // its rear has cleared the preceding gate's safe holding point. Waiting
@@ -491,6 +510,15 @@ export class TrafficSimulation {
     const route = follower.route, other = leader.route;
     if (route.id === other.id) return leader.distance - follower.distance;
     if (route.laneId === other.laneId && follower.distance <= route.stopDistance + 7 && leader.distance <= other.stopDistance + 7) {
+      return (leader.distance - other.stopDistance) - (follower.distance - route.stopDistance);
+    }
+    if (route.laneId === other.laneId && route.stops[0].storage?.allowOverflow && other.stops[0].storage?.allowOverflow &&
+      leader.distance - leader.length / 2 <= other.stops[0].clearDistance + GAP + follower.length) {
+      // Alternative destinations share one entry even after their centre paths
+      // begin to fan out. Keep entry order through that fan-out until the whole
+      // leading body is safely inside its parallel receiving lane. Merely
+      // ending the shared section at the first bend allows a stopped curved
+      // vehicle's rear to be struck by the next, differently routed vehicle.
       return (leader.distance - other.stopDistance) - (follower.distance - route.stopDistance);
     }
     for (const [section, shared] of route.sharedSections.get(other.id) ?? []) {
@@ -545,9 +573,13 @@ export class TrafficSimulation {
     }
     for (const vehicle of this.vehicles) this.chooseRoute(vehicle, occupiedStorage);
     const vehiclesByRoute = new Map();
+    const unclearedEntryGroups = new Set();
     for (const vehicle of this.vehicles) {
       if (!vehiclesByRoute.has(vehicle.routeId)) vehiclesByRoute.set(vehicle.routeId, []);
       vehiclesByRoute.get(vehicle.routeId).push(vehicle);
+      if (vehicle.passedGateIndex >= 0 && vehicle.distance - vehicle.length / 2 <= vehicle.route.stops[0].clearDistance) {
+        unclearedEntryGroups.add(vehicle.route.stops[0].group);
+      }
     }
     const moves = this.vehicles.map(vehicle => {
       let maximumAdvance = Infinity;
@@ -566,8 +598,9 @@ export class TrafficSimulation {
       }
       const stopIndex = vehicle.passedGateIndex + 1;
       const stop = vehicle.route.stops[stopIndex];
-      const storageFull = stop?.storage && (occupiedStorage.get(stop.storage.id) ?? 0) >= stop.storage.capacity;
-      if (stop && (this.getSignal(stop.group) !== 'green' || storageFull)) {
+      const storageFull = stop?.storage && !stop.storage.allowOverflow && (occupiedStorage.get(stop.storage.id) ?? 0) >= stop.storage.capacity;
+      const yields = stop?.yieldToGroups?.some(group => unclearedEntryGroups.has(group));
+      if (stop && (this.getSignal(stop.group) !== 'green' || storageFull || yields)) {
         const distanceToStop = stop.distance - vehicle.length / 2 - STOP_MARGIN - vehicle.distance;
         maximumAdvance = Math.min(maximumAdvance, Math.max(0, distanceToStop));
         // A virtual leader produces smooth approach braking; the final clamp
@@ -578,7 +611,7 @@ export class TrafficSimulation {
       let speed = Math.max(0, vehicle.speed + clamp(acceleration, -5, 2.1) * dt);
       let advance = speed * dt;
       if (advance > maximumAdvance) { advance = maximumAdvance; speed = advance / dt; }
-      const crossesGate = stop && vehicle.distance + advance + vehicle.length / 2 > stop.distance && this.getSignal(stop.group) === 'green' && !storageFull;
+      const crossesGate = stop && vehicle.distance + advance + vehicle.length / 2 > stop.distance && this.getSignal(stop.group) === 'green' && !storageFull && !yields;
       if (crossesGate && stop.storage) {
         occupiedStorage.set(stop.storage.id, (occupiedStorage.get(stop.storage.id) ?? 0) + 1);
         vehicle.reservations.push({ id: stop.storage.id,
