@@ -9,9 +9,9 @@ const STEP = 1 / 30;
 const GAP = 2.2;
 const STOP_MARGIN = 0.8;
 const VEHICLE_TYPES = {
-  car: { weight: 83, length: 4.5 },
-  van: { weight: 14, length: 5.4 },
-  bus: { weight: 3, length: 11.5 },
+  car: { weight: 83, length: 4.5, width: 1.82 },
+  van: { weight: 14, length: 5.4, width: 2.05 },
+  bus: { weight: 3, length: 11.5, width: 2.5 },
 };
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 function validateClockTime(epochMs) {
@@ -25,6 +25,19 @@ function captureRenderPose(snapshots, body) {
   const previous = snapshots.get(body);
   if (previous) { previous.x = body.x; previous.z = body.z; previous.heading = body.heading; }
   else snapshots.set(body, renderPose(body));
+}
+
+function bodyConflict(pose, vehicle, other, margin = 0.35) {
+  const dx = other.x - pose.x, dz = other.z - pose.z;
+  if (Math.hypot(dx, dz) > (vehicle.length + other.length) / 2 + 3) return false;
+  const a = [Math.sin(pose.heading), Math.cos(pose.heading)], ar = [a[1], -a[0]];
+  const b = [Math.sin(other.heading), Math.cos(other.heading)], br = [b[1], -b[0]];
+  return [a, ar, b, br].every(axis => {
+    const dot = vector => Math.abs(vector[0] * axis[0] + vector[1] * axis[1]);
+    const first = dot(a) * (vehicle.length / 2 + margin) + dot(ar) * (VEHICLE_TYPES[vehicle.kind].width / 2 + margin);
+    const second = dot(b) * (other.length / 2 + margin) + dot(br) * (VEHICLE_TYPES[other.kind].width / 2 + margin);
+    return Math.abs(dx * axis[0] + dz * axis[1]) < first + second;
+  });
 }
 
 /** An arc-length sampled centripetal Catmull-Rom spline (no turn loops). */
@@ -151,7 +164,16 @@ export class TrafficSimulation {
         if (stop.storage?.allowOverflow && (index !== 0 || rawStops.length < 2)) {
           throw new Error(`Overflow storage on ${route.id} requires an entry gate followed by a middle gate.`);
         }
-        return { ...stop, id: stop.id ?? `${route.id}-stop-${index}`, distance, clearDistance };
+        let yieldApproach;
+        if (stop.yieldApproach) {
+          const { point, speed } = stop.yieldApproach;
+          if (index !== 0 || !stop.storage || !Array.isArray(point) || point.length !== 2 || point.some(value => !Number.isFinite(value)) ||
+            !Number.isFinite(speed) || speed <= 0) throw new Error(`Invalid yield approach on ${route.id}.`);
+          const yieldDistance = projectedDistance(path, point);
+          if (yieldDistance <= distance || yieldDistance >= clearDistance) throw new Error(`Yield approach on ${route.id} must lie between its entry and clearing point.`);
+          yieldApproach = { ...stop.yieldApproach, distance: yieldDistance };
+        }
+        return { ...stop, ...(yieldApproach ? { yieldApproach } : {}), id: stop.id ?? `${route.id}-stop-${index}`, distance, clearDistance };
       });
       if (stops.some((stop, index) => index > 0 && stop.distance <= stops[index - 1].distance)) {
         throw new Error(`Stops on ${route.id} must follow route order.`);
@@ -294,7 +316,7 @@ export class TrafficSimulation {
     const length = VEHICLE_TYPES[kind].length;
     const vehicle = { id: this.nextId++, routeId: route.id, route, distance, speed: 0, length, kind,
       color: Math.floor(this.random() * 10), turn: route.turn ?? 'straight', braking: false,
-      committed: false, passedGateIndex: -1, committedStops: [], reservations: [],
+      committed: false, passedGateIndex: -1, committedStops: [], reservations: [], yieldApproachPassed: false,
       ...samplePath(route.path, distance) };
     this.previousRenderPoses.set(vehicle, renderPose(vehicle));
     return vehicle;
@@ -512,15 +534,6 @@ export class TrafficSimulation {
     if (route.laneId === other.laneId && follower.distance <= route.stopDistance + 7 && leader.distance <= other.stopDistance + 7) {
       return (leader.distance - other.stopDistance) - (follower.distance - route.stopDistance);
     }
-    if (route.laneId === other.laneId && route.stops[0].storage?.allowOverflow && other.stops[0].storage?.allowOverflow &&
-      leader.distance - leader.length / 2 <= other.stops[0].clearDistance + GAP + follower.length) {
-      // Alternative destinations share one entry even after their centre paths
-      // begin to fan out. Keep entry order through that fan-out until the whole
-      // leading body is safely inside its parallel receiving lane. Merely
-      // ending the shared section at the first bend allows a stopped curved
-      // vehicle's rear to be struck by the next, differently routed vehicle.
-      return (leader.distance - other.stopDistance) - (follower.distance - route.stopDistance);
-    }
     for (const [section, shared] of route.sharedSections.get(other.id) ?? []) {
       if (follower.distance >= section.startDistance - follower.length - GAP && follower.distance <= section.endDistance + follower.length / 2 &&
         leader.distance >= shared.startDistance - leader.length - GAP && leader.distance <= shared.endDistance + leader.length / 2) {
@@ -531,6 +544,24 @@ export class TrafficSimulation {
     // cannot enter the shared segment inside an existing queue's headway.
     if (route.exitId === other.exitId && follower.distance >= route.mergeDistance - follower.length - GAP && leader.distance >= other.mergeDistance - leader.length - GAP) {
       return (route.length - follower.distance) - (other.length - leader.distance);
+    }
+    return Infinity;
+  }
+
+  fanoutClearance(vehicle, other) {
+    const route = vehicle.route, neighbor = other.route;
+    if (vehicle.id === other.id || route.laneId !== neighbor.laneId || !route.stops[0].storage?.allowOverflow ||
+      !neighbor.stops[0].storage?.allowOverflow || route.stops[0].storage.id === neighbor.stops[0].storage.id ||
+      vehicle.distance < route.stopDistance + 5 || vehicle.distance > route.stops[1].distance + vehicle.length ||
+      other.distance < neighbor.stopDistance + 5 || other.distance > neighbor.stops[1].distance + other.length ||
+      Math.hypot(vehicle.x - other.x, vehicle.z - other.z) > 25) return Infinity;
+    // Different receiving lanes become independent as soon as their actual
+    // swept bodies separate. Check the approaching path, not an artificial
+    // station shared by all turning lanes; an empty parallel lane stays usable.
+    const end = Math.min(route.stops[1].distance + vehicle.length,
+      vehicle.distance + 12 + vehicle.speed * 1.5 + vehicle.speed ** 2 / 10);
+    for (let distance = vehicle.distance; distance <= end; distance += 0.4) {
+      if (bodyConflict(samplePath(route.path, distance), vehicle, other)) return Math.max(0, distance - vehicle.distance - 0.4);
     }
     return Infinity;
   }
@@ -595,34 +626,58 @@ export class TrafficSimulation {
       for (const routeId of vehicle.route.followRouteIds) for (const leader of vehiclesByRoute.get(routeId) ?? []) {
         const separation = this.separation(vehicle, leader);
         if (separation > 0 && Number.isFinite(separation)) considerObstacle(separation, leader.length, leader.speed);
+        const clearance = this.fanoutClearance(vehicle, leader);
+        if (Number.isFinite(clearance)) considerObstacle(clearance + (vehicle.length + leader.length) / 2 + GAP, leader.length, 0);
       }
       const stopIndex = vehicle.passedGateIndex + 1;
       const stop = vehicle.route.stops[stopIndex];
       const storageFull = stop?.storage && !stop.storage.allowOverflow && (occupiedStorage.get(stop.storage.id) ?? 0) >= stop.storage.capacity;
       const yields = stop?.yieldToGroups?.some(group => unclearedEntryGroups.has(group));
-      if (stop && (this.getSignal(stop.group) !== 'green' || storageFull || yields)) {
-        const distanceToStop = stop.distance - vehicle.length / 2 - STOP_MARGIN - vehicle.distance;
+      const approachStop = vehicle.route.stops[0];
+      const approach = approachStop.yieldApproach;
+      const pendingApproach = approach && !vehicle.yieldApproachPassed;
+      const approachFull = pendingApproach && (occupiedStorage.get(approachStop.storage.id) ?? 0) >= approachStop.storage.capacity;
+      const approachYields = pendingApproach && approachStop.yieldToGroups?.some(group => unclearedEntryGroups.has(group));
+      const approachBlocked = approachFull || approachYields;
+      const limitAt = distance => {
+        const distanceToStop = distance - vehicle.length / 2 - STOP_MARGIN - vehicle.distance;
         maximumAdvance = Math.min(maximumAdvance, Math.max(0, distanceToStop));
         // A virtual leader produces smooth approach braking; the final clamp
         // guarantees the front bumper cannot jump a stop line in a long frame.
         const targetSpeed = Math.sqrt(2 * 2.7 * Math.max(0, distanceToStop));
         acceleration = Math.min(acceleration, (targetSpeed - vehicle.speed) * 2.5);
+      };
+      if (stop && (this.getSignal(stop.group) !== 'green' || (!stop.yieldApproach && (storageFull || yields)))) limitAt(stop.distance);
+      if (approachBlocked) {
+        limitAt(approach.distance);
+        // Brake before the outer line so the admitted approach is walking pace,
+        // with no instantaneous speed change when the gate becomes committed.
+        const beforeEntry = Math.max(0, approachStop.distance - vehicle.length / 2 - vehicle.distance);
+        // Solve the braking envelope at the END of this tick; evaluating it at
+        // the old position leaves a small overspeed on the crossing tick.
+        const brakingStep = 2.7 * dt;
+        const targetSpeed = Math.max(approach.speed,
+          Math.sqrt(brakingStep ** 2 + approach.speed ** 2 + 2 * 2.7 * beforeEntry) - brakingStep);
+        acceleration = Math.min(acceleration, (targetSpeed - vehicle.speed) / dt);
       }
       let speed = Math.max(0, vehicle.speed + clamp(acceleration, -5, 2.1) * dt);
       let advance = speed * dt;
       if (advance > maximumAdvance) { advance = maximumAdvance; speed = advance / dt; }
-      const crossesGate = stop && vehicle.distance + advance + vehicle.length / 2 > stop.distance && this.getSignal(stop.group) === 'green' && !storageFull && !yields;
-      if (crossesGate && stop.storage) {
-        occupiedStorage.set(stop.storage.id, (occupiedStorage.get(stop.storage.id) ?? 0) + 1);
-        vehicle.reservations.push({ id: stop.storage.id,
-          releaseDistance: vehicle.route.stops[stopIndex + 1]?.distance ?? stop.clearDistance });
+      const crossesGate = stop && vehicle.distance + advance + vehicle.length / 2 > stop.distance && this.getSignal(stop.group) === 'green' && (stop.yieldApproach || (!storageFull && !yields));
+      const crossesApproach = pendingApproach && !approachBlocked && vehicle.distance + advance + vehicle.length / 2 > approach.distance;
+      const reserves = crossesApproach ? approachStop : crossesGate && !stop.yieldApproach ? stop : null;
+      if (reserves?.storage) {
+        occupiedStorage.set(reserves.storage.id, (occupiedStorage.get(reserves.storage.id) ?? 0) + 1);
+        vehicle.reservations.push({ id: reserves.storage.id,
+          releaseDistance: vehicle.route.stops[crossesApproach ? 1 : stopIndex + 1]?.distance ?? reserves.clearDistance });
       }
-      return { vehicle, speed, advance, crossesGate, stopIndex, braking: speed < vehicle.speed - 0.015 || speed < 0.15 };
+      return { vehicle, speed, advance, crossesGate, crossesApproach, stopIndex, braking: speed < vehicle.speed - 0.015 || speed < 0.15 };
     });
-    for (const { vehicle, speed, advance, braking, crossesGate, stopIndex } of moves) {
+    for (const { vehicle, speed, advance, braking, crossesGate, crossesApproach, stopIndex } of moves) {
       vehicle.distance += advance;
       vehicle.speed = speed;
       vehicle.braking = braking;
+      if (crossesApproach) vehicle.yieldApproachPassed = true;
       if (crossesGate) {
         vehicle.passedGateIndex = stopIndex;
         vehicle.committedStops.push({ index: stopIndex, phaseSerial: this.phaseSerial });

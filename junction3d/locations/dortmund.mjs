@@ -58,12 +58,12 @@ const tails = {
   },
 };
 
-function medianStops(direction, lane, entryId, outerGroup, outerPoint, arrow, { allowOverflow = false, yieldToGroups } = {}) {
+function medianStops(direction, lane, entryId, outerGroup, outerPoint, arrow, { allowOverflow = false, yieldToGroups, yieldApproach } = {}) {
   const m = median[direction][lane];
   return [
     { id: entryId, group: outerGroup, point: outerPoint, clearPoint: m.entry,
       storage: { id: `holding-${m.id}`, capacity: 2, allowOverflow }, arrow,
-      ...(yieldToGroups ? { yieldToGroups } : {}) },
+      ...(yieldToGroups ? { yieldToGroups } : {}), ...(yieldApproach ? { yieldApproach } : {}) },
     { id: `middle-${m.id}`, group: direction === 'south' ? 'middleSouth' : 'middleNorth', point: m.point, arrow: m.arrow },
   ];
 }
@@ -145,6 +145,10 @@ function sideRoute({ from, direction, lane, movement, id, rate, label }) {
   const laneIndex = lane === 'left' ? 0 : lane === 'shared' ? 1 : 2;
   const approach = (north ? northApproach : southApproach)[['inner', 'middle', 'outer'][laneIndex]];
   const transition = north ? [[-4.2, -18], [-7.7, -18], [-11.3, -18]][laneIndex] : [[1.5, 19], [4.8, 19], [8.3, 19]][laneIndex];
+  // The front may creep past the green outer signal, but stops before the
+  // swept body envelope of every compatible B1 turn (including delivery vans).
+  const yieldPoint = (north ? [[-4.08, -16.2], [-7.59, -15.5], [-11, -13.4]]
+    : [[1.45, 16.3], [4.70, 16], [8.16, 14.6]])[laneIndex];
   const m = median[direction][lane], tail = tails[direction][movement];
   const stopLine = approach.at(-1), entryId = `${from}-${lane}-entry`;
   return {
@@ -159,7 +163,8 @@ function sideRoute({ from, direction, lane, movement, id, rate, label }) {
       medianSection(direction, lane, movement),
     ],
     stops: medianStops(direction, lane, entryId, from, stopLine, m.arrow,
-      { yieldToGroups: [direction === 'south' ? 'mainLeftSouth' : 'mainLeftNorth'] }),
+      { yieldToGroups: [direction === 'south' ? 'mainLeftSouth' : 'mainLeftNorth'],
+        yieldApproach: { point: yieldPoint, speed: 1.4 } }),
   };
 }
 
@@ -203,11 +208,11 @@ export const dortmund = {
     { id: 'main-a', label: 'Hauptstraße · West ↔ Ost', groups: ['main', 'mainLeftSouth'], groupDelays: { mainLeftSouth: 7 }, duration: 32,
       uiNote: 'B1 geradeaus; nach 7 s links aus Ost in den Wartebereich Richtung Süd.' },
     { id: 'north', label: 'Nebenstraße → Süd · Mitte und Voßkuhle gemeinsam', groups: ['middleSouth', 'north'], drainGroups: ['middleSouth'], duration: 22,
-      uiNote: 'Voßkuhle und Mittelbereich werden gleichzeitig frei. Noch in der Kurve wartende B1-Abbieger räumen zuerst.' },
+      uiNote: 'Voßkuhle und Mitte starten gemeinsam. Die Nebenstraße rollt langsam bis vor die Abbiegekurve; B1-Abbieger räumen zuerst.' },
     { id: 'main-b', label: 'Hauptstraße · West ↔ Ost', groups: ['main', 'mainLeftNorth'], groupDelays: { mainLeftNorth: 7 }, duration: 32,
       uiNote: 'B1 geradeaus; nach 7 s links aus West in den Wartebereich Richtung Nord.' },
     { id: 'south', label: 'Nebenstraße → Nord · Mitte und Semmerteichstraße gemeinsam', groups: ['middleNorth', 'south'], drainGroups: ['middleNorth'], duration: 22,
-      uiNote: 'Semmerteichstraße und Mittelbereich werden gleichzeitig frei. Noch in der Kurve wartende B1-Abbieger räumen zuerst.' },
+      uiNote: 'Semmerteichstraße und Mitte starten gemeinsam. Die Nebenstraße rollt langsam bis vor die Abbiegekurve; B1-Abbieger räumen zuerst.' },
   ],
   roads: [
     { id: 'b1-west', label: 'Westfalendamm · Richtung West', points: [[-220, -18], [220, -18]], width: 12, lanes: 3 },

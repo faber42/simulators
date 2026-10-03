@@ -162,16 +162,16 @@ markierten Ansichten des Nutzers:
 2. **Voßkuhle und Mittelbereich Richtung Süd gemeinsam.** Die äußeren und
    inneren Signale werden gleichzeitig grün. Wartende B1-Linksabbieger fahren
    in die Semmerteichstraße aus; Wendefahrten biegen nochmals links auf die B1
-   Richtung Ost ab. Der Verkehr aus der Voßkuhle lässt noch in der Kurve
-   stehende B1-Abbieger zuerst räumen und rückt anschließend nach.
+   Richtung Ost ab. Verkehr aus der Voßkuhle rollt bei Grün langsam bis vor
+   die Abbiegekurve und lässt dort noch wartende B1-Abbieger zuerst räumen.
 3. **B1 wieder geradeaus in beiden Richtungen.** Nach 7 Sekunden wird die
    eigene Linksabbiegerspur aus Westen freigegeben. Diese Fahrzeuge biegen in
    den Mittelbereich Richtung Nord ein und warten an dessen roter Ampel.
 4. **Semmerteichstraße und Mittelbereich Richtung Nord gemeinsam.** Auch hier
    starten die äußeren und inneren Signale gleichzeitig. Wartende B1-Abbieger
    fahren in die Voßkuhle aus oder biegen für ihre Wendefahrt links auf die B1
-   Richtung West ab. Verkehr aus der Semmerteichstraße wartet trotz Grün,
-   solange B1-Abbieger noch seine Einfahrt in den Mittelbereich blockieren.
+   Richtung West ab. Verkehr aus der Semmerteichstraße rückt im Schritttempo
+   bis vor die Abbiegekurve vor und wartet dort bei Bedarf auf die B1-Abbieger.
 
 Ist in einer B1-Phase eine Stadtbahnpassage vorgesehen, bleiben **beide
 B1-Linksabbiegersignale während dieser gesamten Phase rot**. Die B1-Spuren für
@@ -206,8 +206,13 @@ Die rote Mittelampel und die Abstände zu vorausfahrenden Fahrzeugen gelten
 weiterhin. Beim nächsten gemeinsamen Grün lässt die Nebenstraße diese bereits
 eingefahrenen Abbieger zuerst ihre Kurve beenden. Das gilt symmetrisch und
 schließt Wendefahrten ein; es gibt keinen zeitlichen Grünvorsprung der Mitte.
-Die Nebenstraßenzufahrt wartet weiterhin auf freien Platz. Ein reservierter
-Platz wird erst frei, wenn das Fahrzeug die innere Haltelinie vollständig
+Die Nebenstraßenzufahrt darf bei Grün bereits ohne freien Mittelplatz bis vor
+die Abbiegekurve vorrollen. Bei belegter Kurve oder voller Mittelspur fährt sie
+dabei höchstens 1,4 m/s (etwa 5 km/h). Erst für die Weiterfahrt hinter diesem Wartepunkt
+reserviert sie Platz in ihrer Mittelspur. Frei liegende Zielspuren können
+B1-Abbieger auffüllen, ohne pauschal auf Fahrzeuge in anderen Zielspuren
+warten zu müssen; die Fahrzeugkörper müssen beim Vorbeifahren getrennt bleiben.
+Ein reservierter Platz wird erst frei, wenn das Fahrzeug die innere Haltelinie vollständig
 passiert hat. Zwei kleine Inseln tragen die inneren Ampelmasten; die
 Stadtbahnfreigabe wartet auf die Räumung aller reservierten Wartebereiche.
 
@@ -295,6 +300,7 @@ Umgebung, Signalpositionen und Kameras.
 | `locations/opphoff.mjs`, `locations/opphoff-environment.mjs` | Opphoff: Straßen, Signale und eigenständige Umgebung. |
 | `engine.test.mjs` | Automatisierte Prüfungen der Fahr- und Signallogik. |
 | `spillback.test.mjs` | Rückstau der Voßkuhle-B1-Abbieger, Vorrang beim Räumen und kollisionsfreies Nachrücken der Nebenstraße. |
+| `creep.test.mjs` | Auffüllen freier Mittelspuren und langsames Vorrücken der Nebenstraße bis vor die belegte Abbiegekurve. |
 | `opphoff.test.mjs` | Elf Signalstandorte, mehrstufige Linksabbieger, Speichersättigung und Langläufe mit unabhängiger Kollisionsprüfung. |
 | `time-model.test.mjs` | Ortszeitumrechnung, beide Sommerzeitwechsel, Fahrplangrenzen, Wochenenden sowie Verkehrs- und Lichtprofile. |
 
@@ -316,6 +322,8 @@ oder den Mittelbereich zu überfüllen.
 `node --test junction3d/spillback.test.mjs` prüft den erlaubten Rückstau in
 beiden B1-Abbiegerichtungen einschließlich Wendefahrten und des anschließenden
 Vorrangs vor neu einfahrendem Nebenstraßenverkehr.
+`node --test junction3d/creep.test.mjs` prüft zusätzlich das Vorrollen bei
+Grün, die Wartepunkte vor dem Kurvenbereich und das Auffüllen freier Spuren.
 
 Alle Längen sind Meter, Zeiten Sekunden und Geschwindigkeiten Meter pro
 Sekunde. Ausnahmen: Absolute Uhrzeiten sind Unix-Zeitstempel in Millisekunden;
@@ -378,7 +386,15 @@ Das ist an der Voßkuhle nur für B1-Linksabbieger aktiviert. Die anschließende
 Phase muss das folgende innere Signal öffnen und als `drainGroups` räumen.
 `yieldToGroups` am äußeren Halt der Nebenstraße lässt bereits eingelassene
 Fahrzeuge dieser Gruppen zuerst bis hinter ihren `clearPoint` fahren. Es
-verändert weder Ampelfarbe noch Phasenzeit. Opphoff behält die feste Kapazität.
+verändert weder Ampelfarbe noch Phasenzeit. Mit
+`yieldApproach: { point: [x, z], speed: 1.4 }` darf die Nebenstraße bei Grün
+bis zu diesem zusätzlichen Wartepunkt vorrollen. Die normale Haltemarge gilt
+vor dem Punkt; er muss vor den Fahrzeughüllen aller priorisierten Fahrwege
+liegen. Die Geschwindigkeitsgrenze greift bei belegter Kurve oder vollem
+Mittelbereich. Die Platzreservierung erfolgt dann erst bei der Weiterfahrt
+über den Wartepunkt. Bereits über die äußere Haltelinie eingefahrene Fahrzeuge
+werden auch nach dem Schließen der äußeren Ampel im Nachlauf geräumt.
+Opphoff behält die feste Kapazität und das Warten am äußeren Signal.
 `mergePoint` markiert
 den Beginn einer gemeinsamen Ausfahrtsspur; zusammenführende Routen müssen ab
 dort dieselben Leitpunkte und dieselbe `exitId` verwenden. Wiederholte

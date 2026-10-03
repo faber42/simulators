@@ -134,13 +134,14 @@ for (const scenario of scenarios) test(`${scenario.route}: green admits spillbac
       const curveStillOccupied = turners.some(vehicle => vehicle.passedGateIndex >= 0
         && vehicle.distance - vehicle.length / 2 <= vehicle.route.stops[0].clearDistance);
       if (curveStillOccupied) for (const side of sideCars) {
-        assert.equal(side.passedGateIndex, -1, 'An existing B1 tail still occupies the curve: the green side approach must wait at its outer gate');
-        assert.ok(side.distance + side.length / 2 <= side.route.stopDistance + 1e-7);
+        const yieldDistance = side.route.stops[0].yieldApproach?.distance ?? side.route.stopDistance;
+        assert.ok(side.distance + side.length / 2 <= yieldDistance + 1e-7,
+          'Side traffic may creep past outer green, but must yield before the occupied B1 turn envelope');
       }
     }
     if (sidePhaseStarted && simulation.phaseSerial >= serial + 2) sawNextMain = true;
     const stillYielding = sidePhaseStarted && simulation.getSignal(scenario.sideGroup) === 'green'
-      && sideCars.some(car => car.speed < .2 && car.passedGateIndex < 0);
+      && sideCars.some(car => car.speed < .2 && car.passedGateIndex < 1);
     stoppedFor = stillYielding ? stoppedFor + STEP : 0; maxSideStoppedFor = Math.max(maxSideStoppedFor, stoppedFor);
     if (sawNextMain && sideCars.every(vehicle => vehicle.passedGateIndex >= 1)) break;
   }
