@@ -143,6 +143,7 @@ export const hohestrWall = {
   routes, laneMarkings, islands: [],
   signalGantries: Object.entries(approaches).map(([incoming, approach]) => ({
     id: `from-${incoming}-site`, stopIds: routes.filter(route => route.incoming === incoming).map(route => route.stops[0].id),
+    lowerStopIds: routes.filter(route => route.incoming === incoming && route.turn === 'right').map(route => route.stops[0].id),
     style: 'straight', height: 6.3, anchor: point(incoming, -27, (approach.left + approach.through + 1) * laneWidth + 3.4),
   })),
   cameras: [

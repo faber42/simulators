@@ -334,11 +334,14 @@ export function createScene(canvas, config) {
       box(scene, metal, position.x, height - .1, position.z, .09, .24, .09);
       addHead(position, heading, stop);
     }
-    // Separate groups on one beam retain separate lower indications as well.
-    const repeats = [...new Set(cluster.stops.map(stop => stop.group))].map(group => {
-      const members = cluster.stops.filter(stop => stop.group === group);
-      return { ...members[0], arrow: members.every(stop => stop.arrow === members[0].arrow) ? members[0].arrow : null };
-    });
+    // A roadside repeater can explicitly serve just the adjacent lane. Other
+    // gantries retain one lower indication per signal group by default.
+    const repeats = Array.isArray(cluster.lowerStopIds)
+      ? [...new Set(cluster.lowerStopIds)].map(id => cluster.stops.find(stop => stop.id === id)).filter(Boolean)
+      : [...new Set(cluster.stops.map(stop => stop.group))].map(group => {
+        const members = cluster.stops.filter(stop => stop.group === group);
+        return { ...members[0], arrow: members.every(stop => stop.arrow === members[0].arrow) ? members[0].arrow : null };
+      });
     repeats.forEach((stop, index) => {
       const position = anchor.clone().addScaledVector(right, (index - (repeats.length - 1) / 2) * .65);
       position.y = 2.65;

@@ -422,7 +422,7 @@ Blickziele das Format `[x, y, z]`. Gebäude-Drehungen sind im Bogenmaß angegebe
 | `timing` | Übergänge `yellow`, `allRed` und `redAmber`. |
 | `conflictBounds` | Rechteck des zu räumenden Kreuzungsbereichs im Grundriss. |
 | `islands` | Unbefahrbare Inseln als Grundrisspolygone `points`. |
-| `signalGantries` | Masten mit `anchor`, `height` und den daran montierten Signalhalt-IDs `stopIds`; optional `style: 'straight'` für einen geraden Mast mit Querträger und Abspannung. |
+| `signalGantries` | Masten mit `anchor`, `height` und den daran montierten Signalhalt-IDs `stopIds`; optional `style: 'straight'` für einen geraden Mast mit Querträger und Abspannung. `lowerStopIds` wählt die unteren Wiederholersignale aus den zugehörigen Stop-IDs; eine leere Liste blendet sie aus. Ohne Angabe bleibt ein unteres Signal je Gruppe. |
 | `cameras` | Kameravorgaben mit Position, Blickziel und vertikalem Sichtwinkel `fov` in Grad. |
 | `environment` | Gebäude, Baumzonen, Grünbereich, Gleise, Haltestelle und Tankstelle. |
 | `environment.landmarks` | Prägende Gebäude und Anlagen mit `type`, `x`, `z`, `width`, `depth`, `height` und optionaler `rotation`. |
