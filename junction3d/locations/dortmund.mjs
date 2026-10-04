@@ -277,11 +277,15 @@ export const dortmund = {
         points: [[-260, 2.4], [-36, 2.4], [36, 2.4], [260, 2.4]],
         stopLine: [-36, 2.4], clearPoint: [36, 2.4], signalPosition: [-36, 4.6],
         interval: 600, offset: 75, speed: 11, length: 28,
+        // Train-centre point: braking starts after the rear clears the junction.
+        stationStop: { point: [110, 2.4], dwell: 20 },
         schedule: { minuteOffset: 9, intervalMinutes: 10, sundayIntervalMinutes: 20, serviceStart: 300, serviceEnd: 1410 } },
       { id: 'tram-west', label: 'Stadtbahn → West', line: 'U47', destination: 'Westerfilde', trackZ: -2.4, direction: -1,
         points: [[260, -2.4], [36, -2.4], [-36, -2.4], [-260, -2.4]],
         stopLine: [36, -2.4], clearPoint: [-36, -2.4], signalPosition: [36, -4.6],
         interval: 600, offset: 99, speed: 11, length: 28,
+        // Train centre; its front remains 10 m before the crossing signal.
+        stationStop: { point: [60, -2.4], dwell: 20 },
         schedule: { minuteOffset: 2, intervalMinutes: 10, sundayIntervalMinutes: 20, serviceStart: 300, serviceEnd: 1410 } },
     ],
   },

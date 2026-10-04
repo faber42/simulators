@@ -8,6 +8,8 @@ import { nextTramDeparture } from './time-model.mjs';
 const STEP = 1 / 30;
 const GAP = 2.2;
 const STOP_MARGIN = 0.8;
+const TRAM_BRAKING = 1.3;
+const TRAM_ACCELERATION = 1.1;
 const VEHICLE_TYPES = {
   car: { weight: 83, length: 4.5, width: 1.82 },
   van: { weight: 14, length: 5.4, width: 2.05 },
@@ -225,9 +227,28 @@ export class TrafficSimulation {
         throw new Error(`Transit route ${route.id} needs a positive interval, speed, length and nonnegative offset.`);
       }
       const stopDistance = projectedDistance(path, route.stopLine);
+      const signalCenter = stopDistance - route.length / 2 - STOP_MARGIN;
+      let stationStop, stationDelay = 0, announcementLead = 0;
+      if (route.stationStop) {
+        const { point, dwell = 20 } = route.stationStop;
+        if (!Array.isArray(point) || point.length !== 2 || point.some(value => !Number.isFinite(value)) ||
+          !Number.isFinite(dwell) || dwell < 0) throw new Error(`Invalid station stop on transit route ${route.id}.`);
+        const distance = projectedDistance(path, point);
+        if (distance <= 0 || distance >= path.length) throw new Error(`Station stop on ${route.id} must lie along its route.`);
+        const beforeSignal = distance < stopDistance;
+        if (beforeSignal && distance > signalCenter) throw new Error(`Station stop on ${route.id} would cross its closed signal.`);
+        stationStop = { ...route.stationStop, distance, dwell, beforeSignal };
+        if (beforeSignal) {
+          // Preserve the requested signal-passage time while spawning early
+          // enough to brake, dwell and accelerate at the preceding platform.
+          stationDelay = dwell + route.speed / (2 * TRAM_BRAKING) + route.speed / (2 * TRAM_ACCELERATION);
+          announcementLead = dwell + route.speed / (2 * TRAM_ACCELERATION) + (signalCenter - distance) / route.speed + STEP;
+        }
+      }
       return { ...route, path, pathLength: path.length, stopDistance,
+        ...(stationStop ? { stationStop } : {}), stationDelay, announcementLead,
         clearDistance: route.clearPoint ? projectedDistance(path, route.clearPoint) : lastConflictDistance(path, config.conflictBounds, stopDistance),
-        approachTime: Math.max(0, (stopDistance - route.length / 2 - STOP_MARGIN) / route.speed) };
+        approachTime: Math.max(0, signalCenter / route.speed) + stationDelay };
     });
     this.density = clamp(Number.isFinite(config.density) ? config.density : 1, 0, 5);
     this.reset();
@@ -439,8 +460,8 @@ export class TrafficSimulation {
     const phase = this.phases[this.phaseIndex];
     const eligible = phase.groups.some(group => this.transitConfig.greenGroups.includes(group));
     const deadline = greenStart + phase.duration;
-    this.transitProtected = eligible && (this.transitRoutes.some(route => this.nextTransitDue.get(route.id) <= deadline + 1e-9) ||
-      this.trams.some(tram => !tram.committed && tram.scheduledAt <= deadline + 1e-9));
+    this.transitProtected = eligible && (this.transitRoutes.some(route => this.nextTransitDue.get(route.id) - route.announcementLead <= deadline + 1e-9) ||
+      this.trams.some(tram => !tram.committed && tram.announcementAt <= deadline + 1e-9));
   }
 
   getTransitSignal(routeId) {
@@ -454,9 +475,25 @@ export class TrafficSimulation {
     for (const route of this.transitRoutes) {
       let scheduledAt = this.nextTransitDue.get(route.id);
       while (scheduledAt - route.approachTime <= this.elapsed + 1e-9) {
-        const distance = Math.max(0, route.stopDistance - route.length / 2 - STOP_MARGIN - Math.max(0, scheduledAt - this.elapsed) * route.speed);
+        let distance = Math.max(0, route.stopDistance - route.length / 2 - STOP_MARGIN - Math.max(0, scheduledAt - this.elapsed - route.stationDelay) * route.speed);
+        const station = route.stationStop;
+        // A newly selected clock can start just before (or exactly at) the
+        // timetable request. Never create that train beyond its preceding stop:
+        // it still serves a full dwell, even if its passage must then be late.
+        if (station?.beforeSignal) distance = Math.min(distance, station.distance);
+        const dwelling = station && Math.abs(distance - station.distance) < 1e-8;
+        const announcementAt = station?.beforeSignal && dwelling
+          ? Math.min(this.elapsed, scheduledAt - route.announcementLead)
+          : scheduledAt - route.announcementLead;
+        let initialSpeed = scheduledAt > this.elapsed ? route.speed : 0;
+        if (dwelling) initialSpeed = 0;
+        else if (station && distance < station.distance) {
+          initialSpeed = Math.min(initialSpeed, Math.sqrt(2 * TRAM_BRAKING * (station.distance - distance)));
+        }
         const tram = { id: `tram-${this.nextTramId++}`, routeId: route.id, route, distance, scheduledAt,
-          length: route.length, speed: scheduledAt > this.elapsed ? route.speed : 0, committed: false, braking: false,
+          announcementAt,
+          ...(station ? { stationState: dwelling ? 'dwelling' : 'approaching', stationRemaining: dwelling ? station.dwell : 0 } : {}),
+          length: route.length, speed: initialSpeed, committed: false, braking: false,
           ...samplePath(route.path, distance) };
         this.previousRenderPoses.set(tram, renderPose(tram));
         this.trams.push(tram);
@@ -468,26 +505,58 @@ export class TrafficSimulation {
 
   moveTrams(dt) {
     for (const tram of this.trams) {
+      const station = tram.route.stationStop;
+      if (tram.stationState === 'dwelling') {
+        tram.speed = 0; tram.braking = true;
+        tram.stationRemaining = Math.max(0, tram.stationRemaining - dt);
+        if (tram.stationRemaining <= 1e-9) {
+          tram.stationRemaining = 0;
+          tram.stationState = 'departed';
+        }
+        continue;
+      }
       let limit = Infinity;
       let target = tram.route.speed;
+      const brakingSpeed = distance => {
+        const brakingStep = TRAM_BRAKING * dt;
+        return Math.max(0, Math.sqrt(brakingStep ** 2 + 2 * TRAM_BRAKING * distance) - brakingStep);
+      };
       if (!tram.committed && this.getTransitSignal(tram.routeId) !== 'green') {
         limit = Math.max(0, tram.route.stopDistance - tram.length / 2 - STOP_MARGIN - tram.distance);
-        target = Math.min(target, Math.sqrt(2 * 1.3 * limit));
+        target = Math.min(target, station ? brakingSpeed(limit) : Math.sqrt(2 * TRAM_BRAKING * limit));
       } else if (!tram.committed && this.elapsed + 1e-9 < tram.scheduledAt) {
-        // Keep the timetable without braking a train that approaches an open
-        // signal; the front may not cross before its scheduled arrival time.
+        // The front may not cross even an open signal before the requested
+        // timetable passage. The original approach is kept for non-stop routes.
         limit = Math.max(0, tram.route.stopDistance - tram.length / 2 - STOP_MARGIN - tram.distance);
+        // A train leaving an upstream stop can reach an open signal before its
+        // requested passage. Brake normally there instead of hitting the final
+        // position clamp at speed; the timetable never overrides the stop.
+        if (station?.beforeSignal) target = Math.min(target, brakingSpeed(limit));
+      }
+      if (tram.stationState === 'approaching') {
+        const remaining = Math.max(0, station.distance - tram.distance);
+        limit = Math.min(limit, remaining);
+        // Evaluate braking at the end of the integration step. Otherwise the
+        // final position clamp can abruptly remove the last bit of velocity.
+        target = Math.min(target, brakingSpeed(remaining));
       }
       for (const other of this.trams) if (other.routeId === tram.routeId && other.distance > tram.distance) {
         const gap = Math.max(0, other.distance - tram.distance - (other.length + tram.length) / 2 - 4);
         limit = Math.min(limit, gap);
-        target = Math.min(target, Math.sqrt(other.speed ** 2 + 2 * 1.3 * gap));
+        target = Math.min(target, Math.sqrt(other.speed ** 2 + 2 * TRAM_BRAKING * gap));
       }
-      const speed = Math.max(0, tram.speed + clamp(target - tram.speed, -1.8 * dt, 1.1 * dt));
+      const speed = Math.max(0, tram.speed + clamp(target - tram.speed, -1.8 * dt, TRAM_ACCELERATION * dt));
       const advance = Math.min(speed * dt, limit);
       tram.braking = advance / dt < tram.speed - 0.005;
       tram.speed = advance / dt;
       tram.distance += advance;
+      if (tram.stationState === 'approaching' && Math.abs(tram.distance - station.distance) < 1e-8) {
+        tram.distance = station.distance;
+        tram.speed = 0;
+        tram.braking = true;
+        tram.stationState = 'dwelling';
+        tram.stationRemaining = station.dwell;
+      }
       if (!tram.committed && tram.distance + tram.length / 2 > tram.route.stopDistance && this.getTransitSignal(tram.routeId) === 'green') tram.committed = true;
       Object.assign(tram, samplePath(tram.route.path, tram.distance));
     }

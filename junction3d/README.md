@@ -242,10 +242,22 @@ Dortmunder Ortszeit:
 Der Betrieb beginnt täglich um **05:00 Uhr**; zwischen **23:30 und 05:00 Uhr**
 werden keine weiteren Fahrten eingeplant. Damit liegen die ersten Ankünfte
 bei 05:09 beziehungsweise 05:02 und die letzten bei 23:29 beziehungsweise
-23:22. Die vorgegebenen Minuten bezeichnen die angeforderte Kreuzungspassage;
-eine rote Ampel kann die tatsächliche Durchfahrt verzögern. Bereits gestartete
-Fahrten beenden ihren Weg auch nach Betriebsschluss. Zukünftige Morgenfahrten
-stehen nachts nicht schon an der Kreuzung.
+23:22. Die vorgegebenen Minuten bezeichnen weiterhin den frühesten Zeitpunkt
+der angeforderten Kreuzungspassage, nicht eine Bahnsteig-Abfahrtszeit. Die Bahn
+überfährt ihr Kreuzungssignal nicht vor diesem Zeitpunkt. Eine rote Ampel oder
+ein noch ausstehender Stationshalt können die tatsächliche Durchfahrt verzögern.
+Bereits gestartete Fahrten beenden ihren Weg einschließlich Stationshalt auch
+nach Betriebsschluss. Zukünftige Morgenfahrten stehen nachts nicht schon an
+der Kreuzung.
+
+Beide Richtungen halten an der Haltestelle Voßkuhle für **20 Simulationssekunden**.
+Ostwärts folgt der Halt nach der Kreuzung: Die Bahn bremst erst, nachdem ihr
+Heck den Konfliktbereich geräumt hat. Der anschließende Aufenthalt erzeugt
+keine neue Ampelanmeldung und hält die Kreuzungsphase nicht fest. Westwärts
+liegt der Halt vor der Kreuzung; die Bahn ist bereits während ihres
+Aufenthalts für die Passage angemeldet und fährt anschließend nur bei
+zulässiger B1-Freigabe weiter. Auch ein Szenenstart direkt zur Fahrplanminute
+überspringt diesen Halt nicht. Die Haltezeit folgt Pause und Simulationstempo.
 
 Bahnen dürfen nur während einer B1-Freigabe passieren. Je nach Ampelstand
 warten sie, sodass Passagen getrennt oder gemeinsam in einer B1-Phase
@@ -273,6 +285,11 @@ Die Nebenstraßenfläche ist mit ungefähr 24 Metern Gesamtbreite für sechs
 Spuren einschließlich seitlichem Spielraum modelliert. Die Bahn ist 28 Meter
 lang und 2,5 Meter breit; die Bahnsteigmitten liegen bei `z = ±5,5 m`, damit
 die innere Bahnsteigkante nahe am Wagen liegt und dessen Körper frei bleibt.
+Die Bahnsteige reichen von `x = 45` bis `125 m`. Haltepunkte bezeichnen die
+**Zugmitte**: ostwärts `[110, 2.4]`, westwärts `[60, -2.4]`. Die Wagenkörper
+stehen dadurch vollständig am Bahnsteig, ostwärts bei `x = 96…124 m` und
+westwärts bei `x = 46…74 m`. Die Westbahn hält mit ihrer Front zehn Meter
+vor dem Kreuzungssignal. Die 20 Sekunden Aufenthalt sind ein Modellwert.
 Je B1-Zufahrt entstehen 45 Abbiegefahrten zur Nebenstraße und 20 Wendefahrten
 pro Stunde bei Verkehrsfaktor 1. Je Nebenstraßenzufahrt entstehen 150
 Linksabbieger (90 auf der reinen und 60 auf der gemeinsamen Spur) sowie
@@ -461,6 +478,17 @@ Die Engine lässt Bahnen rechtzeitig sichtbar zur geplanten Ankunft anfahren.
 Darstellung. Ankunftszeiten innerhalb des bevorstehenden B1-Grünfensters werden
 bereits am Phasenanfang berücksichtigt, damit keine Linksabbieger kurz vor
 einer erwarteten Bahn eingelassen werden.
+
+Eine Bahnroute kann `stationStop: { point: [x, z], dwell: 20 }` angeben.
+`point` ist die Position der Zugmitte auf ihrem Fahrweg; anders als bei
+`stopLine` wird hier keine halbe Fahrzeuglänge abgezogen. `dwell` ist die
+Aufenthaltsdauer in Simulationssekunden nach dem vollständigen Anhalten.
+Ein vorgelagerter Halt wird bei der Anfahrt berücksichtigt und meldet die
+Bahn bereits während des Aufenthalts für die Kreuzung an. Ein nachgelagerter
+Halt beeinflusst die Signalsteuerung nach der vollständigen Räumung nicht.
+Ohne `stationStop` bleibt die Bahnroute eine Durchfahrt. Das Minutenraster,
+die Sonntagsintervalle und die nächtliche Betriebspause ändern sich dadurch
+nicht.
 
 `new TrafficSimulation(config, { startTime: epochMs })` aktiviert die absolute
 Simulationsuhr und die Fahrpläne. `getClockTime()` liest sie;

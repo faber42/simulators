@@ -224,8 +224,9 @@ function start() {
       const seconds = Math.max(0, Math.ceil(next?.in ?? 0));
       const departure = next?.scheduledTime == null ? null : getLocalTime(next.scheduledTime, timeZone);
       const departureLabel = departure ? `${departure.date === local.date ? '' : ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][departure.weekday] + ' '}${departure.time}` : '';
+      const dwelling = trams.find(tram => tram.stationState === 'dwelling');
       row.dataset.active = String(trams.length > 0);
-      state.textContent = trams.length ? trams.some(tram => tram.speed < .2) ? 'wartet auf Grün' : 'fährt' : departure ? `ab ${departureLabel}` : next ? `in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : '–';
+      state.textContent = dwelling ? `Haltestelle · ${Math.ceil(dwelling.stationRemaining)} s` : trams.length ? trams.some(tram => tram.speed < .2) ? 'wartet auf Grün' : 'fährt' : departure ? `ab ${departureLabel}` : next ? `in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : '–';
       row.title = departure ? `Fahrplan ${departureLabel} · Ampeln können die Durchfahrt verzögern.` : '';
     }
     for (const indicator of signalIndicators) {
