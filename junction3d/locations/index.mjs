@@ -14,6 +14,13 @@ export const locations = [
     features: ['11 Ampelstandorte', '3 Rechtsabbiegespuren', 'Ohne Straßenbahn'],
     load: async () => (await import('./opphoff.mjs')).default,
   },
+  {
+    slug: 'hohestr-wall', number: '03', name: 'Hohe Straße am Wall', city: 'Dortmund',
+    roads: 'Hohe Straße / Hansastraße × Hiltropwall / Südwall',
+    description: 'Zwischen Theater und Stadtgarten: Geradeausverkehr und Linksabbieger wechseln sich ab. Die Gegenrichtungen biegen voreinander ab.',
+    features: ['4 Ampelphasen', 'Eigene Linksabbiegerphasen', 'Ohne Mittelampeln'],
+    load: async () => (await import('./hohestr-wall.mjs')).default,
+  },
 ];
 
 export const getLocation = slug => locations.find(location => location.slug === slug);

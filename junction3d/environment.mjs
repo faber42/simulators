@@ -243,6 +243,7 @@ export function buildEnvironment(THREE, scene, config) {
     const isMuseum = style === 'museum';
     const isResidence = style === 'residential';
     const isShowroom = style === 'showroom';
+    const isGrid = style === 'grid';
     const body = material(spec.color || (isGlass ? '#647b80' : isMuseum ? '#c2beb0' : '#d3d3c7'),
       isGlass ? {} : { map: masonryTexture });
     box(group, [w + 1.6, 0.24, d + 1.6], [0, 0.12, 0], pavement, false);
@@ -282,14 +283,14 @@ export function buildEnvironment(THREE, scene, config) {
         for (let col = 0; col < columns; col++) {
           const horizontal = -length / 2 + 0.6 + spacing * (col + 0.5);
           const y = 0.25 + floorHeight * (floor + 0.5);
-          const width = spacing * (isGlass || isShowroom ? 0.91 : 0.6);
-          const height = floorHeight * (isGlass || isShowroom ? 0.87 : 0.61);
+          const width = spacing * (isGlass || isShowroom ? 0.91 : isGrid ? .79 : 0.6);
+          const height = floorHeight * (isGlass || isShowroom ? 0.87 : isGrid ? .89 : 0.61);
           const position = rotated ? [outwardZ, y, horizontal] : [horizontal, y, outwardZ];
           const scale = rotated ? [0.1, height, width] : [width, height, 0.1];
-          const shades = isGlass ? ['#486a77', '#5a7d88', '#739099', '#4b6b76', '#6b8993']
-            : ['#4b5d62', '#5c6e73', '#758180', '#46585f', '#98a39c'];
+          const shades = spec.windowColors || (isGlass ? ['#486a77', '#5a7d88', '#739099', '#4b6b76', '#6b8993']
+            : ['#4b5d62', '#5c6e73', '#758180', '#46585f', '#98a39c']);
           windowValues.push({ position, scale, color: shades[Math.floor(random() * shades.length)] });
-          if (!isGlass) {
+          if (!isGlass && !isGrid) {
             sillValues.push({
               position: rotated ? [outwardZ, y - height / 2 - 0.05, horizontal]
                 : [horizontal, y - height / 2 - 0.05, outwardZ],
@@ -298,7 +299,7 @@ export function buildEnvironment(THREE, scene, config) {
           }
         }
       }
-      if (isGlass) {
+      if (isGlass || isGrid) {
         for (let floor = 1; floor < floors; floor++) {
           box(group, rotated ? [0.2, 0.17, length] : [length, 0.17, 0.2],
             rotated ? [outwardZ, floor * floorHeight + 0.25, 0] : [0, floor * floorHeight + 0.25, outwardZ],
@@ -368,7 +369,7 @@ export function buildEnvironment(THREE, scene, config) {
     box(group, [0.1, 3.1, 0.2], [0, 1.7, d / 2 + bow + 0.25], metal);
     box(group, [entranceWidth + 1.5, 0.25, 2.3], [0, 3.5, d / 2 + bow + 0.95], isMuseum ? darkMetal : paleConcrete);
     if (spec.label) sign(group, spec.label, [Math.min(w * 0.7, 19), isMuseum ? 1.5 : 0.95],
-      [0, isMuseum ? Math.min(h - 1.5, 7.2) : isShowroom ? h - .7 : 4.65, d / 2 + bow + 0.13],
+      [0, spec.labelHeight ?? (isMuseum ? Math.min(h - 1.5, 7.2) : isShowroom ? h - .7 : 4.65), d / 2 + bow + 0.13],
       isMuseum ? { background: '#292f2e', color: '#eeeeea' } : {});
 
     const equipmentCount = Math.max(1, Math.floor(w * d / 440));
@@ -404,14 +405,154 @@ export function buildEnvironment(THREE, scene, config) {
     spec.points.forEach(([x, z], index) => index ? shape.lineTo(x, -z) : shape.moveTo(x, -z)); shape.closePath();
     const geometry = keepGeometry(new THREE.ShapeGeometry(shape)); geometry.rotateX(-Math.PI / 2);
     const layer = spec.surface === 'grass' ? 'grass' : 'paving';
+    let pattern;
+    if (spec.pattern === 'hex') {
+      pattern = canvasTexture(384, 444, (ctx, w, h) => {
+        ctx.fillStyle = '#c0bfb2'; ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = '#8e9188'; ctx.lineWidth = 3;
+        const radius = 32, rise = Math.sqrt(3) * radius;
+        for (let col = -1; col <= 9; col++) for (let row = -1; row <= 9; row++) {
+          const x = col * radius * 1.5, y = (row + (col % 2) / 2) * rise;
+          ctx.beginPath();
+          for (let corner = 0; corner < 6; corner++) {
+            const angle = corner * Math.PI / 3;
+            const px = x + Math.cos(angle) * (radius - 2), py = y + Math.sin(angle) * (radius - 2);
+            if (corner) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+          }
+          ctx.closePath(); ctx.stroke();
+        }
+      });
+      pattern.wrapS = pattern.wrapT = THREE.RepeatWrapping;
+      pattern.repeat.set(.08, .08);
+    }
     const mat = material(spec.color || '#b5aea1', { ...surfaceMaterialOptions(layer),
-      ...(layer === 'grass' ? { map: foliageTexture } : {}) });
+      ...(layer === 'grass' ? { map: foliageTexture } : pattern ? { map: pattern } : {}) });
     const mesh = new THREE.Mesh(geometry, mat);
     mesh.position.y = spec.height ?? SURFACE_HEIGHTS[layer]; mesh.receiveShadow = true;
     mesh.name = spec.id || 'Surface landscaping'; root.add(mesh);
     if (spec.curb) for (let index = 0; index < spec.points.length; index++) {
       segment(root, spec.points[index], spec.points[(index + 1) % spec.points.length], .24, .13, paleConcrete,
         mesh.position.y + (SURFACE_HEIGHTS.curb - SURFACE_HEIGHTS.paving));
+    }
+  }
+
+  // Distinctive architecture stays parameterised and independent of any road
+  // layout. Its dimensions, materials and geographic placement live in data.
+  function buildLandmark(spec) {
+    const { width: w, depth: d, height: h = 24 } = spec;
+    if (!(w > 0 && d > 0)) return;
+    const group = groupAt(spec, spec.id || spec.type);
+    const addMesh = (geometry, mat, y = 0) => {
+      const mesh = new THREE.Mesh(keepGeometry(geometry), mat);
+      mesh.position.y = y; mesh.castShadow = mesh.receiveShadow = true; group.add(mesh); return mesh;
+    };
+    const windows = [];
+    const putWindows = () => {
+      instances(group, unitBox, facadeGlass, windows.filter((_, i) => i % 5 !== 0));
+      instances(group, unitBox, litFacadeGlass, windows.filter((_, i) => i % 5 === 0));
+    };
+    if (spec.type === 'shell-hall') {
+      const base = 2.6, edgeHeight = 7.4;
+      const roofY = (u, v) => edgeHeight + (h - edgeHeight) * (1 - u * u) * (.8 + .2 * Math.cos(v * Math.PI / 2))
+        + (1 - v * v) * 2.2;
+      box(group, [w + 1.2, base, d + 1.2], [0, base / 2, 0], paleConcrete);
+      box(group, [w * .66, h * .55, d * .6], [0, base + h * .275, -d * .08], darkMetal);
+      const copperTexture = canvasTexture(512, 512, (ctx, tw, th) => {
+        ctx.fillStyle = '#b4c3a5'; ctx.fillRect(0, 0, tw, th);
+        for (let x = 0; x < tw; x += 16) for (let y = 0; y < th; y += 26) {
+          ctx.fillStyle = ['#b2c6aa', '#a9bea2', '#bbcaad', '#9ebba3', '#afc3a9'][Math.floor(random() * 5)];
+          ctx.fillRect(x + .7, y + .7, 14.7, 24.7);
+        }
+      });
+      copperTexture.wrapS = copperTexture.wrapT = THREE.RepeatWrapping; copperTexture.repeat.set(2, 2);
+      const copper = material(spec.roofColor || '#a7bfaa', { map: copperTexture, metalness: .24, roughness: .72, side: THREE.DoubleSide });
+      const geometry = new THREE.PlaneGeometry(w, d, 36, 28); geometry.rotateX(-Math.PI / 2);
+      const positions = geometry.attributes.position;
+      for (let i = 0; i < positions.count; i++) positions.setY(i, roofY(positions.getX(i) / (w / 2), positions.getZ(i) / (d / 2)));
+      geometry.computeVertexNormals(); addMesh(geometry, copper);
+      const underside = geometry.clone(); underside.translate(0, -.24, 0); addMesh(underside, paleConcrete);
+      const corners = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]];
+      for (let edge = 0; edge < 4; edge++) {
+        const a = corners[edge], b = corners[(edge + 1) % 4], length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        const count = Math.ceil(length / 2.3), rotation = -Math.atan2(b[1] - a[1], b[0] - a[0]);
+        for (let panel = 0; panel < count; panel++) {
+          const t = (panel + .5) / count, x = a[0] + (b[0] - a[0]) * t, z = a[1] + (b[1] - a[1]) * t;
+          const top = roofY(x / (w / 2), z / (d / 2)) - .4;
+          windows.push({ position: [x, (top + base) / 2, z], scale: [length / count - .15, top - base, .12],
+            rotation: [0, rotation, 0], color: ['#496269', '#5c777c', '#738687'][panel % 3] });
+          const post = box(group, [.12, top - base, .2], [x - Math.cos(rotation) * length / count / 2, (top + base) / 2,
+            z + Math.sin(rotation) * length / count / 2], paleConcrete); post.rotation.y = rotation;
+          const ta = panel / count, tb = (panel + 1) / count;
+          const pa = [a[0] + (b[0] - a[0]) * ta, a[1] + (b[1] - a[1]) * ta];
+          const pb = [a[0] + (b[0] - a[0]) * tb, a[1] + (b[1] - a[1]) * tb];
+          line3(group, [pa[0], roofY(pa[0] / (w / 2), pa[1] / (d / 2)), pa[1]],
+            [pb[0], roofY(pb[0] / (w / 2), pb[1] / (d / 2)), pb[1]], .17, paleConcrete);
+        }
+      }
+      putWindows();
+      box(group, [w * .86, .4, 3.4], [0, 3.6, d / 2 + 1.5], paleConcrete);
+      for (let step = 0; step < 7; step++) box(group, [w * .68, .2 + step * .32, .7],
+        [0, (.2 + step * .32) / 2, d / 2 + 6.1 - step * .7], paleConcrete);
+      if (spec.label) sign(group, spec.label, [Math.min(w * .7, 25), .95], [0, 4.2, d / 2 + 1.6]);
+    } else if (spec.type === 'rounded-corner') {
+      const body = material(spec.color || '#dad9cc', { map: masonryTexture });
+      const blue = material(spec.roofColor || '#327d9e', { metalness: .23, roughness: .5 });
+      const levels = spec.roofLevels ?? 3, topFloor = 3.2, mainHeight = h - levels * topFloor;
+      const footprint = (width, depth, radius) => {
+        const points = [[-width / 2, -depth / 2], [width / 2 - radius, -depth / 2]];
+        for (let k = 1; k <= 14; k++) {
+          const a = -Math.PI / 2 + k * Math.PI / 28;
+          points.push([width / 2 - radius + Math.cos(a) * radius, -depth / 2 + radius + Math.sin(a) * radius]);
+        }
+        points.push([width / 2, depth / 2], [-width / 2, depth / 2]); return points;
+      };
+      const tier = (width, depth, radius, bottom, height, floors, mat) => {
+        const points = footprint(width, depth, radius), shape = new THREE.Shape();
+        points.forEach(([x, z], i) => i ? shape.lineTo(x, -z) : shape.moveTo(x, -z)); shape.closePath();
+        const bodyGeometry = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false }); bodyGeometry.rotateX(-Math.PI / 2);
+        addMesh(bodyGeometry, mat, bottom);
+        const roof = new THREE.ExtrudeGeometry(shape, { depth: .16, bevelEnabled: false }); roof.rotateX(-Math.PI / 2);
+        addMesh(roof, paleConcrete, bottom + height);
+        for (let edge = 0; edge < points.length; edge++) {
+          const a = points[edge], b = points[(edge + 1) % points.length], length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          const count = Math.max(1, Math.round(length / 2.45)), rotation = -Math.atan2(b[1] - a[1], b[0] - a[0]);
+          for (let panel = 0; panel < count; panel++) for (let floor = 0; floor < floors; floor++) {
+            const t = (panel + .5) / count;
+            windows.push({ position: [a[0] + (b[0] - a[0]) * t - Math.sin(rotation) * .065,
+              bottom + (floor + .52) * height / floors, a[1] + (b[1] - a[1]) * t - Math.cos(rotation) * .065],
+              scale: [length / count * (mat === blue ? .83 : .68), height / floors * .69, .13], rotation: [0, rotation, 0],
+              color: ['#607a85', '#627782', '#839397', '#486675'][(panel + floor) % 4] });
+          }
+        }
+      };
+      box(group, [w + .9, .25, d + .9], [0, .125, 0], pavement, false);
+      tier(w, d, spec.radius || 13, .25, mainHeight, spec.floors || 6, body);
+      for (let i = 0; i < levels; i++) tier(w - (i + 1) * 3.5, d - (i + 1) * 3.5,
+        Math.max(4, (spec.radius || 13) - i * 2), mainHeight + .45 + i * (topFloor + .2), topFloor, 1, blue);
+      putWindows();
+      const frontSign = new THREE.Group(); frontSign.rotation.y = Math.PI; group.add(frontSign);
+      if (spec.label) sign(frontSign, spec.label, [Math.min(w * .55, 16), .8], [0, 3.4, d / 2 + .13], { color: '#426a91' });
+      for (const x of [-w * .18, w * .16]) cylinder(group, .05, 4, [x, h + 2.7, d * .1], metal);
+    } else if (spec.type === 'skate-court') {
+      box(group, [w, .12, d], [0, SURFACE_HEIGHTS.paving - .06, 0], material('#bfc1b9', surfaceMaterialOptions('paving')), false);
+      const rampSurface = material('#a5aaa5', { metalness: .12, roughness: .71 });
+      const ramp = (x, z, rotation, width, height) => {
+        const subgroup = new THREE.Group(); subgroup.position.set(x, SURFACE_HEIGHTS.paving, z); subgroup.rotation.y = rotation; group.add(subgroup);
+        const shape = new THREE.Shape(); shape.moveTo(0, 0); shape.lineTo(3.2, 0); shape.lineTo(3.2, height);
+        shape.lineTo(2.7, height); shape.quadraticCurveTo(2.5, .2, 0, .12); shape.closePath();
+        const geometry = keepGeometry(new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: false, curveSegments: 12 }));
+        geometry.rotateY(Math.PI / 2); geometry.translate(-width / 2, 0, 1.6);
+        const mesh = new THREE.Mesh(geometry, rampSurface); mesh.castShadow = mesh.receiveShadow = true; subgroup.add(mesh);
+        line3(subgroup, [-width / 2, height + .035, -1.1], [width / 2, height + .035, -1.1], .045, metal);
+        const trim = material('#a5645a');
+        box(subgroup, [width, .2, .09], [0, height * .55, -1.65], trim);
+      };
+      ramp(-w * .32, 0, -Math.PI / 2, 5.5, 1.7); ramp(w * .32, 0, Math.PI / 2, 6, 1.6);
+      ramp(0, -d * .28, 0, 5, 1.25);
+      box(group, [5.6, .45, 1.5], [-1, .365, d * .22], rampSurface);
+      line3(group, [-5, .8, 0], [4, .8, 0], .04, metal);
+      for (const x of [-4.8, 0, 3.8]) cylinder(group, .037, .66, [x, .47, 0], metal);
+      bench(group, -w * .2, d / 2 + 1.6, Math.PI); bench(group, w * .22, d / 2 + 1.6, Math.PI);
     }
   }
 
@@ -637,7 +778,10 @@ export function buildEnvironment(THREE, scene, config) {
       const pz = (random() - 0.5) * (d - 5);
       const lineA = Math.abs(pz - px * d / w) / Math.hypot(1, d / w);
       const lineB = Math.abs(pz + px * d / w) / Math.hypot(1, d / w);
-      if (Math.min(lineA, lineB) < 3.7 || Math.abs(pz - d / 2 + 2) < 4) continue;
+      const angle = spec.rotation || 0;
+      const worldX = x + px * Math.cos(angle) + pz * Math.sin(angle);
+      const worldZ = z - px * Math.sin(angle) + pz * Math.cos(angle);
+      if (Math.min(lineA, lineB) < 3.7 || Math.abs(pz - d / 2 + 2) < 4 || !clearForTree(worldX, worldZ)) continue;
       addTreeValues(trunks, crowns, px, pz, 6.5 + random() * 5, 2.2 + random() * 1.5);
     }
     instances(group, unitCylinder, bark, trunks);
@@ -666,7 +810,7 @@ export function buildEnvironment(THREE, scene, config) {
   }
 
   function insideBuilding(x, z) {
-    return [...(env.buildings || []), ...(env.pavilions || []), ...(env.parkingLots || [])].some(spec => {
+    return [...(env.buildings || []), ...(env.landmarks || []), ...(env.pavilions || []), ...(env.parkingLots || [])].some(spec => {
       const angle = -(spec.rotation || 0);
       const dx = x - spec.x;
       const dz = z - spec.z;
@@ -936,6 +1080,7 @@ export function buildEnvironment(THREE, scene, config) {
   });
   if (env.park) buildPark(env.park);
   (env.buildings || []).forEach(buildBuilding);
+  (env.landmarks || []).forEach(buildLandmark);
   (env.pavilions || []).forEach(buildPavilion);
   (env.parkingLots || []).forEach(buildParkingLot);
   buildShrubs();

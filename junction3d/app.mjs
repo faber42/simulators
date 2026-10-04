@@ -191,7 +191,7 @@ function start() {
     return { ...indicator, row, state };
   });
   $('signal-monitor').hidden = signalIndicators.length === 0;
-  $('median-status').hidden = signalIndicators.length === 0;
+  $('median-status').hidden = !config.routes.some(route => route.stops?.length > 1);
   const transitRows = (config.transit?.routes || []).map(route => {
     const row = document.createElement('div'); row.className = 'transit-arrival';
     const label = document.createElement('span'); label.textContent = route.schedule ? route.destination : route.label;
@@ -348,7 +348,8 @@ function start() {
     const colors = darkUI ? mapColors.night : mapColors.day;
     ctx.clearRect(0, 0, 440, 300); ctx.fillStyle = colors.ground; ctx.fillRect(0, 0, 440, 300);
     ctx.fillStyle = colors.building;
-    for (const building of [...(config.environment?.buildings || []), ...(config.environment?.pavilions || [])]) {
+    for (const building of [...(config.environment?.buildings || []), ...(config.environment?.pavilions || []), ...(config.environment?.landmarks || [])]) {
+      ctx.fillStyle = building.type === 'skate-court' ? colors.outline : colors.building;
       ctx.save(); ctx.translate(mapX(building.x), mapZ(building.z)); ctx.rotate(-(building.rotation || 0));
       ctx.fillRect(-building.width * mapScale / 2, -building.depth * mapScale / 2, building.width * mapScale, building.depth * mapScale); ctx.restore();
     }

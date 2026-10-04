@@ -309,16 +309,25 @@ export function createScene(canvas, config) {
       : center.clone().addScaledVector(right, cluster.stops.length * 1.8 + 1).addScaledVector(dir, 1.1);
     const height = cluster.height || 6.6;
     const joint = new THREE.Vector3(center.x + dir.x, height, center.z + dir.z);
-    const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(anchor.x, 0, anchor.z), new THREE.Vector3(anchor.x, height - 2.5, anchor.z), new THREE.Vector3(anchor.x, height - .7, anchor.z), joint]);
-    const pole = new THREE.Mesh(new THREE.TubeGeometry(curve, 28, .11, 8, false), metal); pole.castShadow = true; scene.add(pole);
+    const straight = cluster.style === 'straight';
+    const poleCurve = straight
+      ? new THREE.LineCurve3(anchor, new THREE.Vector3(anchor.x, height + 1.7, anchor.z))
+      : new THREE.CatmullRomCurve3([new THREE.Vector3(anchor.x, 0, anchor.z), new THREE.Vector3(anchor.x, height - 2.5, anchor.z), new THREE.Vector3(anchor.x, height - .7, anchor.z), joint]);
+    const pole = new THREE.Mesh(new THREE.TubeGeometry(poleCurve, straight ? 1 : 28, .11, 8, false), metal); pole.castShadow = true; scene.add(pole);
     // A diagonally offset island mast does not pass above every signal head.
     // Join it to a full crossbar through the exact head positions on both sides.
-    const beamPoints = [...cluster.stops.map(stop => new THREE.Vector3(stop.x + dir.x, height, stop.z + dir.z)), joint]
+    const beamPoints = [...cluster.stops.map(stop => new THREE.Vector3(stop.x + dir.x, height, stop.z + dir.z)), joint,
+      ...(straight ? [new THREE.Vector3(anchor.x, height, anchor.z)] : [])]
       .sort((a, b) => a.dot(right) - b.dot(right))
       .filter((point, index, points) => index === 0 || point.distanceToSquared(points[index - 1]) > 1e-8);
     if (beamPoints.length > 1) {
       const beam = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(beamPoints), (beamPoints.length - 1) * 12, .11, 8, false), metal);
       beam.castShadow = true; scene.add(beam);
+    }
+    if (straight && beamPoints.length > 1) {
+      const tip = beamPoints.reduce((furthest, point) => point.distanceToSquared(anchor) > furthest.distanceToSquared(anchor) ? point : furthest);
+      const brace = new THREE.LineCurve3(new THREE.Vector3(anchor.x, height + 1.6, anchor.z), tip);
+      scene.add(new THREE.Mesh(new THREE.TubeGeometry(brace, 1, .026, 5, false), metal));
     }
     for (const stop of cluster.stops) {
       const position = new THREE.Vector3(stop.x + dir.x, height - 1, stop.z + dir.z);

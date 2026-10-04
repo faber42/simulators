@@ -18,7 +18,7 @@ function svgElement(tag, attrs) {
 }
 function diagram(config) {
   const svg = svgElement('svg', { viewBox: '-160 -106 320 212', 'aria-hidden': 'true' });
-  for (const b of [...(config.environment?.buildings || []), ...(config.environment?.pavilions || [])]) svg.append(svgElement('rect', { x: b.x - b.width / 2, y: b.z - b.depth / 2, width: b.width, height: b.depth, rx: 1, fill: 'var(--map-building)', transform: `rotate(${-((b.rotation || 0) * 180 / Math.PI)} ${b.x} ${b.z})` }));
+  for (const b of [...(config.environment?.buildings || []), ...(config.environment?.pavilions || []), ...(config.environment?.landmarks || [])]) svg.append(svgElement('rect', { x: b.x - b.width / 2, y: b.z - b.depth / 2, width: b.width, height: b.depth, rx: b.type === 'rounded-corner' ? 5 : 1, fill: b.type === 'skate-court' ? 'var(--map-sidewalk)' : 'var(--map-building)', transform: `rotate(${-((b.rotation || 0) * 180 / Math.PI)} ${b.x} ${b.z})` }));
   for (const road of config.roads) {
     const path = buildPath(road.points);
     const d = path.samples.filter((_, index) => index % 6 === 0).concat(path.samples.at(-1)).map((p, index) => `${index ? 'L' : 'M'}${p.x.toFixed(1)},${p.z.toFixed(1)}`).join(' ');

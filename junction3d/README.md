@@ -1,9 +1,10 @@
 # Kreuzungsatlas · Dortmund in 3D
 
-Zwei Kreuzungen nutzen dieselbe 3D-Darstellung, Verkehrslogik, Simulationsuhr
-und Kamerasteuerung: **Voßkuhle** (B1 / Voßkuhle / Semmerteichstraße) und
+Drei Kreuzungen nutzen dieselbe 3D-Darstellung, Verkehrslogik, Simulationsuhr
+und Kamerasteuerung: **Voßkuhle** (B1 / Voßkuhle / Semmerteichstraße),
 **Opphoff** (Märkische Straße / oberirdische Seitenarme des Westfalen- und
-Rheinlanddamms). Die vorhandene Simulation in `trafficsim/` bleibt unabhängig.
+Rheinlanddamms) und **Hohe Straße am Wall** (Hansastraße / Hohe Straße ×
+Hiltropwall / Südwall). Die vorhandene Simulation in `trafficsim/` bleibt unabhängig.
 Die Darstellung verwendet Three.js wie die anderen 3D-Projekte dieser Sammlung.
 
 ## Starten
@@ -17,11 +18,39 @@ Standortdaten; sie startet noch keine 3D-Zeichenschleife. Direkte Einstiege:
 
 - Voßkuhle: `simulation.html?location=vosskuhle`
 - Opphoff: `simulation.html?location=opphoff`
+- Hohe Straße am Wall: `simulation.html?location=hohestr-wall`
 
 Der Pfeil links oben führt zurück zur Auswahl. Ein unbekannter oder fehlender
 Standort in der Simulationsadresse führt ebenfalls dorthin. Eigene Kameras
 werden getrennt nach Standort gespeichert; bestehende Voßkuhle-Kameras bleiben
-erhalten. Beide Standorte teilen sich `simulation.html` und `app.mjs`.
+erhalten. Alle Standorte teilen sich `simulation.html` und `app.mjs`.
+
+## Hohe Straße am Wall
+
+Hansastraße und Hohe Straße kreuzen den Hiltropwall und Südwall. Die
+Straßenform, Fahrbahnmarkierungen und Umgebung orientieren sich an den lokalen
+Karten- und Straßenansichten. Der Kreuzungsbereich bleibt ohne mittige
+Warteinsel, innere Ampelhalte oder Stadtbahnverkehr.
+
+Der Umlauf besteht aus vier getrennten Freigaben:
+
+1. Ost–West: geradeaus und rechts abbiegen.
+2. Ost–West: links abbiegen.
+3. Nord–Süd: geradeaus und rechts abbiegen.
+4. Nord–Süd: links abbiegen.
+
+Aus Norden, Osten und Süden gibt es jeweils zwei Linksabbiegespuren, aus
+Westen eine. Gegenüberliegende Linksabbieger fahren gleichzeitig voreinander
+vorbei; bei zwei Spuren führen getrennte parallele Bögen in die zugeordneten
+Ausfahrtsspuren. Jede Route hat nur die äußere Haltelinie. Vor der nächsten
+Freigabe müssen auch die Fahrzeughecks den Konfliktbereich geräumt haben;
+das gilt ebenso beim manuellen Beenden einer Grünphase.
+
+Geometrie, Radien, Grünzeiten und Zuflüsse sind anschauliche Modellannahmen,
+kein vermessener oder amtlich bestätigter Signalplan. Die Kreuzungsdaten stehen
+in `locations/hohestr-wall.mjs`, die Umgebung in einem eigenen Datenmodul.
+Die Referenzbilder unter `tmp/hohestr_wall/` werden nicht von der Anwendung
+geladen und nicht versioniert.
 
 ## Opphoff
 
@@ -52,9 +81,10 @@ Haltepunkte: Ist der nachfolgende Mittelbereich voll, dürfen bereits sicher
 wartende Fahrzeuge den Wechsel zur entlastenden Querphase nicht blockieren.
 Die Fahrbahnmarkierungen folgen denselben Kurven wie die Fahrzeuge.
 
-`opphoff/` enthält ausschließlich lokale Referenzbilder und ist in `.gitignore`
-ausgeschlossen, ebenso wie die früheren Diagnoseframes. Die Anwendung lädt
-keines dieser Bilder.
+`tmp/opphoff/` enthält ausschließlich lokale Referenzbilder; die früheren
+Diagnoseframes liegen unter `tmp/2026-10-03 17-22-03/`. Der gesamte Ordner
+`tmp/` ist in `.gitignore` ausgeschlossen. Die Anwendung lädt keines dieser
+Bilder.
 
 ## Bedienung
 
@@ -130,9 +160,9 @@ Startwarteschlangen; einzelne Fahrzeuge können danach weiter eintreffen.
 
 Zusätzlich gilt im Automatikmodus ein Mindestzufluss je **Zufahrtsrichtung**:
 An der Voßkuhle kommt aus West und Ost jeweils spätestens nach einer Minute,
-aus Nord und Süd jeweils nach fünf Minuten ein Fahrzeug nach. Bei Opphoff
-beträgt dieser Abstand zwei Minuten aus jeder der vier Richtungen. Die Frist
-gilt gemeinsam für alle Spuren und Fahrziele einer Zufahrt, einschließlich
+aus Nord und Süd jeweils nach fünf Minuten ein Fahrzeug nach. Bei Opphoff und
+Hohe Straße am Wall beträgt dieser Abstand zwei Minuten aus jeder der vier
+Richtungen. Die Frist gilt gemeinsam für alle Spuren und Fahrziele einer Zufahrt, einschließlich
 ihrer Rechtsabbiegespur. Jedes regulär neu eintreffende Fahrzeug setzt sie
 zurück; zusätzlicher Mindestverkehr entsteht nur bei einer längeren Lücke.
 Ist die Einfahrt belegt, wartet das Nachrücken auf freien Platz.
@@ -309,9 +339,10 @@ nicht ab; Busse bleiben deshalb auf den geraden B1-Routen.
 
 ## Aufbau
 
-Standortdaten stehen in `locations/dortmund.mjs` (Voßkuhle) und
-`locations/opphoff.mjs`, die Umgebung von Opphoff in einem separaten Datenmodul.
-`locations/index.mjs` registriert beide Standorte. Die Simulationslogik
+Standortdaten stehen in `locations/dortmund.mjs` (Voßkuhle),
+`locations/opphoff.mjs` und `locations/hohestr-wall.mjs`. Opphoff und Hohe Straße
+am Wall haben jeweils ein separates Datenmodul für ihre Umgebung.
+`locations/index.mjs` registriert die drei Standorte. Die Simulationslogik
 arbeitet mit Routen, Signalgruppen und räumlichen Grenzen; sie benötigt keine
 Dortmunder Straßennamen. Die Darstellung liest dieselben Daten für Fahrbahnen,
 Umgebung, Signalpositionen und Kameras.
@@ -331,12 +362,14 @@ Umgebung, Signalpositionen und Kameras.
 | `locations/index.mjs` | Verzeichnis der auswählbaren Kreuzungen und ihrer Modulimporte. |
 | `locations/dortmund.mjs` | Voßkuhle: Ortsgeometrie, Betriebsparameter und Umgebung. |
 | `locations/opphoff.mjs`, `locations/opphoff-environment.mjs` | Opphoff: Straßen, Signale und eigenständige Umgebung. |
+| `locations/hohestr-wall.mjs`, `locations/hohestr-wall-environment.mjs` | Hohe Straße am Wall: vier Bewegungsphasen, parallele Abbiegespuren und Umgebung. |
 | `engine.test.mjs` | Automatisierte Prüfungen der Fahr- und Signallogik. |
 | `spillback.test.mjs` | Rückstau der Voßkuhle-B1-Abbieger, Vorrang beim Räumen und kollisionsfreies Nachrücken der Nebenstraße. |
 | `creep.test.mjs` | Auffüllen freier Mittelspuren und langsames Vorrücken der Nebenstraße bis vor die belegte Abbiegekurve. |
 | `creep-following.test.mjs` | Normales Nachfahren hinter gleichgerichtetem Nebenstraßenverkehr ohne unnötiges Schritttempo. |
 | `minimum-arrivals.test.mjs` | Nächtliche Mindestzuflüsse je Richtung, freie Zufahrten, Fristen und manueller Nullverkehr. |
 | `opphoff.test.mjs` | Elf Signalstandorte, mehrstufige Linksabbieger, Speichersättigung und Langläufe mit unabhängiger Kollisionsprüfung. |
+| `hohestr-wall.test.mjs` | Vier Phasen, vorgegebene Linksabbiegespuren, gleichzeitige Gegenlinksfahrten, Ausfahrtzusammenführung und unabhängige Kollisionsprüfung bei Normalverkehr, hoher Dichte und manuellem Phasenende. |
 | `time-model.test.mjs` | Ortszeitumrechnung, beide Sommerzeitwechsel, Fahrplangrenzen, Wochenenden sowie Verkehrs- und Lichtprofile. |
 
 Die Engine-Prüfungen lassen sich vom Repository-Hauptverzeichnis mit
@@ -354,6 +387,12 @@ von der Szene und der lokalen Zeitzone des Rechners.
 Normalverkehr und zwanzig Minuten Berufsverkehr; alle Fahrbeziehungen müssen
 passieren, ohne rote Haltepunkte zu überfahren, Fahrzeughüllen zu überschneiden
 oder den Mittelbereich zu überfüllen.
+`node --test junction3d/hohestr-wall.test.mjs` prüft die vier Bewegungsphasen,
+gleichzeitig fahrende Gegenlinksabbieger in jedem Simulationsschritt sowie
+sechs Minuten Normalverkehr und zehn Minuten hohe Dichte mit unabhängiger
+Fahrzeugkörperprüfung. Manuelle Phasenwechsel müssen eingelassene Fahrzeuge
+vollständig räumen lassen; gezielte Ausfahrtstaus prüfen den Abstand beim
+Zusammenführen auf gemeinsame Ausfahrtsspuren.
 `node --test junction3d/spillback.test.mjs` prüft den erlaubten Rückstau in
 beiden B1-Abbiegerichtungen einschließlich Wendefahrten und des anschließenden
 Vorrangs vor neu einfahrendem Nebenstraßenverkehr.
@@ -361,8 +400,8 @@ Vorrangs vor neu einfahrendem Nebenstraßenverkehr.
 Grün, die Wartepunkte vor dem Kurvenbereich und das Auffüllen freier Spuren.
 `node --test junction3d/creep-following.test.mjs` prüft die Unterscheidung
 zwischen normalem Nachfahren und vorsichtigem Vorrücken hinter B1-Abbiegern.
-`node --test junction3d/minimum-arrivals.test.mjs` prüft Mindestzuflüsse an beiden
-Standorten, einschließlich Sonntag und Montag um 01:30 Uhr.
+`node --test junction3d/minimum-arrivals.test.mjs` prüft Mindestzuflüsse an
+Voßkuhle und Opphoff, einschließlich Sonntag und Montag um 01:30 Uhr.
 
 Alle Längen sind Meter, Zeiten Sekunden und Geschwindigkeiten Meter pro
 Sekunde. Ausnahmen: Absolute Uhrzeiten sind Unix-Zeitstempel in Millisekunden;
@@ -383,9 +422,10 @@ Blickziele das Format `[x, y, z]`. Gebäude-Drehungen sind im Bogenmaß angegebe
 | `timing` | Übergänge `yellow`, `allRed` und `redAmber`. |
 | `conflictBounds` | Rechteck des zu räumenden Kreuzungsbereichs im Grundriss. |
 | `islands` | Unbefahrbare Inseln als Grundrisspolygone `points`. |
-| `signalGantries` | Masten mit `anchor`, `height` und den daran montierten Signalhalt-IDs `stopIds`. |
+| `signalGantries` | Masten mit `anchor`, `height` und den daran montierten Signalhalt-IDs `stopIds`; optional `style: 'straight'` für einen geraden Mast mit Querträger und Abspannung. |
 | `cameras` | Kameravorgaben mit Position, Blickziel und vertikalem Sichtwinkel `fov` in Grad. |
 | `environment` | Gebäude, Baumzonen, Grünbereich, Gleise, Haltestelle und Tankstelle. |
+| `environment.landmarks` | Prägende Gebäude und Anlagen mit `type`, `x`, `z`, `width`, `depth`, `height` und optionaler `rotation`. |
 | `environment.lights` | Lampenstandorte mit `x`, `z`, `height`, `rotation` und dem zugeordneten Lichtprofil `profile`. |
 | `environment.streetLights` | Wiederverwendbare Lichtprofile unter `profiles`, das `defaultProfile` und die Auflösung der Beleuchtungskarte. |
 | `seed` | Startwert für reproduzierbaren Zufallsverkehr. |
@@ -556,7 +596,12 @@ optional `surface: 'grass'` / `curb`. `parkingLots` verwendet `x`, `z`,
 stehenden Autos. `pavilions` nutzt dieselben Positions-/Maßfelder und
 `height` / `label`. `shrubs` platziert niedrige Pflanzen mit `radius`,
 `height` und optionaler `elevation`. Gebäude unterstützen zusätzlich
-`style: 'residential'` für Balkone und `style: 'showroom'` für große Fenster.
+`style: 'residential'` für Balkone, `style: 'showroom'` für große Fenster
+und `style: 'grid'` für gegliederte Fassadenraster.
+`landmarks` nutzt dieselben Positions-, Maß- und Drehungsfelder wie Gebäude;
+`type: 'shell-hall'`, `'rounded-corner'` und `'skate-court'` wählen eine
+Halle mit Schalendach, einen gerundeten Eckbau oder eine Skateanlage.
+Ihre Grundflächen erscheinen auch in den Lageplänen.
 Inseln können mit `surface: 'grass'` begrünt werden. Alle Bausteine sind
 optional und enthalten keine festen Ortskoordinaten in der Darstellung.
 
