@@ -60,7 +60,9 @@ keines dieser Bilder.
 
 - **Kameras:** Unten eine Perspektive wählen oder die Tasten **1–7** nutzen.
   Die Übersicht ist frei drehbar; bei den Mastkameras aktiviert **Freie Ansicht**
-  die Bewegung. Mit gedrückter linker Maustaste drehen, mit dem Mausrad zoomen.
+  die Bewegung. Mit gedrückter linker Maustaste die Kreuzung umkreisen;
+  **Shift + Ziehen** dreht nur den Blick am festen Standort. Shift kann auch
+  während des Ziehens gedrückt oder losgelassen werden. Mit dem Mausrad zoomen.
   Bei einer festen Kamera verändert das Mausrad den Blickwinkel.
 - **Eigene Kamera:** Im Lageplan **+ Kamera** wählen, zuerst den Standort und
   anschließend das Blickziel anklicken. Höhe (3–40 m) und Blickwinkel (25–85°)

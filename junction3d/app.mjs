@@ -2,10 +2,12 @@ import { getLocation } from './locations/index.mjs';
 import { TrafficSimulation } from './engine.mjs';
 import { createScene } from './scene.mjs';
 import { createFrameLoop } from './frame-loop.mjs';
+import { FreeCameraControls } from './camera-controls.mjs';
 import { getLocalTime, localDateTimeToEpoch, getTrafficProfile, getLightingProfile } from './time-model.mjs';
 
 const $ = id => document.getElementById(id);
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+const FREE_CAMERA_HINT = 'Ziehen: umkreisen · Shift + Ziehen: umsehen · Scrollen: zoomen';
 const locationEntry = getLocation(new URLSearchParams(window.location.search).get('location'));
 let config, storageKey;
 let toastTimeout;
@@ -129,7 +131,8 @@ function start() {
   function setManualLight(value) { manualLight = value; applyEnvironment(true); }
   $('manual-light').addEventListener('change', () => setManualLight($('manual-light').value));
   let desiredPosition = new THREE.Vector3(), desiredTarget = new THREE.Vector3(), lookTarget = new THREE.Vector3();
-  const orbit = { theta: .67, phi: .85, distance: 310, target: new THREE.Vector3() };
+  const freeCamera = new FreeCameraControls();
+  let drag = null;
   let customCameras = [];
   try {
     const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
@@ -138,11 +141,9 @@ function start() {
   const cameras = () => [...config.cameras, ...customCameras];
   function persistCameras() { try { localStorage.setItem(storageKey, JSON.stringify(customCameras)); } catch { toast('Kamera für diese Sitzung gespeichert. Browserspeicher ist nicht verfügbar.'); } view.setMounts(cameras()); invalidateView(); }
   function syncOrbit() {
-    orbit.target.copy(desiredTarget);
-    const offset = desiredPosition.clone().sub(desiredTarget);
-    orbit.distance = offset.length(); orbit.theta = Math.atan2(offset.x, offset.z); orbit.phi = Math.acos(clamp(offset.y / orbit.distance, -1, 1));
+    freeCamera.reset(desiredPosition, desiredTarget);
   }
-  function orbitPosition() { desiredPosition.set(orbit.distance * Math.sin(orbit.phi) * Math.sin(orbit.theta), orbit.distance * Math.cos(orbit.phi), orbit.distance * Math.sin(orbit.phi) * Math.cos(orbit.theta)).add(orbit.target); desiredTarget.copy(orbit.target); invalidateView(); }
+  function applyFreeCamera() { desiredPosition.copy(freeCamera.position); desiredTarget.copy(freeCamera.target); invalidateView(); }
   function refreshCameraButtons() {
     $('camera-list').replaceChildren();
     cameras().forEach((preset, index) => {
@@ -161,6 +162,7 @@ function start() {
   function selectCamera(id, immediate = true) {
     const preset = cameras().find(c => c.id === id); if (!preset) return;
     if (placing) cancelPlacement(false);
+    drag = null;
     activeCamera = id; free = id === 'overview';
     desiredPosition.fromArray(preset.position); desiredTarget.fromArray(preset.target);
     camera.fov = preset.fov; camera.updateProjectionMatrix(); syncOrbit();
@@ -168,7 +170,7 @@ function start() {
     $('camera-index').textContent = `CAM ${String(cameras().indexOf(preset) + 1).padStart(2, '0')}`;
     $('camera-label').textContent = preset.label; $('camera-description').textContent = preset.description || 'Eigene Verkehrskamera';
     $('free-camera').setAttribute('aria-pressed', String(free));
-    $('view-hint').textContent = free ? 'Ziehen zum Drehen · Scrollen zum Zoomen' : 'Feste Verkehrskamera · Scrollen zum Zoomen';
+    $('view-hint').textContent = free ? FREE_CAMERA_HINT : 'Feste Verkehrskamera · Scrollen zum Zoomen';
     document.querySelectorAll('[data-camera]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.camera === id)));
     invalidateView();
   }
@@ -262,15 +264,31 @@ function start() {
   $('free-camera').addEventListener('click', () => {
     if (placing) cancelPlacement(false);
     if (free) { selectCamera(activeCamera); if (activeCamera === 'overview') toast('Übersicht auf die Ausgangsposition zurückgesetzt.'); return; }
-    free = true; syncOrbit(); orbit.distance = Math.max(30, orbit.distance); orbit.phi = Math.min(orbit.phi, 1.48); orbitPosition();
-    $('free-camera').setAttribute('aria-pressed', 'true'); $('camera-index').textContent = 'FREIE KAMERA'; $('view-hint').textContent = 'Ziehen zum Drehen · Scrollen zum Zoomen';
+    free = true; syncOrbit(); freeCamera.orbit(0, 0); freeCamera.zoom(0, 30); applyFreeCamera();
+    $('free-camera').setAttribute('aria-pressed', 'true'); $('camera-index').textContent = 'FREIE KAMERA'; $('view-hint').textContent = FREE_CAMERA_HINT;
   });
-  let drag = null;
-  $('scene').addEventListener('pointerdown', event => { if (!free || event.button !== 0) return; drag = { x: event.clientX, y: event.clientY, id: event.pointerId }; $('scene').setPointerCapture(event.pointerId); });
-  $('scene').addEventListener('pointermove', event => { if (!drag) return; orbit.theta -= (event.clientX - drag.x) * .006; orbit.phi = clamp(orbit.phi - (event.clientY - drag.y) * .005, .08, 1.48); drag.x = event.clientX; drag.y = event.clientY; orbitPosition(); });
+  $('scene').addEventListener('pointerdown', event => {
+    if (!free || event.button !== 0) return;
+    event.preventDefault();
+    freeCamera.capture(camera.position, lookTarget); applyFreeCamera();
+    drag = { x: event.clientX, y: event.clientY, id: event.pointerId, look: event.shiftKey };
+    $('scene').setPointerCapture(event.pointerId);
+  });
+  $('scene').addEventListener('pointermove', event => {
+    if (!free || !drag || event.pointerId !== drag.id) return;
+    if (drag.look !== event.shiftKey) {
+      freeCamera.capture(camera.position, lookTarget);
+      drag.look = event.shiftKey;
+    } else {
+      const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+      if (drag.look) freeCamera.look(dx, dy);
+      else freeCamera.orbit(dx, dy);
+    }
+    drag.x = event.clientX; drag.y = event.clientY; applyFreeCamera();
+  });
   const releaseDrag = () => { drag = null; };
   $('scene').addEventListener('pointerup', releaseDrag); $('scene').addEventListener('pointercancel', releaseDrag); $('scene').addEventListener('lostpointercapture', releaseDrag);
-  $('scene').addEventListener('wheel', event => { event.preventDefault(); if (free) { orbit.distance = clamp(orbit.distance * Math.exp(event.deltaY * .001), 25, 520); orbitPosition(); } else { camera.fov = clamp(camera.fov + event.deltaY * .025, 25, 85); camera.updateProjectionMatrix(); invalidateView(); } }, { passive: false });
+  $('scene').addEventListener('wheel', event => { event.preventDefault(); if (free) { freeCamera.zoom(event.deltaY); applyFreeCamera(); } else { camera.fov = clamp(camera.fov + event.deltaY * .025, 25, 85); camera.updateProjectionMatrix(); invalidateView(); } }, { passive: false });
   window.addEventListener('keydown', event => {
     if (event.key === 'Escape' && placing) { cancelPlacement(); return; }
     if (event.target.matches('input,textarea,select,[contenteditable=true]')) return;
@@ -317,6 +335,7 @@ function start() {
   });
   function previewDraft() {
     if (!draftCamera || placementStep < 2) return;
+    drag = null;
     free = false; desiredPosition.fromArray(draftCamera.position); desiredTarget.fromArray(draftCamera.target); camera.fov = draftCamera.fov; camera.updateProjectionMatrix();
     $('camera-index').textContent = 'KAMERA-VORSCHAU'; $('camera-label').textContent = draftCamera.label; $('camera-description').textContent = 'Standort und Blickrichtung aus dem Lageplan';
     $('free-camera').setAttribute('aria-pressed', 'false'); $('view-hint').textContent = 'Montagehöhe und Blickwinkel rechts einstellen';

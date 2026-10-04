@@ -19,9 +19,9 @@
       <canvas id="scene" aria-label="3D-Kreuzung mit Fahrzeugen und Ampeln"></canvas>
       <div class="view-label"><span id="camera-index">CAM 01</span><strong id="camera-label">Überblick</strong><small id="camera-description">Die gesamte Kreuzung</small></div>
       <div class="view-time"><span id="simulation-clock">00:00:00</span><small id="clock-day">SIMULATIONSZEIT · DORTMUND</small></div>
-      <div class="scene-toolbar"><button id="free-camera" title="Freie Kamera: ziehen zum Drehen, Mausrad zum Zoomen">↔ Freie Ansicht</button><button id="daylight" title="Zwischen Tageslicht und Abendlicht wechseln">◐ Abendlicht</button><button id="fullscreen" title="Vollbild umschalten" aria-label="Vollbild umschalten">⛶</button></div>
+      <div class="scene-toolbar"><button id="free-camera" title="Freie Kamera: ziehen zum Umkreisen, Shift + Ziehen zum Umsehen am Standort, Mausrad zum Zoomen">↔ Freie Ansicht</button><button id="daylight" title="Zwischen Tageslicht und Abendlicht wechseln">◐ Abendlicht</button><button id="fullscreen" title="Vollbild umschalten" aria-label="Vollbild umschalten">⛶</button></div>
       <div class="north-marker"><span> N </span><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3 29 32 20 26 11 32Z"/></svg><small>NORDEN</small></div>
-      <div id="view-hint">Ziehen zum Drehen · Scrollen zum Zoomen</div>
+      <div id="view-hint">Ziehen: umkreisen · Shift + Ziehen: umsehen · Scrollen: zoomen</div>
       <div class="map-card"><div><span>LAGEPLAN</span><button id="place-camera" title="Eigene Verkehrskamera im Lageplan platzieren">+ Kamera</button></div><canvas id="minimap" width="440" height="300" aria-label="Lageplan: mit aktivierter Kameraplatzierung zuerst Standort, dann Blickziel anklicken" tabindex="0"></canvas><p id="map-hint" hidden></p></div>
       <div id="loading" role="status"><span class="loader-symbol">╋</span><strong>Die Kreuzung entsteht.</strong><small>Straßen, Stadt und Verkehr werden geladen …</small></div>
       <div id="toast" role="status"></div>
