@@ -16,6 +16,16 @@ const VEHICLE_TYPES = {
   bus: { weight: 3, length: 11.5, width: 2.5 },
 };
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+// Reservations include the gap behind each body, so the next vehicle needs
+// only its own length plus the margin at the receiving stop line. Locations
+// without a metre budget keep their existing vehicle-count limit.
+function storagePlaces(storage, vehicle, counts, lengths) {
+  if (!storage) return Infinity;
+  const count = storage.capacity - (counts.get(storage.id) ?? 0);
+  if (storage.length == null) return count;
+  const metres = storage.length - (lengths.get(storage.id) ?? 0) - STOP_MARGIN + GAP;
+  return Math.min(count, Math.floor((metres + 1e-8) / (vehicle.length + GAP)));
+}
 function validateClockTime(epochMs) {
   if (!Number.isFinite(epochMs) || !Number.isFinite(new Date(epochMs).getTime())) {
     throw new Error('Simulation startTime must be a valid epoch time in milliseconds.');
@@ -161,6 +171,9 @@ export class TrafficSimulation {
         if (stop.storage && (!stop.storage.id || !Number.isInteger(stop.storage.capacity) || stop.storage.capacity < 1)) {
           throw new Error(`Invalid storage on ${route.id} stop ${index}.`);
         }
+        if (stop.storage?.length != null && (!Number.isFinite(stop.storage.length) || stop.storage.length <= 0)) {
+          throw new Error(`Invalid storage length on ${route.id} stop ${index}.`);
+        }
         if (stop.yieldToGroups && (!Array.isArray(stop.yieldToGroups) || stop.yieldToGroups.some(group => typeof group !== 'string' || !group))) {
           throw new Error(`Invalid yield groups on ${route.id} stop ${index}.`);
         }
@@ -181,13 +194,17 @@ export class TrafficSimulation {
       if (stops.some((stop, index) => index > 0 && stop.distance <= stops[index - 1].distance)) {
         throw new Error(`Stops on ${route.id} must follow route order.`);
       }
+      const choiceStopIndex = route.choiceStopIndex ?? 0;
+      if (!Number.isInteger(choiceStopIndex) || choiceStopIndex < 0 || choiceStopIndex >= stops.length) {
+        throw new Error(`Invalid route-choice stop on ${route.id}.`);
+      }
       const stopDistance = stops[0].distance;
       const clearDistance = stops.at(-1).clearDistance;
       const vehicleKinds = route.vehicleKinds ?? Object.keys(VEHICLE_TYPES);
       if (!Array.isArray(vehicleKinds) || !vehicleKinds.length || vehicleKinds.some(kind => !VEHICLE_TYPES[kind])) {
         throw new Error(`Route ${route.id} needs valid vehicleKinds: car, van or bus.`);
       }
-      return { ...route, path, length: path.length, stops, group: stops[0].group,
+      return { ...route, path, length: path.length, stops, choiceStopIndex, group: stops[0].group,
         stopLine: stops[0].point ?? route.stopLine, stopDistance, clearDistance,
         mergeDistance: route.mergePoint ? projectedDistance(path, route.mergePoint) : clearDistance - 22,
         laneSections: (route.laneSections ?? []).map(section => ({ ...section,
@@ -601,9 +618,10 @@ export class TrafficSimulation {
   hasPhaseTraffic() {
     const drainGroups = this.phases[this.phaseIndex].drainGroups ?? [];
     const successor = this.phases[(this.phaseIndex + 1) % this.phases.length];
-    const occupancy = new Map();
+    const occupancy = new Map(), occupiedLengths = new Map();
     for (const vehicle of this.vehicles) for (const reservation of vehicle.reservations) {
       occupancy.set(reservation.id, (occupancy.get(reservation.id) ?? 0) + 1);
+      occupiedLengths.set(reservation.id, (occupiedLengths.get(reservation.id) ?? 0) + vehicle.length + GAP);
     }
     return this.trams.some(tram => tram.committed && tram.distance - tram.length / 2 <= tram.route.clearDistance) || this.vehicles.some(vehicle => {
       if (vehicle.committedStops.some(commitment => {
@@ -621,7 +639,7 @@ export class TrafficSimulation {
         return !handsOver;
       })) return true;
       const nextStop = vehicle.route.stops[vehicle.passedGateIndex + 1];
-      const storageFull = nextStop?.storage && !nextStop.storage.allowOverflow && (occupancy.get(nextStop.storage.id) ?? 0) >= nextStop.storage.capacity;
+      const storageFull = nextStop?.storage && !nextStop.storage.allowOverflow && storagePlaces(nextStop.storage, vehicle, occupancy, occupiedLengths) < 1;
       // Drain admitted cars, including a manually shortened phase. A vehicle
       // whose receiving median is full can remain at this middle signal once
       // its rear has cleared the preceding gate's safe holding point. Waiting
@@ -630,22 +648,29 @@ export class TrafficSimulation {
     });
   }
 
-  chooseRoute(vehicle, occupiedStorage) {
+  chooseRoute(vehicle, occupiedStorage, occupiedLengths = new Map()) {
     const original = vehicle.route;
-    if (!original.choiceGroup || vehicle.passedGateIndex >= 0) return;
-    const freePlaces = route => {
-      const storage = route.stops[0].storage;
-      return storage ? storage.capacity - (occupiedStorage.get(storage.id) ?? 0) : Infinity;
-    };
+    const index = original.choiceStopIndex;
+    if (!original.choiceGroup || vehicle.passedGateIndex >= index) return;
+    // Once a draining inner signal has closed, changing to a newly free
+    // destination would demand more drainage through a signal already red.
+    if (index > 0 && (this.stage === 'drainYellow' || this.stage === 'clearance')) return;
+    const freePlaces = route => storagePlaces(route.stops[index].storage, vehicle, occupiedStorage, occupiedLengths);
     let chosen = original;
     for (const candidate of this.routes) {
       if (candidate.choiceGroup === original.choiceGroup && candidate.laneId === original.laneId && candidate.group === original.group &&
+        candidate.choiceStopIndex === index && (index === 0 || (candidate.stops[index].id === original.stops[index].id &&
+          original.stops.slice(0, index).every((stop, previous) => {
+            const other = candidate.stops[previous];
+            return stop.id === other.id && stop.group === other.group && stop.storage?.id === other.storage?.id &&
+              Math.abs(stop.distance - other.distance) < 1e-6 && Math.abs(stop.clearDistance - other.clearDistance) < 1e-6;
+          }))) &&
         candidate.vehicleKinds.includes(vehicle.kind) && freePlaces(candidate) > freePlaces(chosen)) chosen = candidate;
     }
     if (chosen === original) return;
-    // Alternatives share their physical approach. Preserve stationing relative
-    // to the first stop; the choice becomes immutable as soon as it is passed.
-    vehicle.distance += chosen.stopDistance - original.stopDistance;
+    // Alternatives share their physical path and gates up to the choice stop.
+    // Keep earlier reservations and stationing; the turn is fixed on entry.
+    vehicle.distance += chosen.stops[index].distance - original.stops[index].distance;
     vehicle.route = chosen;
     vehicle.routeId = chosen.id;
     vehicle.turn = chosen.turn ?? 'straight';
@@ -676,15 +701,19 @@ export class TrafficSimulation {
 
   fanoutClearance(vehicle, other) {
     const route = vehicle.route, neighbor = other.route;
-    if (vehicle.id === other.id || route.laneId !== neighbor.laneId || !route.stops[0].storage?.allowOverflow ||
-      !neighbor.stops[0].storage?.allowOverflow || route.stops[0].storage.id === neighbor.stops[0].storage.id ||
-      vehicle.distance < route.stopDistance + 5 || vehicle.distance > route.stops[1].distance + vehicle.length ||
-      other.distance < neighbor.stopDistance + 5 || other.distance > neighbor.stops[1].distance + other.length ||
+    const index = route.choiceStopIndex;
+    const innerChoice = index > 0 && route.choiceGroup && route.choiceGroup === neighbor.choiceGroup && index === neighbor.choiceStopIndex;
+    const stop = route.stops[index], neighborStop = neighbor.stops[index];
+    if (vehicle.id === other.id || route.laneId !== neighbor.laneId || !stop?.storage || !neighborStop?.storage ||
+      !(innerChoice || (index === 0 && stop.storage.allowOverflow && neighborStop.storage.allowOverflow)) ||
+      stop.storage.id === neighborStop.storage.id || !route.stops[index + 1] || !neighbor.stops[index + 1] ||
+      vehicle.distance < stop.distance + (innerChoice ? -vehicle.length - GAP : 5) || vehicle.distance > route.stops[index + 1].distance + vehicle.length ||
+      other.distance < neighborStop.distance + (innerChoice ? -other.length - GAP : 5) || other.distance > neighbor.stops[index + 1].distance + other.length ||
       Math.hypot(vehicle.x - other.x, vehicle.z - other.z) > 25) return Infinity;
     // Different receiving lanes become independent as soon as their actual
     // swept bodies separate. Check the approaching path, not an artificial
     // station shared by all turning lanes; an empty parallel lane stays usable.
-    const end = Math.min(route.stops[1].distance + vehicle.length,
+    const end = Math.min(route.stops[index + 1].distance + vehicle.length,
       vehicle.distance + 12 + vehicle.speed * 1.5 + vehicle.speed ** 2 / 10);
     for (let distance = vehicle.distance; distance <= end; distance += 0.4) {
       if (bodyConflict(samplePath(route.path, distance), vehicle, other)) return Math.max(0, distance - vehicle.distance - 0.4);
@@ -709,6 +738,19 @@ export class TrafficSimulation {
       vehicle.committed = vehicle.committedStops.length > 0;
       vehicle.reservations = vehicle.reservations.filter(reservation => vehicle.distance - vehicle.length / 2 <= reservation.releaseDistance);
     }
+    const occupiedStorage = new Map(), occupiedLengths = new Map(), storageEntryGroups = new Map();
+    const occupyStorage = (id, group, length) => {
+      occupiedStorage.set(id, (occupiedStorage.get(id) ?? 0) + 1);
+      occupiedLengths.set(id, (occupiedLengths.get(id) ?? 0) + length + GAP);
+      if (!storageEntryGroups.has(id)) storageEntryGroups.set(id, new Set());
+      storageEntryGroups.get(id).add(group);
+    };
+    for (const vehicle of this.vehicles) for (const reservation of vehicle.reservations) {
+      occupyStorage(reservation.id, vehicle.route.stops[0].group, vehicle.length);
+    }
+    // Decide inner-gate destinations before assessing whether the phase has
+    // drained. A free alternative must still be served by the current green.
+    for (const vehicle of this.vehicles) this.chooseRoute(vehicle, occupiedStorage, occupiedLengths);
     this.advanceSignal(dt);
     this.moveTrams(dt);
     if (this.density > 0) for (const route of this.routes) {
@@ -719,16 +761,6 @@ export class TrafficSimulation {
     }
     this.spawnMinimumArrivals();
 
-    const occupiedStorage = new Map(), storageEntryGroups = new Map();
-    const occupyStorage = (id, group) => {
-      occupiedStorage.set(id, (occupiedStorage.get(id) ?? 0) + 1);
-      if (!storageEntryGroups.has(id)) storageEntryGroups.set(id, new Set());
-      storageEntryGroups.get(id).add(group);
-    };
-    for (const vehicle of this.vehicles) for (const reservation of vehicle.reservations) {
-      occupyStorage(reservation.id, vehicle.route.stops[0].group);
-    }
-    for (const vehicle of this.vehicles) this.chooseRoute(vehicle, occupiedStorage);
     const vehiclesByRoute = new Map();
     const unclearedEntryGroups = new Set();
     for (const vehicle of this.vehicles) {
@@ -757,12 +789,12 @@ export class TrafficSimulation {
       }
       const stopIndex = vehicle.passedGateIndex + 1;
       const stop = vehicle.route.stops[stopIndex];
-      const storageFull = stop?.storage && !stop.storage.allowOverflow && (occupiedStorage.get(stop.storage.id) ?? 0) >= stop.storage.capacity;
+      const storageFull = stop?.storage && !stop.storage.allowOverflow && storagePlaces(stop.storage, vehicle, occupiedStorage, occupiedLengths) < 1;
       const yields = stop?.yieldToGroups?.some(group => unclearedEntryGroups.has(group));
       const approachStop = vehicle.route.stops[0];
       const approach = approachStop.yieldApproach;
       const pendingApproach = approach && !vehicle.yieldApproachPassed;
-      const approachFull = pendingApproach && (occupiedStorage.get(approachStop.storage.id) ?? 0) >= approachStop.storage.capacity;
+      const approachFull = pendingApproach && storagePlaces(approachStop.storage, vehicle, occupiedStorage, occupiedLengths) < 1;
       const approachYields = pendingApproach && approachStop.yieldToGroups?.some(group => unclearedEntryGroups.has(group));
       const approachBlocked = approachFull || approachYields;
       // Capacity alone still requires a free slot at the yield point, but
@@ -799,7 +831,7 @@ export class TrafficSimulation {
       const crossesApproach = pendingApproach && !approachBlocked && vehicle.distance + advance + vehicle.length / 2 > approach.distance;
       const reserves = crossesApproach ? approachStop : crossesGate && !stop.yieldApproach ? stop : null;
       if (reserves?.storage) {
-        occupyStorage(reserves.storage.id, approachStop.group);
+        occupyStorage(reserves.storage.id, approachStop.group, vehicle.length);
         vehicle.reservations.push({ id: reserves.storage.id,
           releaseDistance: vehicle.route.stops[crossesApproach ? 1 : stopIndex + 1]?.distance ?? reserves.clearDistance });
       }

@@ -67,6 +67,19 @@ Linksabbieger passieren ihre Außen- und Innenampel und warten anschließend
 am inneren Signal der Zielrichtung. Speicherplätze und gemeinsam genutzte
 Ausfahrtsspuren verhindern Überfüllung und Fahrzeugüberschneidungen.
 
+Die nutzbare Aufstelllänge unterscheidet die Achsen: Auf der Märkischen Straße
+stehen je Mittelspur rund 46 Meter zur Verfügung, genug für sieben Pkw oder
+sechs Transporter einschließlich der Abstände. Die kurzen Mittelspuren der
+oberirdischen Westfalen-/Rheinlanddamm-Arme bieten 17 Meter und höchstens zwei
+Fahrzeugen Platz. Reservierungen berücksichtigen auch die tatsächliche
+Fahrzeuglänge. Die langen Bereiche gelten sowohl für Geradeausverkehr als auch
+für einbiegende Fahrzeuge; die gemeinsame Fahrzeugfolge beginnt bereits am
+Anfang des Wartebereichs, bevor die Abbiegekurve ganz in die Gerade übergeht.
+Linksabbieger aus Westen und Osten wählen beim eigenen inneren Signal die
+freier belegte der beiden Geradeausspuren auf der Märkischen Straße. Nach
+Beginn der Abbiegefahrt bleibt die Zielspur fest. Geradeausfahrer aus Norden
+und Süden behalten ihre ursprüngliche Spur.
+
 Die elf markierten Signalstandorte bestehen aus acht äußeren/inneren Standorten
 und drei gesonderten Rechtsabbiegern: aus Osten nach Norden, aus Norden nach
 Westen und aus Süden nach Osten. Pro mehrspurigem Standort gibt es mehrere
@@ -262,7 +275,10 @@ Ein reservierter Platz wird erst frei, wenn das Fahrzeug die innere Haltelinie v
 passiert hat. Zwei kleine Inseln tragen die inneren Ampelmasten; die
 Stadtbahnfreigabe wartet auf die Räumung aller reservierten Wartebereiche.
 
-Die Stadtbahn fährt auf beiden Gleisen durch den Mittelstreifen. Der vom Nutzer
+Die Stadtbahn fährt auf beiden Gleisen als Doppeltraktion durch den
+Mittelstreifen: Zwei gekuppelte, je 28 Meter lange Einheiten bilden einen
+56 Meter langen Verband. Ein Stromabnehmer ist angehoben, der zweite
+eingeklappt. Der vom Nutzer
 vorgegebene Minutenraster gilt für geplante Ankünfte an der Kreuzung in
 Dortmunder Ortszeit:
 
@@ -283,9 +299,9 @@ nach Betriebsschluss. Zukünftige Morgenfahrten stehen nachts nicht schon an
 der Kreuzung.
 
 Beide Richtungen halten an der Haltestelle Voßkuhle für **20 Simulationssekunden**.
-Ostwärts folgt der Halt nach der Kreuzung: Die Bahn bremst erst, nachdem ihr
-Heck den Konfliktbereich geräumt hat. Der anschließende Aufenthalt erzeugt
-keine neue Ampelanmeldung und hält die Kreuzungsphase nicht fest. Westwärts
+Ostwärts liegt der Halt hinter der Kreuzung. Sobald das vollständige Zugheck
+den Konfliktbereich geräumt hat, hält der anschließende Aufenthalt die
+Kreuzungsphase nicht fest und erzeugt keine neue Ampelanmeldung. Westwärts
 liegt der Halt vor der Kreuzung; die Bahn ist bereits während ihres
 Aufenthalts für die Passage angemeldet und fährt anschließend nur bei
 zulässiger B1-Freigabe weiter. Auch ein Szenenstart direkt zur Fahrplanminute
@@ -314,13 +330,15 @@ Phasendauer kann sich durch Räumung und Nachlauf verlängern.
 Verkehrsaufkommen, Fahrbahnbreiten, Spuranordnung,
 Gebäudehöhen und Geschwindigkeiten sind ebenfalls editierbare Annahmen.
 Die Nebenstraßenfläche ist mit ungefähr 24 Metern Gesamtbreite für sechs
-Spuren einschließlich seitlichem Spielraum modelliert. Die Bahn ist 28 Meter
-lang und 2,5 Meter breit; die Bahnsteigmitten liegen bei `z = ±5,5 m`, damit
+Spuren einschließlich seitlichem Spielraum modelliert. Der gesamte Bahnverband
+ist 56 Meter lang und 2,5 Meter breit; die Bahnsteigmitten liegen bei `z = ±5,5 m`, damit
 die innere Bahnsteigkante nahe am Wagen liegt und dessen Körper frei bleibt.
 Die Bahnsteige reichen von `x = 45` bis `125 m`. Haltepunkte bezeichnen die
-**Zugmitte**: ostwärts `[110, 2.4]`, westwärts `[60, -2.4]`. Die Wagenkörper
-stehen dadurch vollständig am Bahnsteig, ostwärts bei `x = 96…124 m` und
-westwärts bei `x = 46…74 m`. Die Westbahn hält mit ihrer Front zehn Meter
+**Mitte des gesamten Verbands**: ostwärts `[96, 2.4]`, westwärts `[74, -2.4]`.
+Beide Einheiten stehen dadurch vollständig am unveränderten Bahnsteig,
+ostwärts bei `x = 68…124 m` und westwärts bei `x = 46…102 m`.
+Die Front-Haltepositionen bleiben bei `x = 124 m` Richtung Ost und
+`x = 46 m` Richtung West. Die Westbahn hält mit ihrer Front zehn Meter
 vor dem Kreuzungssignal. Die 20 Sekunden Aufenthalt sind ein Modellwert.
 Je B1-Zufahrt entstehen 45 Abbiegefahrten zur Nebenstraße und 20 Wendefahrten
 pro Stunde bei Verkehrsfaktor 1. Je Nebenstraßenzufahrt entstehen 150
@@ -368,7 +386,11 @@ Umgebung, Signalpositionen und Kameras.
 | `creep.test.mjs` | Auffüllen freier Mittelspuren und langsames Vorrücken der Nebenstraße bis vor die belegte Abbiegekurve. |
 | `creep-following.test.mjs` | Normales Nachfahren hinter gleichgerichtetem Nebenstraßenverkehr ohne unnötiges Schritttempo. |
 | `minimum-arrivals.test.mjs` | Nächtliche Mindestzuflüsse je Richtung, freie Zufahrten, Fristen und manueller Nullverkehr. |
+| `tram-stops.test.mjs` | Bahnsteighalt, Fahrplan und Kreuzungsfreigabe erst nach dem Heck des vollständigen Doppelzugs. |
+| `transit-renderer.test.mjs` | Zwei unverzerrte Gelenkwagen, genau ein angehobener Stromabnehmer, äußere Endlichter und gemeinsam verwendete Geometrie. |
 | `opphoff.test.mjs` | Elf Signalstandorte, mehrstufige Linksabbieger, Speichersättigung und Langläufe mit unabhängiger Kollisionsprüfung. |
+| `opphoff-storage.test.mjs` | Volle Nutzung der langen Mittelspuren mit Pkw und Transportern, kurze Zielspeicher und sichere Zusammenführung mit Geradeausverkehr. |
+| `opphoff-lane-choice.test.mjs` | Auswahl beider Zielspuren durch Linksabbieger, bestehende Platzreservierungen und Spurtreue des Geradeausverkehrs. |
 | `hohestr-wall.test.mjs` | Vier Phasen, vorgegebene Linksabbiegespuren, gleichzeitige Gegenlinksfahrten, Ausfahrtzusammenführung und unabhängige Kollisionsprüfung bei Normalverkehr, hoher Dichte und manuellem Phasenende. |
 | `time-model.test.mjs` | Ortszeitumrechnung, beide Sommerzeitwechsel, Fahrplangrenzen, Wochenenden sowie Verkehrs- und Lichtprofile. |
 
@@ -386,7 +408,14 @@ von der Szene und der lokalen Zeitzone des Rechners.
 `node --test junction3d/opphoff.test.mjs` prüft Opphoff über zehn Minuten
 Normalverkehr und zwanzig Minuten Berufsverkehr; alle Fahrbeziehungen müssen
 passieren, ohne rote Haltepunkte zu überfahren, Fahrzeughüllen zu überschneiden
-oder den Mittelbereich zu überfüllen.
+oder den Mittelbereich zu überfüllen. Jede vollständig angebotene Grünphase
+muss wartende Fahrzeuge oder ihre Vorgänger voranbringen.
+`node --test junction3d/opphoff-storage.test.mjs` prüft sieben Pkw beziehungsweise
+sechs Transporter je langer Mittelspur, die Begrenzung der kurzen Bereiche
+und das sichere Nachfahren des Geradeausverkehrs nach dem Phasenwechsel.
+`node --test junction3d/opphoff-lane-choice.test.mjs` prüft die Wahl der freien
+Zielspur auch hinter der Außenampel, das Festhalten an der begonnenen Kurve
+und die unveränderte Spurwahl der Geradeausfahrer.
 `node --test junction3d/hohestr-wall.test.mjs` prüft die vier Bewegungsphasen,
 gleichzeitig fahrende Gegenlinksabbieger in jedem Simulationsschritt sowie
 sechs Minuten Normalverkehr und zehn Minuten hohe Dichte mit unabhängiger
@@ -465,10 +494,15 @@ aus `conflictBounds` verwendet. Für mehrstufige Routen muss der erste
 `clearPoint` vor dem zweiten Signal liegen und auch hinter dem Heck des
 letzten dort zulässig wartenden Fahrzeugs genügend Abstand lassen.
 
-`storage: { id, capacity }` am ersten Halt reserviert Platz bis zum folgenden
+`storage: { id, capacity, length? }` an einem Halt reserviert Platz bis zum folgenden
 Signalhalt. Identische `storage.id` bedeutet einen gemeinsamen Wartebereich,
-auch wenn Fahrzeuge aus verschiedenen Straßen kommen. Eine Kapazität von zwei
-setzt entsprechend lange nutzbare Aufstellflächen voraus. Optional erlaubt
+auch wenn Fahrzeuge aus verschiedenen Straßen kommen. `capacity` begrenzt die
+Anzahl; das optionale `length` zusätzlich die nutzbare Länge in Metern zwischen
+sicherem Aufstellbeginn und folgendem Signal. Fahrzeuglängen, Abstände und
+Haltemarge müssen gemeinsam hineinpassen. Ein langer Transporter oder Bus
+belegt daher mehr Platz als ein Pkw. Alle Zufahrten desselben Wartebereichs
+müssen dieselben Grenzen verwenden. Ohne `length` bleibt die bisherige reine
+Anzahlbegrenzung erhalten. Optional erlaubt
 `storage.allowOverflow: true` das Einfahren bei Grün trotz belegter Plätze,
 während Fahrzeugfolge und der folgende Signalhalt den Rückstau begrenzen.
 Das ist an der Voßkuhle nur für B1-Linksabbieger aktiviert. Die anschließende
@@ -486,17 +520,25 @@ allein lösen kein Schritttempo aus; die Kapazitätsgrenze am Wartepunkt gilt we
 Die Platzreservierung erfolgt dann erst bei der Weiterfahrt
 über den Wartepunkt. Bereits über die äußere Haltelinie eingefahrene Fahrzeuge
 werden auch nach dem Schließen der äußeren Ampel im Nachlauf geräumt.
-Opphoff behält die feste Kapazität und das Warten am äußeren Signal.
-`mergePoint` markiert
-den Beginn einer gemeinsamen Ausfahrtsspur; zusammenführende Routen müssen ab
-dort dieselben Leitpunkte und dieselbe `exitId` verwenden. Wiederholte
+Opphoff erlaubt keinen Überlauf und wartet vor der Zufahrt, sobald Anzahl oder
+nutzbare Länge des jeweiligen Mittelbereichs ausgeschöpft sind.
+`mergePoint` markiert den Beginn der gemeinsamen Fahrzeugfolge in einer
+Ausfahrtsspur. Zusammenführende Routen verwenden dieselbe `exitId` und müssen
+ab dort auf denselben Fahrstreifen zulaufen; ihre Abstände bis zum gemeinsamen
+Ausfahrtende müssen vergleichbar sein. Wiederholte
 Signalhalt-IDs stehen für denselben physischen Signalgeber und dürfen daher
 nur dieselbe Position und Signalgruppe bezeichnen.
 
 `choiceGroup` verbindet Alternativen mit derselben Zufahrt und demselben
 Fahrtziel. Eine Primärroute enthält den gemeinsamen Zufluss `rate`; alternative
 Routen müssen `rate: 0` verwenden. Die Engine wählt vor der Zulassung eine
-kompatible Spur mit freiem Speicher. Für Wendefahrten gehören nur reine
+kompatible Spur mit freiem Speicher. `choiceStopIndex` verschiebt diese Wahl
+optional vom ersten Halt (Standard `0`) zu einem späteren Halt, etwa der
+inneren Ampel bei Opphoff (`1`). Bis dorthin müssen die Alternativen denselben
+Fahrweg und dieselben bisherigen Halte und Speicher besitzen; eine gemeinsame
+`laneSection` sichert die Fahrzeugfolge bis zur Aufteilung. Bestehende
+Reservierungen bleiben erhalten, und nach Überfahren des Wahlhalts ist die
+Zielspur fest. Für Wendefahrten gehören nur reine
 Linksabbiege- und kombinierte Spuren in dieselbe Auswahlgruppe.
 
 `laneSections: [{ id, from, to }]` beschreibt die Abschnitte gemeinsam genutzter
@@ -510,7 +552,10 @@ So verschwindet die Abstandshaltung beim Beginn des Abbiegens nicht vorzeitig.
 Autoverkehrsgruppen, `transit.blockedGroups` die während der gesamten
 reservierten Bahnphase gesperrten Abbiegegruppen. Jede Route in
 `transit.routes` enthält `points`, `stopLine`, `clearPoint`, `speed`, `length`,
-und `schedule`. Das Fahrplanobjekt enthält `minuteOffset` (9 Richtung Ost,
+und `schedule`. `length` ist die gesamte Fahrzeuglänge für Bewegung und
+Räumung. Das optionale Darstellungsfeld `units` gibt die Anzahl gekuppelter
+Einheiten an (Standard `1`); Voßkuhle verwendet `units: 2` und `length: 56`.
+Das Fahrplanobjekt enthält `minuteOffset` (9 Richtung Ost,
 2 Richtung West), `intervalMinutes: 10`, `sundayIntervalMinutes: 20`,
 `serviceStart: 300` und `serviceEnd: 1410`. Die Betriebsgrenzen sind Minuten
 nach Mitternacht; das Ende ist exklusiv. Der Minutenversatz wird auf das
@@ -522,7 +567,7 @@ bereits am Phasenanfang berücksichtigt, damit keine Linksabbieger kurz vor
 einer erwarteten Bahn eingelassen werden.
 
 Eine Bahnroute kann `stationStop: { point: [x, z], dwell: 20 }` angeben.
-`point` ist die Position der Zugmitte auf ihrem Fahrweg; anders als bei
+`point` ist die Position der Mitte des gesamten Verbands auf seinem Fahrweg; anders als bei
 `stopLine` wird hier keine halbe Fahrzeuglänge abgezogen. `dwell` ist die
 Aufenthaltsdauer in Simulationssekunden nach dem vollständigen Anhalten.
 Ein vorgelagerter Halt wird bei der Anfahrt berücksichtigt und meldet die

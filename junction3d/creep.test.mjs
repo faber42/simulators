@@ -212,7 +212,10 @@ test('Opphoff gates keep hard capacity and ordinary admission without yielding-c
   assert.ok(simulation.routes.every(route => route.stops.every(stop => !stop.yieldApproach)));
   const capacities = new Map(simulation.routes.flatMap(route => route.stops.filter(stop => stop.storage)
     .map(stop => [stop.storage.id, stop.storage.capacity])));
-  const cars = simulation.routes.filter(route => route.stops.length === 3).flatMap(route => queue(simulation, route.id, 6));
+  // Outlet variants share one physical approach; seed its queue only once.
+  const approaches = new Map();
+  for (const route of simulation.routes) if (route.stops.length === 3 && !approaches.has(route.laneId)) approaches.set(route.laneId, route);
+  const cars = [...approaches.values()].flatMap(route => queue(simulation, route.id, 6));
   let sawFull = false;
   for (let tick = 0; tick < 240 / STEP; tick++) {
     step(simulation);

@@ -99,17 +99,59 @@ function assertFullStop(trip, route) {
   assert.equal(stops, 1);
 }
 
-test('Voßkuhle places both twenty-second stops within the platform, with the complete eastbound train clear of the crossing', () => {
+test('Voßkuhle fits both coupled 28-metre units within the platform and preserves the front stopping markers', () => {
   const simulation = new TrafficSimulation(fixture());
   const platform = dortmund.environment.station;
   for (const route of simulation.transitRoutes) {
+    assert.equal(route.units, 2, 'Both directions use two complete tram units');
+    assert.equal(route.length, 56, 'Collision and clearance use the complete coupled train length');
+    assert.equal(route.length / route.units, 28, 'Each coupled unit retains its original dimensions');
     assert.equal(route.stationStop.dwell, 20);
     const x = route.stationStop.point[0];
     assert.ok(x - route.length / 2 >= platform.x - platform.length / 2);
     assert.ok(x + route.length / 2 <= platform.x + platform.length / 2);
-    if (route.id === 'tram-west') assert.ok(route.stationStop.distance + route.length / 2 < route.stopDistance);
-    else assert.ok(route.stationStop.distance - route.length / 2 > route.clearDistance);
+    if (route.id === 'tram-west') {
+      assert.equal(x - route.length / 2, 46, 'The westbound front remains at its established stopping marker');
+      assert.ok(route.stationStop.distance + route.length / 2 < route.stopDistance);
+    } else {
+      assert.equal(x + route.length / 2, 124, 'The eastbound front remains at its established stopping marker');
+      assert.ok(route.stationStop.distance - route.length / 2 > route.clearDistance);
+    }
   }
+});
+
+for (const id of ['tram-east', 'tram-west']) test(`${id}: side traffic waits until the rear of the second coupled unit clears`, () => {
+  const config = fixture({ ids: [id], offset: 0, longGreen: true });
+  // Remove timer padding so the body-based clearance condition itself must
+  // hold the crossing, rather than a coincidentally long all-red interval.
+  config.timing = { yellow: 0, allRed: 0, redAmber: 0 };
+  const simulation = new TrafficSimulation(config);
+  let requestedAt = null, clearedAt = null, sideOpenedAt = null;
+  for (let tick = 0; tick < 160 / STEP && sideOpenedAt === null; tick++) {
+    const tram = simulation.trams[0];
+    if (requestedAt === null && tram?.committed && tram.distance > tram.route.clearDistance + .1 &&
+      tram.distance - tram.length / 2 < tram.route.clearDistance) {
+      // The train midpoint is also the first unit's rear. Its passage must
+      // not be mistaken for the clearance of the complete two-unit train.
+      requestedAt = simulation.elapsed;
+      simulation.requestNextPhase();
+    }
+    simulation.update(STEP);
+    assertSignalSafety(simulation);
+    const current = simulation.trams[0];
+    if (requestedAt !== null && current) {
+      if (current.distance - current.length / 2 <= current.route.clearDistance) {
+        assert.equal(simulation.phaseIndex, 0, 'A remaining second unit keeps cross traffic closed');
+        assert.equal(simulation.getSignal('north'), 'red');
+        assert.equal(simulation.getSignal('south'), 'red');
+      } else if (clearedAt === null) clearedAt = simulation.elapsed;
+    }
+    if (requestedAt !== null && simulation.getSignal('north') === 'green') sideOpenedAt = simulation.elapsed;
+  }
+  assert.notEqual(requestedAt, null, 'The fixture must end the phase between the two rear passages');
+  assert.notEqual(clearedAt, null, 'The complete 56-metre train must eventually clear');
+  assert.ok(clearedAt - requestedAt > 1, 'The second unit creates a real, measured clearance interval');
+  assert.ok(sideOpenedAt !== null && sideOpenedAt >= clearedAt, 'Side traffic resumes after the final rear clears');
 });
 
 for (const id of ['tram-east', 'tram-west']) test(`${id}: one smooth approach, a physically stationary twenty-second stop, then departure`, () => {

@@ -239,7 +239,10 @@ test('the tram phase following spillback begins only after the whole inherited t
 test('Opphoff keeps hard storage capacity on every gate and continues alternating both axes', () => {
   const config = quietConfig(opphoff);
   const simulation = new TrafficSimulation(config);
-  const candidates = simulation.routes.filter(route => route.stops.length === 3);
+  // Count physical approaches once even when they offer two receiving lanes.
+  const approaches = new Map();
+  for (const route of simulation.routes) if (route.stops.length === 3 && !approaches.has(route.laneId)) approaches.set(route.laneId, route);
+  const candidates = [...approaches.values()];
   assert.equal(candidates.length, 4);
   const cars = candidates.flatMap(route => addQueue(simulation, route.id, 7));
   const capacities = new Map(simulation.routes.flatMap(route => route.stops.filter(stop => stop.storage)

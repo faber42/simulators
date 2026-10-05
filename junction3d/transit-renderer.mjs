@@ -20,12 +20,17 @@ export function createTransitRenderer(THREE, scene, config) {
   const roof = mat('#92958e', { metalness: .35, roughness: .65 });
   const whiteLamp = mat('#fff4da', { emissive: '#fff2c3', emissiveIntensity: 1.8, roughness: .22 });
   const tailLamp = mat('#c9362e', { emissive: '#f82514', emissiveIntensity: 1.2, roughness: .24 });
+  const unlitLamp = mat('#303937', { roughness: .3 });
+  whiteLamp.name = 'Tram headlights'; tailLamp.name = 'Tram tail lights'; unlitLamp.name = 'Tram coupled cab lights off';
   const signalOn = new THREE.MeshBasicMaterial({ color: '#fffce8', toneMapped: false }); materials.add(signalOn);
   const signalOff = mat('#3d4544');
   const templates = new Map(), vehicles = new Map(), signals = [];
   const destinationMaterials = new Set();
+  const displays = new Map();
   let nightStrength = 0;
-  const nominalLength = 28;
+  const unitLength = 28;
+  const unitCount = spec => spec.units === 2 ? 2 : 1;
+  const templateKey = spec => JSON.stringify([spec.line || 'U', spec.destination || spec.label || 'Stadtbahn', unitCount(spec)]);
 
   function box(parent, material, x, y, z, w, h, d, shadow = true) {
     const mesh = new THREE.Mesh(unitBox, material); mesh.position.set(x, y, z); mesh.scale.set(w, h, d);
@@ -40,14 +45,17 @@ export function createTransitRenderer(THREE, scene, config) {
     mesh.castShadow = true; parent.add(mesh); return mesh;
   }
   function display(parent, label, x, y, z, width, height, rotation = 0) {
-    const canvas = document.createElement('canvas'); canvas.width = 768; canvas.height = 128;
-    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#152021'; ctx.fillRect(0, 0, 768, 128);
-    ctx.fillStyle = '#efd28a'; ctx.font = '600 64px Arial, sans-serif'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-    ctx.fillText(label, 384, 66, 724);
-    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; textures.add(texture);
-    const material = mat('#ffffff', { map: texture, emissive: '#e9c977', emissiveMap: texture,
-      emissiveIntensity: .3 + nightStrength * 1.4, roughness: .55 });
-    destinationMaterials.add(material);
+    let material = displays.get(label);
+    if (!material) {
+      const canvas = document.createElement('canvas'); canvas.width = 768; canvas.height = 128;
+      const ctx = canvas.getContext('2d'); ctx.fillStyle = '#152021'; ctx.fillRect(0, 0, 768, 128);
+      ctx.fillStyle = '#efd28a'; ctx.font = '600 64px Arial, sans-serif'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText(label, 384, 66, 724);
+      const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; textures.add(texture);
+      material = mat('#ffffff', { map: texture, emissive: '#e9c977', emissiveMap: texture,
+        emissiveIntensity: .3 + nightStrength * 1.4, roughness: .55 });
+      destinationMaterials.add(material); displays.set(label, material);
+    }
     const mesh = new THREE.Mesh(geometry(new THREE.PlaneGeometry(width, height)), material);
     mesh.position.set(x, y, z); mesh.rotation.y = rotation; parent.add(mesh);
   }
@@ -92,12 +100,12 @@ export function createTransitRenderer(THREE, scene, config) {
     }
   }
 
-  function makeTram(spec = {}) {
+  function makeUnit(spec, index, units) {
     const label = spec.destination || spec.label || 'Stadtbahn';
     const line = spec.line || 'U';
-    const key = `${line}:${label}`;
-    if (templates.has(key)) return templates.get(key);
-    const group = new THREE.Group(); group.name = `Articulated tram ${line}`;
+    const group = new THREE.Group(); group.name = `Tram unit ${index + 1}`;
+    const front = index === 0, rear = index === units - 1;
+    group.userData = { unitIndex: index, nominalLength: unitLength, frontLights: front, rearLights: rear, pantographRaised: front };
     // Two body sections meet at a full-height, ribbed articulation bellows.
     for (const direction of [-1, 1]) {
       const center = direction * 6.48;
@@ -153,6 +161,9 @@ export function createTransitRenderer(THREE, scene, config) {
     // from the rectangular road buses, even in a distant overview.
     for (const direction of [-1, 1]) {
       const cab = new THREE.Group(); cab.rotation.y = direction === 1 ? 0 : Math.PI; group.add(cab);
+      const exterior = direction === 1 ? front : rear;
+      cab.name = `Cab ${direction === 1 ? 'front' : 'rear'}`;
+      cab.userData = { coupled: !exterior, lampState: exterior ? (direction === 1 ? 'white' : 'red') : 'off' };
       box(cab, shell, 0, 2.04, 12.98, 2.4, 2.22, .72);
       box(cab, red, 0, 1.19, 13.53, 2.24, .7, .46);
       polygon(cab, [[-1.18, 1.55, 13.72], [1.18, 1.55, 13.72], [1.07, 3.15, 13.24], [-1.07, 3.15, 13.24]], shell);
@@ -164,24 +175,43 @@ export function createTransitRenderer(THREE, scene, config) {
       box(cab, metal, 0, .59, 13.75, .46, .23, .48);
       for (const side of [-1, 1]) {
         box(cab, dark, side * .79, 1.29, 13.783, .36, .29, .035);
-        box(cab, direction === 1 ? whiteLamp : tailLamp, side * .79, 1.29, 13.809, .25, .16, .025, false);
+        box(cab, exterior ? (direction === 1 ? whiteLamp : tailLamp) : unlitLamp, side * .79, 1.29, 13.809, .25, .16, .025, false);
         box(cab, metal, side * 1.25, 2.6, 12.98, .18, .28, .12);
       }
       display(cab, `${line}  ${label}`, 0, 3.04, 13.303, 1.77, .24);
     }
-    // Roof pantograph reaches the existing 6.15 m contact wire.
-    const pz = -3.1;
-    box(group, dark, 0, 3.54, pz, 1.05, .2, 1.5);
+    // Only the leading unit collects current. The other retains its complete
+    // folded linkage above the roof instead of deleting its pantograph.
+    const pantograph = new THREE.Group(); pantograph.position.z = -3.1;
+    pantograph.name = `Pantograph ${front ? 'raised' : 'folded'}`;
+    pantograph.userData = { raised: front }; group.add(pantograph);
+    const pz = 0, knee = front ? 4.86 : 3.73, contact = front ? 6.02 : 3.82;
+    box(pantograph, dark, 0, 3.54, pz, 1.05, .2, 1.5);
     for (const side of [-1, 1]) {
       const x = side * .36;
-      bar(group, [x, 3.65, pz - .55], [x, 4.86, pz + 1], .045, metal);
-      bar(group, [x, 4.86, pz + 1], [x, 6.02, pz - .38], .041, metal);
-      bar(group, [x, 3.65, pz + .55], [x, 4.86, pz - 1], .028, dark);
-      bar(group, [x, 4.86, pz - 1], [x, 6.02, pz + .38], .028, dark);
+      bar(pantograph, [x, 3.65, pz - .55], [x, knee, pz + 1], .045, metal);
+      bar(pantograph, [x, knee, pz + 1], [x, contact, pz - .38], .041, metal);
+      bar(pantograph, [x, 3.65, pz + .55], [x, knee, pz - 1], .028, dark);
+      bar(pantograph, [x, knee, pz - 1], [x, contact, pz + .38], .028, dark);
     }
-    box(group, dark, 0, 6.035, pz, 1.7, .05, .31);
-    bar(group, [-1.05, 5.91, pz], [-.78, 6.04, pz], .025, metal);
-    bar(group, [.78, 6.04, pz], [1.05, 5.91, pz], .025, metal);
+    box(pantograph, dark, 0, contact + .015, pz, 1.7, .05, .31);
+    bar(pantograph, [-1.05, contact - .11, pz], [-.78, contact + .02, pz], .025, metal);
+    bar(pantograph, [.78, contact + .02, pz], [1.05, contact - .11, pz], .025, metal);
+    return group;
+  }
+
+  function makeTram(spec = {}) {
+    const key = templateKey(spec);
+    if (templates.has(key)) return templates.get(key);
+    const units = unitCount(spec), group = new THREE.Group();
+    group.name = `Articulated tram ${spec.line || 'U'} · ${units} unit${units === 1 ? '' : 's'}`;
+    group.userData = { nominalLength: units * unitLength, unitCount: units, templateKey: key };
+    for (let index = 0; index < units; index++) {
+      const unit = makeUnit(spec, index, units);
+      // Couplers reach +/-13.99 m: adjacent cabs meet at the existing couplers,
+      // while all bodies, bogies, doors and articulated joints stay unscaled.
+      unit.position.z = ((units - 1) / 2 - index) * unitLength; group.add(unit);
+    }
     batchTemplate(group);
     group.userData.nominalWidth = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3()).x;
     templates.set(key, group); return group;
@@ -209,17 +239,19 @@ export function createTransitRenderer(THREE, scene, config) {
     const live = new Set();
     for (const tram of simulation.trams || []) {
       live.add(tram.id);
+      const spec = tram.route || transitRoutes.find(route => route.id === tram.routeId) || {};
       let model = vehicles.get(tram.id);
-      if (model && model.userData.simulationBody !== tram) { model.removeFromParent(); model = null; }
+      if (model && (model.userData.simulationBody !== tram || model.userData.templateKey !== templateKey(spec))) {
+        model.removeFromParent(); model = null;
+      }
       if (!model) {
-        const spec = tram.route || transitRoutes.find(route => route.id === tram.routeId) || {};
         model = makeTram(spec).clone(true); model.userData.simulationBody = tram;
         vehicles.set(tram.id, model); root.add(model);
       }
       const pose = simulation.getRenderPose?.(tram) || tram;
       model.position.set(pose.x, .12, pose.z); model.rotation.y = pose.heading;
       model.scale.x = (tram.width || config.transit?.width || 2.5) / model.userData.nominalWidth;
-      model.scale.z = (tram.length || nominalLength) / nominalLength;
+      model.scale.z = (tram.length || model.userData.nominalLength) / model.userData.nominalLength;
     }
     for (const [id, model] of vehicles) if (!live.has(id)) { model.removeFromParent(); vehicles.delete(id); }
     for (const signal of signals) {
@@ -247,7 +279,7 @@ export function createTransitRenderer(THREE, scene, config) {
     },
     dispose() {
       root.removeFromParent(); geometries.forEach(value => value.dispose()); materials.forEach(value => value.dispose()); textures.forEach(value => value.dispose());
-      vehicles.clear(); templates.clear();
+      vehicles.clear(); templates.clear(); displays.clear(); destinationMaterials.clear();
     },
   };
 }

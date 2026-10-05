@@ -19,6 +19,45 @@ function bodiesOverlap(a, b) {
   });
 }
 
+// A seven-car median feeding a two-car perpendicular median legitimately
+// needs several ordinary cycles. Audit each COMPLETE offered green instead
+// of assuming every admitted body leaves within a fixed wall-clock limit.
+// At least one predecessor must pass on each offered green; a vehicle's own
+// deadline is therefore its initial queue position in full green offers.
+function gateProgressAudit(simulation) {
+  const budgets = new Map();
+  let offers = [], checked = 0;
+  return () => {
+    for (const { vehicle, gateIndex, gateId, ahead } of offers) {
+      checked++;
+      if (vehicle.passedGateIndex >= gateIndex) { budgets.delete(vehicle.id); continue; }
+      const passedAhead = ahead.filter(other => other.passedGateIndex >=
+        other.route.stops.findIndex(stop => stop.id === gateId));
+      assert.ok(passedAhead.length > 0,
+        `${vehicle.routeId} #${vehicle.id} neither passed ${gateId} nor lost a predecessor during a complete offered green`);
+      const budget = budgets.get(vehicle.id);
+      budget.remaining--;
+      assert.ok(budget.remaining > 0,
+        `${vehicle.routeId} #${vehicle.id} exceeded its FIFO queue-position deadline of ${budget.initial} full greens at ${gateId}`);
+    }
+    offers = [];
+    const phase = simulation.phases[simulation.phaseIndex];
+    for (const vehicle of simulation.vehicles) {
+      const gateIndex = vehicle.passedGateIndex + 1, next = vehicle.route.stops[gateIndex];
+      if (vehicle.passedGateIndex < 0 || !next || !phase.groups.includes(next.group)) continue;
+      const remaining = next.distance - vehicle.distance;
+      const ahead = simulation.vehicles.filter(other => {
+        if (other === vehicle || other.passedGateIndex < 0) return false;
+        const otherNext = other.route.stops[other.passedGateIndex + 1];
+        return otherNext?.id === next.id && otherNext.distance - other.distance < remaining;
+      });
+      if (!budgets.has(vehicle.id)) budgets.set(vehicle.id, { initial: ahead.length + 1, remaining: ahead.length + 1 });
+      offers.push({ vehicle, gateIndex, gateId: next.id, ahead });
+    }
+    return checked;
+  };
+}
+
 test('three-stage left turns can wait safely at their own middle signal when the destination median is full', () => {
   const simulation = new TrafficSimulation({
     seed: 42, density: 0, initialVehiclesPerLane: 0,
@@ -84,7 +123,8 @@ test('Opphoff has eleven complete signal sites, four synchronized outer/middle p
   for (const stop of layout.stops) assert.equal(assignments.get(stop.id), 1, `Stop ${stop.id} needs exactly one mast site`);
   assert.equal(layout.clusters.filter(cluster => cluster.inner).length, 4);
   const lefts = simulation.routes.filter(route => route.turn === 'left');
-  assert.equal(lefts.length, 4);
+  assert.equal(new Set(lefts.map(route => route.laneId)).size, 4,
+    'Four physical left approaches may offer alternative receiving lanes');
   const pairs = new Set();
   for (const route of lefts) {
     assert.equal(route.stops.length, 3, 'A left turn passes its own outer and middle gate before the perpendicular middle gate');
@@ -121,11 +161,14 @@ for (const scenario of [
   const counts = new Map(simulation.routes.map(route => [route.id, 0]));
   const enteredAt = new Map();
   const stagedDirections = new Set();
+  const checkGateProgress = gateProgressAudit(simulation);
+  let checkedGreenOffers = checkGateProgress();
   let longestMiddleStay = 0;
   let previous = new Map(simulation.vehicles.map(vehicle => [vehicle.id, vehicle]));
   for (let tick = 0; tick < scenario.duration * 30; tick++) {
     const previousSerial = simulation.phaseSerial;
     simulation.update(1 / 30);
+    if (simulation.phaseSerial !== previousSerial) checkedGreenOffers = checkGateProgress();
     if (simulation.phaseSerial !== previousSerial) for (const vehicle of simulation.vehicles) {
       assert.ok(vehicle.committedStops.every(commitment => commitment.phaseSerial !== previousSerial ||
         vehicle.distance - vehicle.length / 2 > vehicle.route.stops[commitment.index].clearDistance),
@@ -142,7 +185,7 @@ for (const scenario of [
       if (vehicle.passedGateIndex >= 0 && nextStop) {
         if (!enteredAt.has(vehicle.id)) enteredAt.set(vehicle.id, simulation.elapsed);
         longestMiddleStay = Math.max(longestMiddleStay, simulation.elapsed - enteredAt.get(vehicle.id));
-        if (vehicle.route.turn === 'left' && vehicle.passedGateIndex === 1 && vehicle.speed < .2) stagedDirections.add(vehicle.routeId);
+        if (vehicle.route.turn === 'left' && vehicle.passedGateIndex === 1 && vehicle.speed < .2) stagedDirections.add(vehicle.route.incoming);
       } else if (!nextStop) enteredAt.delete(vehicle.id);
     }
     if (tick % 6 !== 0) continue;
@@ -180,6 +223,6 @@ for (const scenario of [
   assert.ok(simulation.passed > scenario.duration * .4, 'Protected turning must preserve useful throughput');
   for (const [id, count] of counts) assert.ok(count >= 2, `${id} must complete repeated journeys`);
   assert.equal(stagedDirections.size, 4, 'Every left direction must really stop at the perpendicular middle signal');
-  assert.ok(longestMiddleStay < 300, `Admitted traffic remained inside the junction for ${longestMiddleStay.toFixed(1)} seconds`);
-  t.diagnostic(`${simulation.passed} passed, ${simulation.cycle} cycles; longest admitted middle stay ${longestMiddleStay.toFixed(1)} s`);
+  assert.ok(checkedGreenOffers > 0, 'The run must verify individual queue progress across complete green offers');
+  t.diagnostic(`${simulation.passed} passed, ${simulation.cycle} cycles; ${checkedGreenOffers} individual green offers checked; longest admitted middle stay ${longestMiddleStay.toFixed(1)} s`);
 });

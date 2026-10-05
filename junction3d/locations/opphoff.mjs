@@ -34,8 +34,22 @@ function gatePoint(direction, lane, gate) {
     : gate === 'entry' ? (d.axis === 'ew' ? -9 : -4) : (d.axis === 'ew' ? 8 : 17);
   return point(direction, distance * d.sign, lane);
 }
+// The Märkische holding area starts just beyond the first surface B1 carriageway.
+// Its safe rear boundary is independent of the later curve join (entry=-4).
+// Keeping that join fixed preserves the existing, collision-free left arcs.
+function holdingPoint(direction, lane) {
+  const d = directions[direction];
+  return point(direction, (d.axis === 'ew' ? -9 : -22.5) * d.sign, lane);
+}
 const stopId = (direction, gate, lane) => `${direction}-${gate}-${lane}`;
 const storageId = (direction, lane) => `${direction}-holding-${lane}`;
+function storage(direction, lane) {
+  const ew = directions[direction].axis === 'ew';
+  // The length budget includes stopped bodies, following gaps and the margin
+  // at the next signal: seven cars fit in the long area, but only six vans.
+  return { id: storageId(direction, lane), capacity: ew ? 2 : 7,
+    length: ew ? 17 : 39.5 * axisLength };
+}
 const middleGroup = direction => `middle-${direction}`;
 const outerGroup = direction => `outer-${direction}`;
 const laneId = (direction, lane) => `${direction}-lane-${lane}`;
@@ -55,15 +69,15 @@ function departure(direction, lane) {
 }
 function ownOuterStop(direction, lane) {
   return { id: stopId(direction, 'outer', lane), group: outerGroup(direction),
-    point: gatePoint(direction, lane, 'outer'), clearPoint: gatePoint(direction, lane, 'entry'),
-    storage: { id: storageId(direction, lane), capacity: 2 }, arrow: lane === 0 ? 'left' : 'straight' };
+    point: gatePoint(direction, lane, 'outer'), clearPoint: holdingPoint(direction, lane),
+    storage: storage(direction, lane), arrow: lane === 0 ? 'left' : 'straight' };
 }
 function ownInnerStop(direction, lane) {
   return { id: stopId(direction, 'inner', lane), group: middleGroup(direction),
     point: gatePoint(direction, lane, 'inner'), arrow: lane === 0 ? 'left' : 'straight', inner: true };
 }
 function middleSection(direction, lane) {
-  return { id: `${direction}-median-${lane}`, from: gatePoint(direction, lane, 'entry'),
+  return { id: `${direction}-median-${lane}`, from: holdingPoint(direction, lane),
     to: point(direction, directions[direction].sign * extent(direction), lane) };
 }
 function bezier(start, controlA, controlB, end, steps = 9) {
@@ -80,30 +94,43 @@ const throughRoutes = Object.entries(directions).flatMap(([direction, d]) => [1,
   group: outerGroup(direction), laneId: laneId(direction, lane), exitId: laneId(direction, lane),
   turn: 'straight', points: [...approach(direction, lane).slice(0, -1), ...departure(direction, lane)],
   stopLine: gatePoint(direction, lane, 'outer'), stops: [ownOuterStop(direction, lane), ownInnerStop(direction, lane)],
-  laneSections: [middleSection(direction, lane)], mergePoint: gatePoint(direction, lane, 'entry'),
+  laneSections: [middleSection(direction, lane)], mergePoint: holdingPoint(direction, lane),
   rate: lane === 1 ? 270 : 190, speed: 11.1,
 })));
 
-const leftRoutes = Object.entries(directions).map(([direction, d]) => {
+const leftRoutes = Object.entries(directions).flatMap(([direction, d]) => (d.axis === 'ew' ? [1, 2] : [1]).map(targetLane => {
   const target = d.left, targetDirection = directions[target];
   const innerAlong = d.axis === 'ew' ? 8 : 17;
   const start = point(direction, d.sign * (innerAlong + 2), 0);
-  const entry = gatePoint(target, 1, 'entry');
+  const entry = gatePoint(target, targetLane, 'entry');
   const handle = d.axis === 'ew' ? 14 : 5.5;
-  const bend = bezier(start, add(start, d.vector, handle), add(entry, targetDirection.vector, -handle), entry);
+  // The outer alternative fans out sooner. A fully occupied seven-car row
+  // then clears the inner row and its straight traffic, without using more
+  // pavement or moving either shared approach or the final curve join.
+  const handleA = targetLane === 2 ? 18 : handle;
+  const handleB = targetLane === 2 ? 17 : handle;
+  const bend = bezier(start, add(start, d.vector, handleA), add(entry, targetDirection.vector, -handleB), entry);
+  const choices = d.axis === 'ew';
   return {
-    id: `${direction}-left`, label: `${d.from} → ${targetDirection.to} · Linksabbieger über die Mitte`, incoming: d.incoming,
-    group: outerGroup(direction), laneId: laneId(direction, 0), exitId: laneId(target, 1),
-    turn: 'left', vehicleKinds: ['car', 'van'], rate: 60, speed: 6.5,
-    points: [...approach(direction, 0), gatePoint(direction, 0, 'inner'), ...bend, ...departure(target, 1).slice(1)],
+    id: `${direction}-left${targetLane === 2 ? '-2' : ''}`,
+    label: `${d.from} → ${targetDirection.to} · Linksabbieger über die Mitte${choices ? ` · Zielspur ${targetLane}` : ''}`, incoming: d.incoming,
+    group: outerGroup(direction), laneId: laneId(direction, 0), exitId: laneId(target, targetLane),
+    // One arrival stream feeds one physical turn lane. The free receiving
+    // lane is selected before its inner gate and remains fixed during the turn.
+    ...(choices ? { choiceGroup: `${direction}-left-choice`, choiceStopIndex: 1 } : {}),
+    turn: 'left', vehicleKinds: ['car', 'van'], rate: targetLane === 1 ? 60 : 0, speed: 6.5,
+    points: [...approach(direction, 0), gatePoint(direction, 0, 'inner'), ...bend, ...departure(target, targetLane).slice(1)],
     stopLine: gatePoint(direction, 0, 'outer'), renderFlare: false,
     stops: [ownOuterStop(direction, 0),
-      { ...ownInnerStop(direction, 0), clearPoint: entry,
-        storage: { id: storageId(target, 1), capacity: 2 } },
-      ownInnerStop(target, 1)],
-    mergePoint: entry, laneSections: [middleSection(target, 1)],
+      { ...ownInnerStop(direction, 0), clearPoint: holdingPoint(target, targetLane),
+        storage: storage(target, targetLane) },
+      ownInnerStop(target, targetLane)],
+    mergePoint: holdingPoint(target, targetLane), laneSections: [
+      ...(choices ? [{ id: `${direction}-left-approach`, from: approach(direction, 0)[0], to: start }] : []),
+      middleSection(target, targetLane),
+    ],
   };
-});
+}));
 
 // Exactly three separate right-turn slips shown in the annotated reference.
 // They have their own narrow approach lane and one signal site apiece.
