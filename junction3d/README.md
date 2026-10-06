@@ -123,17 +123,20 @@ Bilder.
   Ampelumlauf neu. **Pause** beziehungsweise die **Leertaste** hält auch die
   Uhr an; **1× / 2× / 4×** gilt für die gesamte Simulationszeit.
 - **Verkehr und Licht:** Der Startmodus **Automatisch** leitet Zufluss und
-  Beleuchtung aus Wochentag und Uhrzeit ab. **Manuell** stellt die zuvor
-  gewählten eigenen Werte wieder her: Der Regler **Verkehrsaufkommen** steuert
-  neue Zufahrten; bei null fahren vorhandene Fahrzeuge weiter. Die Auswahl
+  Beleuchtung aus Wochentag und Uhrzeit ab. Beim Wechsel auf **Manuell** bleiben
+  das aktuelle Verkehrsaufkommen und die vollständige Beleuchtung einschließlich
+  Dämmerung und Sonnenstand erhalten. Uhr, Fahrzeuge und Ampelumlauf laufen ohne
+  Neustart weiter. Der Regler **Verkehrsaufkommen** steuert neue Zufahrten; bei
+  null fahren vorhandene Fahrzeuge weiter. Die Auswahl
   **Beleuchtung** bietet Tageslicht, Abendlicht und Nacht. Der Stadtbahnfahrplan
   folgt an der Voßkuhle in beiden Modi weiterhin der Simulationsuhr. **Neustart** setzt Verkehr,
   Ampelumlauf und Uhr auf die zuletzt gewählte Startzeit zurück.
 - **Ampeln:** **Nächste Phase** beendet die aktuelle Grünphase vorzeitig.
-  Gelb, Räumzeit und Rot-Gelb werden weiterhin durchlaufen. Die inneren Ampeln
-  bleiben während des Nachlaufs grün, bis die Konfliktbereiche sicher geräumt
-  sind; erst anschließend wechseln auch sie über Gelb auf Rot. Bei vollem
-  Ziel-Mittelbereich können Fahrzeuge vor einer inneren Ampel sicher warten,
+  Gelb, Räumzeit und Rot-Gelb werden weiterhin durchlaufen. An der Voßkuhle
+  wechseln äußere und innere Nebenstraßenampeln gemeinsam über Gelb auf Rot;
+  verbliebene Fahrzeuge warten an der roten Mittelampel auf ihre nächste
+  Freigabe. Opphoff behält den grünen Nachlauf der inneren Ampeln. Bei vollem
+  Ziel-Mittelbereich können dort Fahrzeuge vor einer inneren Ampel warten,
   während die nächste Achsenphase Platz schafft.
 - **Darstellung:** Im manuellen Modus wechselt auch die Lichttaste zwischen
   Tageslicht, Abendlicht und Nacht. **⛶** öffnet das Vollbild. Während der
@@ -272,8 +275,9 @@ reserviert sie Platz in ihrer Mittelspur. Frei liegende Zielspuren können
 B1-Abbieger auffüllen, ohne pauschal auf Fahrzeuge in anderen Zielspuren
 warten zu müssen; die Fahrzeugkörper müssen beim Vorbeifahren getrennt bleiben.
 Ein reservierter Platz wird erst frei, wenn das Fahrzeug die innere Haltelinie vollständig
-passiert hat. Zwei kleine Inseln tragen die inneren Ampelmasten; die
-Stadtbahnfreigabe wartet auf die Räumung aller reservierten Wartebereiche.
+passiert hat. Zwei kleine Inseln tragen die inneren Ampelmasten. An einer roten
+Mittelampel wartende Fahrzeuge können dabei die Gleise blockieren; eine
+angemeldete Stadtbahn erhält trotzdem ihre reguläre B1-Freigabe.
 
 Die Stadtbahn fährt auf beiden Gleisen als Doppeltraktion durch den
 Mittelstreifen: Zwei gekuppelte, je 28 Meter lange Einheiten bilden einen
@@ -307,26 +311,33 @@ Aufenthalts für die Passage angemeldet und fährt anschließend nur bei
 zulässiger B1-Freigabe weiter. Auch ein Szenenstart direkt zur Fahrplanminute
 überspringt diesen Halt nicht. Die Haltezeit folgt Pause und Simulationstempo.
 
-Bahnen dürfen nur während einer B1-Freigabe passieren. Je nach Ampelstand
-warten sie, sodass Passagen getrennt oder gemeinsam in einer B1-Phase
-stattfinden können. Erst wenn auch das Zugheck den Konfliktbereich verlassen
-hat, kann die Nebenstraße Grün erhalten. Dies ist ein Simulationsfahrplan
-nach Nutzervorgabe, kein bestätigter offizieller U47-Fahrplan.
+Bahnen dürfen ihr Kreuzungssignal nur während einer B1-Freigabe überfahren.
+Blockieren wartende Autos die Gleise, fährt die Bahn bei Grün bis unmittelbar
+vor diese Fahrzeuge und wartet dort, gegebenenfalls bereits in der Kreuzung.
+Die Mittelampel wird deshalb nicht vorzeitig freigegeben. Der reguläre Umlauf
+läuft weiter, sodass die blockierenden Autos bei ihrem nächsten Mittelgrün
+abfahren können. Danach setzt die bereits eingelassene Bahn ihre Fahrt auch
+bei inzwischen rotem Bahnsignal fort. Nachfolgende Autos warten vor den
+Gleisen, solange die Bahn deren Querung belegt. Eine noch fahrende Bahn wird
+bei der Räumzeit berücksichtigt; eine durch wartende Autos blockierte Bahn
+hält die nächste entlastende Freigabe nicht fest. Dies ist ein
+Simulationsfahrplan nach Nutzervorgabe, kein bestätigter offizieller U47-Fahrplan.
 
-Am Ende einer Nebenstraßenphase werden zuerst die äußeren Zufahrten
-geschlossen. Die inneren Ampeln bleiben als **Nachlauf** grün, bis der bereits
-eingelassene Verkehr ausgefahren ist, und wechseln danach ebenfalls über Gelb
-auf Rot. Während einer B1-Phase bereits eingelassene Abbieger dürfen auch im
-Rückstau vor der Mitte auf die folgende, entlastende Nebenstraßenphase warten.
-Sie blockieren deren Freigabe nicht; der neu anfahrende Nebenstraßenverkehr
-gibt ihnen beim Einordnen Vorrang. Vor einer folgenden B1- oder Bahnfreigabe
-muss dieser Rückstau dagegen geräumt sein.
+An der Voßkuhle wechseln äußere und innere Nebenstraßenampeln gleichzeitig
+auf Grün, Gelb und Rot. Es gibt keinen grünen **Nachlauf** der Mitte. Wer die
+innere Haltelinie noch nicht passiert hat, wartet dort bis zur nächsten
+passenden Freigabe, auch wenn sein Fahrzeug noch Gleise blockiert. Bereits
+eingefahrene B1-Abbieger dürfen im Rückstau vor der Mitte ebenfalls auf die
+folgende Nebenstraßenphase warten. Neu anfahrender Nebenstraßenverkehr gibt
+ihnen beim Einordnen Vorrang. Fahrzeugabstände und belegte Querungsbereiche
+gelten auch während dieser Übergänge weiter.
 
 Grünzeiten (32 / 22 / 32 / 22 Sekunden), Gelb (3 Sekunden), Räumzeit
 (3 Sekunden), Rot-Gelb (1 Sekunde) sowie die Verzögerung von 7 Sekunden für
 B1-Linksabbieger in Phasen ohne Stadtbahn
-sind Demonstrationswerte, kein bestätigter Signalzeitenplan. Die tatsächliche
-Phasendauer kann sich durch Räumung und Nachlauf verlängern.
+sind Demonstrationswerte, kein bestätigter Signalzeitenplan. Der leere
+Grundumlauf dauert damit **136 Sekunden**. Noch fahrender Verkehr kann die
+Räumzeit verlängern; ein zusätzlicher grüner Nachlauf kommt nicht hinzu.
 Verkehrsaufkommen, Fahrbahnbreiten, Spuranordnung,
 Gebäudehöhen und Geschwindigkeiten sind ebenfalls editierbare Annahmen.
 Die Nebenstraßenfläche ist mit ungefähr 24 Metern Gesamtbreite für sechs
@@ -383,6 +394,8 @@ Umgebung, Signalpositionen und Kameras.
 | `locations/hohestr-wall.mjs`, `locations/hohestr-wall-environment.mjs` | Hohe Straße am Wall: vier Bewegungsphasen, parallele Abbiegespuren und Umgebung. |
 | `engine.test.mjs` | Automatisierte Prüfungen der Fahr- und Signallogik. |
 | `spillback.test.mjs` | Rückstau der Voßkuhle-B1-Abbieger, Vorrang beim Räumen und kollisionsfreies Nachrücken der Nebenstraße. |
+| `signal-synchronization.test.mjs` | Gemeinsame Signalwechsel an der Voßkuhle, Grundumlauf ohne Nachlauf und Warten bis zum nächsten Mittelgrün. |
+| `tram-blocking.test.mjs` | Von Mittelautos blockierte Bahnen, spätere Räumung bei Mittelgrün und Weiterfahrt bereits eingelassener Bahnen bei Rot. |
 | `creep.test.mjs` | Auffüllen freier Mittelspuren und langsames Vorrücken der Nebenstraße bis vor die belegte Abbiegekurve. |
 | `creep-following.test.mjs` | Normales Nachfahren hinter gleichgerichtetem Nebenstraßenverkehr ohne unnötiges Schritttempo. |
 | `minimum-arrivals.test.mjs` | Nächtliche Mindestzuflüsse je Richtung, freie Zufahrten, Fristen und manueller Nullverkehr. |
@@ -431,6 +444,13 @@ Grün, die Wartepunkte vor dem Kurvenbereich und das Auffüllen freier Spuren.
 zwischen normalem Nachfahren und vorsichtigem Vorrücken hinter B1-Abbiegern.
 `node --test junction3d/minimum-arrivals.test.mjs` prüft Mindestzuflüsse an
 Voßkuhle und Opphoff, einschließlich Sonntag und Montag um 01:30 Uhr.
+`node --test junction3d/signal-synchronization.test.mjs` prüft die synchronen
+äußeren und inneren Signalwechsel der Voßkuhle, ihren leeren 136-Sekunden-Umlauf
+und das Warten an einer roten Mittelampel bis zur nächsten eigenen Freigabe.
+`node --test junction3d/tram-blocking.test.mjs` prüft blockierte Bahnen auf
+beiden Gleisen, das Freifahren durch die bereits auf den Gleisen stehenden
+Autos und das anschließende Warten der Nachfolger. Unabhängige
+Fahrzeugkörperprüfungen sichern die Abstände zwischen Autos und Bahnen.
 
 Alle Längen sind Meter, Zeiten Sekunden und Geschwindigkeiten Meter pro
 Sekunde. Ausnahmen: Absolute Uhrzeiten sind Unix-Zeitstempel in Millisekunden;
@@ -447,7 +467,7 @@ Blickziele das Format `[x, y, z]`. Gebäude-Drehungen sind im Bogenmaß angegebe
 | `minimumArrivals` | Mindestzufluss je Zufahrtsrichtung: eindeutige `id`, maximaler Abstand `interval` in Simulationssekunden und zugehörige `routeIds`. |
 | `transit` | Stadtbahnrouten, deterministische Ankunftszeiten, zulässige Phasen und während einer Bahnphase gesperrte Signalgruppen. |
 | `timeZone` | IANA-Zeitzone für Uhranzeige, Eingaben, Tagesprofile und Stadtbahnfahrplan. |
-| `phases` | Freigaben mit `groups`, Grünzeit `duration`, gruppenweisen Verzögerungen `groupDelays` und optionalen Nachlaufgruppen `drainGroups`. |
+| `phases` | Freigaben mit `groups`, Grünzeit `duration`, gruppenweisen Verzögerungen `groupDelays`, optionalen Nachlaufgruppen `drainGroups` und Übernahmegruppen `receiveOverflowGroups`. |
 | `timing` | Übergänge `yellow`, `allRed` und `redAmber`. |
 | `conflictBounds` | Rechteck des zu räumenden Kreuzungsbereichs im Grundriss. |
 | `islands` | Unbefahrbare Inseln als Grundrisspolygone `points`. |
@@ -506,7 +526,12 @@ Anzahlbegrenzung erhalten. Optional erlaubt
 `storage.allowOverflow: true` das Einfahren bei Grün trotz belegter Plätze,
 während Fahrzeugfolge und der folgende Signalhalt den Rückstau begrenzen.
 Das ist an der Voßkuhle nur für B1-Linksabbieger aktiviert. Die anschließende
-Phase muss das folgende innere Signal öffnen und als `drainGroups` räumen.
+Phase muss das folgende innere Signal öffnen und dessen Gruppe mit
+`receiveOverflowGroups` ausdrücklich für die Übernahme des Rückstaus benennen.
+Alternativ können `drainGroups` diese Übernahme mit anschließendem Nachlauf
+leisten. An der Voßkuhle gelten allein `receiveOverflowGroups`: Die Mitte
+schließt gleichzeitig mit der äußeren Nebenstraße und darf Fahrzeuge bis zur
+nächsten Freigabe behalten.
 `yieldToGroups` am äußeren Halt der Nebenstraße lässt bereits eingelassene
 Fahrzeuge dieser Gruppen zuerst bis hinter ihren `clearPoint` fahren. Es
 verändert weder Ampelfarbe noch Phasenzeit. Mit
@@ -519,7 +544,7 @@ Vorranggruppen reservieren. Reservierungen gleichgerichteter Nebenstraßenfahrze
 allein lösen kein Schritttempo aus; die Kapazitätsgrenze am Wartepunkt gilt weiterhin.
 Die Platzreservierung erfolgt dann erst bei der Weiterfahrt
 über den Wartepunkt. Bereits über die äußere Haltelinie eingefahrene Fahrzeuge
-werden auch nach dem Schließen der äußeren Ampel im Nachlauf geräumt.
+fahren bis zum nächsten Signalhalt weiter; dessen rotes Signal bleibt bindend.
 Opphoff erlaubt keinen Überlauf und wartet vor der Zufahrt, sobald Anzahl oder
 nutzbare Länge des jeweiligen Mittelbereichs ausgeschöpft sind.
 `mergePoint` markiert den Beginn der gemeinsamen Fahrzeugfolge in einer
@@ -566,6 +591,17 @@ Darstellung. Ankunftszeiten innerhalb des bevorstehenden B1-Grünfensters werden
 bereits am Phasenanfang berücksichtigt, damit keine Linksabbieger kurz vor
 einer erwarteten Bahn eingelassen werden.
 
+`transit.allowBlockedEntry: true` erlaubt an der Voßkuhle die reguläre
+Bahnfreigabe auch bei belegten Mittelspuren. Die Bahn bremst vor tatsächlich
+blockierenden Fahrzeugkörpern und wartet, statt den gesamten Mittelbereich
+vorab leeren zu lassen. Bereits auf den Gleisen stehende Autos dürfen bei
+ihrem regulären Grün räumen; weitere Autos fahren nicht vor eine querende
+Bahn. Hat die Bahn ihr Signal bereits bei Grün überfahren, darf sie ihren Weg
+auch nach dessen Wechsel auf Rot fortsetzen. Eine durch Autos blockierte
+Bahn verhindert nicht den nächsten Phasenwechsel, der diese Autos freigibt.
+Ohne diese Option bleibt die Bahnfreigabe bei reservierten Mittelbereichen
+gesperrt.
+
 Eine Bahnroute kann `stationStop: { point: [x, z], dwell: 20 }` angeben.
 `point` ist die Position der Mitte des gesamten Verbands auf seinem Fahrweg; anders als bei
 `stopLine` wird hier keine halbe Fahrzeuglänge abgezogen. `dwell` ist die
@@ -607,7 +643,12 @@ der ortszeitgebundene Straßenbahnfahrplan bleibt aktiv.
 `phase.groupDelays` ordnet einer Signalgruppe die Verzögerung in Sekunden ab
 Beginn der Grünphase zu; nicht aufgeführte Gruppen starten sofort. Gruppen in
 `drainGroups` behalten nach dem Schließen der äußeren Zufahrten ihre Freigabe,
-bis die bereits eingelassenen Fahrzeuge ausgefahren sind. Mit `uiNote` und
+bis die bereits eingelassenen Fahrzeuge ausgefahren sind; Opphoff nutzt diese
+Regel. `receiveOverflowGroups` erlaubt dagegen die Übergabe eingelassener
+Rückstaus an die folgende Mittelphase ohne verlängertes Mittelgrün. Voßkuhle
+nutzt diese Gruppen für `middleSouth` und `middleNorth`; verbleibende
+Mittelautos dürfen einen Umlauf bei Rot warten. Beide Gruppenlisten dürfen
+nur Signalgruppen der jeweiligen Phase enthalten. Mit `uiNote` und
 `ui.signalIndicators` können standortspezifische Erklärungen und Anzeigen
 ergänzt werden, ohne Ortsnamen in der Anwendung festzuschreiben.
 

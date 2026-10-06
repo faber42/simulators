@@ -46,10 +46,37 @@ function bodyConflict(pose, vehicle, other, margin = 0.35) {
   const b = [Math.sin(other.heading), Math.cos(other.heading)], br = [b[1], -b[0]];
   return [a, ar, b, br].every(axis => {
     const dot = vector => Math.abs(vector[0] * axis[0] + vector[1] * axis[1]);
-    const first = dot(a) * (vehicle.length / 2 + margin) + dot(ar) * (VEHICLE_TYPES[vehicle.kind].width / 2 + margin);
-    const second = dot(b) * (other.length / 2 + margin) + dot(br) * (VEHICLE_TYPES[other.kind].width / 2 + margin);
+    const first = dot(a) * (vehicle.length / 2 + margin) + dot(ar) * ((vehicle.kind === 'tram' ? 2.65 : VEHICLE_TYPES[vehicle.kind].width) / 2 + margin);
+    const second = dot(b) * (other.length / 2 + margin) + dot(br) * ((other.kind === 'tram' ? 2.65 : VEHICLE_TYPES[other.kind].width) / 2 + margin);
     return Math.abs(dx * axis[0] + dz * axis[1]) < first + second;
   });
+}
+
+// Treat parallel tracks as one crossing: a car that already occupies the
+// tracks must be able to leave them, including past a train on the other track.
+// Reserve its swept body until the rear clears the whole rail area.
+function buildRailZone(route, kind, tracks) {
+  const body = { kind, length: VEHICLE_TYPES[kind].length };
+  const poses = route.path.samples.filter(pose => pose.distance >= route.stopDistance - body.length &&
+    pose.distance <= route.clearDistance + body.length).map(pose => ({ ...samplePath(route.path, pose.distance), distance: pose.distance }));
+  const occupied = poses.filter(pose => tracks.some(track => {
+    const projection = projectedDistance(track.path, [pose.x, pose.z]);
+    return bodyConflict(pose, body, { ...samplePath(track.path, projection), kind: 'tram', length: 2 * body.length + 6 });
+  }));
+  if (!occupied.length) return null;
+  const entry = occupied[0].distance - .6, exit = occupied.at(-1).distance + .6;
+  const corridors = new Map(tracks.map(track => {
+    let from = Infinity, to = -Infinity;
+    for (const pose of poses.filter(pose => pose.distance >= entry && pose.distance <= exit)) {
+      const distance = projectedDistance(track.path, [pose.x, pose.z]);
+      const heading = samplePath(track.path, distance).heading;
+      const angle = pose.heading - heading;
+      const extent = Math.abs(Math.cos(angle)) * body.length / 2 + Math.abs(Math.sin(angle)) * VEHICLE_TYPES[kind].width / 2 + .8;
+      from = Math.min(from, distance - extent); to = Math.max(to, distance + extent);
+    }
+    return [track.id, { from, to }];
+  }));
+  return { entry, exit, corridors };
 }
 
 /** An arc-length sampled centripetal Catmull-Rom spline (no turn loops). */
@@ -151,8 +178,12 @@ export class TrafficSimulation {
       if (phase.drainGroups && (!Array.isArray(phase.drainGroups) || phase.drainGroups.some(group => !groups.includes(group)))) {
         throw new Error('Drain groups must belong to their phase.');
       }
+      if (phase.receiveOverflowGroups && (!Array.isArray(phase.receiveOverflowGroups) || phase.receiveOverflowGroups.some(group => !groups.includes(group)))) {
+        throw new Error('Overflow receiving groups must belong to their phase.');
+      }
       return { ...phase, groups, duration };
     });
+    this.holdingGroups = new Set(this.phases.flatMap(phase => phase.receiveOverflowGroups ?? []));
     this.timing = { yellow: 3, allRed: 3, redAmber: 1, ...config.timing };
     for (const key of ['yellow', 'allRed', 'redAmber']) {
       if (!Number.isFinite(this.timing[key]) || this.timing[key] < 0) throw new Error(`Invalid timing: ${key}`);
@@ -214,6 +245,12 @@ export class TrafficSimulation {
         rate: Math.max(0, Number(route.rate) || 0), speed: Math.max(1, Number(route.speed) || 13.9) };
     });
     for (const route of this.routes) {
+      const kind = route.vehicleKinds.reduce((largest, candidate) =>
+        VEHICLE_TYPES[candidate].length > VEHICLE_TYPES[largest].length ? candidate : largest);
+      route.corridorBody = { kind, length: VEHICLE_TYPES[kind].length };
+      route.stopCorridors = route.stops.map(stop => route.path.samples
+        .filter(pose => pose.distance >= stop.distance && pose.distance <= stop.clearDistance)
+        .map(pose => samplePath(route.path, pose.distance)));
       route.sharedSections = new Map();
       route.followRouteIds = [];
       for (const other of this.routes) {
@@ -267,6 +304,8 @@ export class TrafficSimulation {
         clearDistance: route.clearPoint ? projectedDistance(path, route.clearPoint) : lastConflictDistance(path, config.conflictBounds, stopDistance),
         approachTime: Math.max(0, signalCenter / route.speed) + stationDelay };
     });
+    for (const route of this.routes) route.railZones = new Map(this.transitConfig.allowBlockedEntry
+      ? route.vehicleKinds.map(kind => [kind, buildRailZone(route, kind, this.transitRoutes)]) : []);
     this.density = clamp(Number.isFinite(config.density) ? config.density : 1, 0, 5);
     this.reset();
   }
@@ -293,6 +332,7 @@ export class TrafficSimulation {
     this.cycle = 1;
     this.accumulator = 0;
     this.previousRenderPoses = new WeakMap();
+    this.holdingKey = null;
     this.nextId = 1;
     this.vehicles = [];
     this.trams = [];
@@ -483,8 +523,9 @@ export class TrafficSimulation {
 
   getTransitSignal(routeId) {
     if (!this.transitProtected || !this.transitRoutes.some(route => route.id === routeId)) return 'red';
-    // Never admit a train over cars that are still using a median holding lane.
-    if (this.vehicles.some(vehicle => vehicle.passedGateIndex >= 0 && vehicle.reservations.length)) return 'red';
+    // Some locations keep trains outside until the median is empty. Others
+    // allow entry up to an obstruction and resolve it through physical priority.
+    if (!this.transitConfig.allowBlockedEntry && this.vehicles.some(vehicle => vehicle.passedGateIndex >= 0 && vehicle.reservations.length)) return 'red';
     return this.stage === 'green' ? 'green' : this.stage === 'yellow' ? 'yellow' : 'red';
   }
 
@@ -522,6 +563,7 @@ export class TrafficSimulation {
 
   moveTrams(dt) {
     for (const tram of this.trams) {
+      tram.blockedByRoadTraffic = false;
       const station = tram.route.stationStop;
       if (tram.stationState === 'dwelling') {
         tram.speed = 0; tram.braking = true;
@@ -557,6 +599,18 @@ export class TrafficSimulation {
         // final position clamp can abruptly remove the last bit of velocity.
         target = Math.min(target, brakingSpeed(remaining));
       }
+      let roadLimit = Infinity;
+      if (this.transitConfig.allowBlockedEntry) for (const vehicle of this.vehicles) {
+        const zone = vehicle.route.railZones.get(vehicle.kind);
+        if (!zone || vehicle.distance <= zone.entry + 1e-7 || vehicle.distance >= zone.exit) continue;
+        const corridor = zone.corridors.get(tram.routeId);
+        if (tram.distance - tram.length / 2 > corridor.to) continue;
+        roadLimit = Math.min(roadLimit, Math.max(0, corridor.from - tram.length / 2 - tram.distance));
+      }
+      if (Number.isFinite(roadLimit)) {
+        limit = Math.min(limit, roadLimit);
+        target = Math.min(target, brakingSpeed(roadLimit));
+      }
       for (const other of this.trams) if (other.routeId === tram.routeId && other.distance > tram.distance) {
         const gap = Math.max(0, other.distance - tram.distance - (other.length + tram.length) / 2 - 4);
         limit = Math.min(limit, gap);
@@ -567,6 +621,7 @@ export class TrafficSimulation {
       tram.braking = advance / dt < tram.speed - 0.005;
       tram.speed = advance / dt;
       tram.distance += advance;
+      tram.blockedByRoadTraffic = Number.isFinite(roadLimit) && roadLimit - advance < .1 && tram.speed < .1;
       if (tram.stationState === 'approaching' && Math.abs(tram.distance - station.distance) < 1e-8) {
         tram.distance = station.distance;
         tram.speed = 0;
@@ -623,19 +678,23 @@ export class TrafficSimulation {
       occupancy.set(reservation.id, (occupancy.get(reservation.id) ?? 0) + 1);
       occupiedLengths.set(reservation.id, (occupiedLengths.get(reservation.id) ?? 0) + vehicle.length + GAP);
     }
-    return this.trams.some(tram => tram.committed && tram.distance - tram.length / 2 <= tram.route.clearDistance) || this.vehicles.some(vehicle => {
+    return this.trams.some(tram => tram.committed && !tram.blockedByRoadTraffic && tram.distance - tram.length / 2 <= tram.route.clearDistance) || this.vehicles.some(vehicle => {
+      // A synchronous inner red may retain cars for another cycle. Let that
+      // queue settle before handing over; its occupied corridors then prevent
+      // conflicting entries, rather than holding the entire junction all-red.
+      if (this.waitsAtInnerRed(vehicle)) return vehicle.speed > .01;
       if (vehicle.committedStops.some(commitment => {
         if (commitment.phaseSerial !== this.phaseSerial) return false;
         const stop = vehicle.route.stops[commitment.index];
         if (vehicle.distance - vehicle.length / 2 > stop.clearDistance) return false;
         const receivingGroup = vehicle.route.stops[commitment.index + 1]?.group;
         // A queue intentionally extending into its entry curve can hand over
-        // only to the phase that opens AND drains its receiving middle signal.
-        // Its side entry yields to that curve; the middle signal then remains
-        // green until every inherited vehicle has cleared. Other locations
-        // retain the ordinary requirement to reach a safe holding area first.
+        // only to a phase explicitly accepting it at the receiving middle
+        // signal. Its side entry yields to the curve. Accepting this queue
+        // does not require the inner green to outlast the outer green.
         const handsOver = stop.storage?.allowOverflow && vehicle.passedGateIndex === commitment.index &&
-          successor.groups.includes(receivingGroup) && successor.drainGroups?.includes(receivingGroup);
+          successor.groups.includes(receivingGroup) &&
+          (successor.receiveOverflowGroups?.includes(receivingGroup) || successor.drainGroups?.includes(receivingGroup));
         return !handsOver;
       })) return true;
       const nextStop = vehicle.route.stops[vehicle.passedGateIndex + 1];
@@ -646,6 +705,30 @@ export class TrafficSimulation {
       // for that perpendicular median to empty here would deadlock both axes.
       return vehicle.passedGateIndex >= 0 && drainGroups.includes(nextStop?.group) && !storageFull;
     });
+  }
+
+  waitsAtInnerRed(vehicle) {
+    const next = vehicle.route.stops[vehicle.passedGateIndex + 1];
+    return vehicle.passedGateIndex >= 0 && next && this.holdingGroups.has(next.group) && this.getSignal(next.group) === 'red';
+  }
+
+  entryBlockedByHoldingTraffic(route, stopIndex, holdingTraffic) {
+    // Test the corridor beyond each stop, including inner turns. An occupied
+    // crossing keeps the car behind that line instead of admitting another
+    // obstruction. Normal following handles leaders already in the same lane.
+    const blockers = holdingTraffic.filter(vehicle => {
+      if (vehicle.route.laneId === route.laneId) return false;
+      // Once a leader has joined our receiving lane, normal following keeps
+      // its place. A car still in the crossing is a physical obstruction even
+      // if it ultimately wants to pass the same middle signal.
+      const sameStorage = route.stops[stopIndex].storage?.id === vehicle.route.stops[0].storage?.id;
+      return !(sameStorage && vehicle.distance - vehicle.length / 2 > vehicle.route.stops[0].clearDistance);
+    });
+    if (!blockers.length) return false;
+    for (const pose of route.stopCorridors[stopIndex]) {
+      if (blockers.some(vehicle => bodyConflict(pose, route.corridorBody, vehicle))) return true;
+    }
+    return false;
   }
 
   chooseRoute(vehicle, occupiedStorage, occupiedLengths = new Map()) {
@@ -761,6 +844,19 @@ export class TrafficSimulation {
     }
     this.spawnMinimumArrivals();
 
+    const holdingTraffic = this.holdingGroups.size ? this.vehicles.filter(vehicle => this.waitsAtInnerRed(vehicle)) : [];
+    const greenGroups = this.phases[this.phaseIndex].groups.filter(group => this.getSignal(group) === 'green').join(',');
+    const holdingKey = `${greenGroups}:` + holdingTraffic.map(vehicle => `${vehicle.id}:${vehicle.routeId}:${vehicle.distance.toFixed(3)}`).join('|');
+    if (holdingKey !== this.holdingKey) {
+      this.holdingKey = holdingKey;
+      this.blockedHoldingGates = new Set();
+      if (holdingTraffic.length) for (const route of this.routes) route.stops.forEach((stop, index) => {
+        if (this.getSignal(stop.group) === 'green' && this.entryBlockedByHoldingTraffic(route, index, holdingTraffic)) {
+          this.blockedHoldingGates.add(`${route.id}:${index}`);
+        }
+      });
+    }
+
     const vehiclesByRoute = new Map();
     const unclearedEntryGroups = new Set();
     for (const vehicle of this.vehicles) {
@@ -789,6 +885,13 @@ export class TrafficSimulation {
       }
       const stopIndex = vehicle.passedGateIndex + 1;
       const stop = vehicle.route.stops[stopIndex];
+      const railZone = vehicle.route.railZones.get(vehicle.kind);
+      const trainOccupiesCrossing = railZone && this.trams.some(tram => tram.committed &&
+        tram.distance - tram.length / 2 <= railZone.corridors.get(tram.routeId).to);
+      // A train already in the crossing gets the next place on the tracks.
+      // New arrivals wait outside the junction; cars admitted earlier can
+      // approach the tracks and the ones already on them may clear first.
+      const crossingBlocked = this.blockedHoldingGates.has(`${vehicle.routeId}:${stopIndex}`) || (stopIndex === 0 && trainOccupiesCrossing);
       const storageFull = stop?.storage && !stop.storage.allowOverflow && storagePlaces(stop.storage, vehicle, occupiedStorage, occupiedLengths) < 1;
       const yields = stop?.yieldToGroups?.some(group => unclearedEntryGroups.has(group));
       const approachStop = vehicle.route.stops[0];
@@ -796,7 +899,13 @@ export class TrafficSimulation {
       const pendingApproach = approach && !vehicle.yieldApproachPassed;
       const approachFull = pendingApproach && storagePlaces(approachStop.storage, vehicle, occupiedStorage, occupiedLengths) < 1;
       const approachYields = pendingApproach && approachStop.yieldToGroups?.some(group => unclearedEntryGroups.has(group));
-      const approachBlocked = approachFull || approachYields;
+      // The capacity check controls admission, not the forward movement of a
+      // car already beyond its green outer line. When the inner light closes,
+      // it must join the physical queue instead of stopping at an obsolete
+      // merge reservation point in the cross street.
+      const closingApproach = pendingApproach && vehicle.passedGateIndex === 0 &&
+        this.holdingGroups.has(vehicle.route.stops[1]?.group) && this.getSignal(approachStop.group) !== 'green';
+      const approachBlocked = (approachFull && !closingApproach) || approachYields;
       // Capacity alone still requires a free slot at the yield point, but
       // following our own traffic is ordinary car-following, not cautious
       // entry behind a crossing queue. Include priority cars already inside
@@ -811,8 +920,13 @@ export class TrafficSimulation {
         const targetSpeed = Math.sqrt(2 * 2.7 * Math.max(0, distanceToStop));
         acceleration = Math.min(acceleration, (targetSpeed - vehicle.speed) * 2.5);
       };
-      if (stop && (this.getSignal(stop.group) !== 'green' || (!stop.yieldApproach && (storageFull || yields)))) limitAt(stop.distance);
+      if (stop && (this.getSignal(stop.group) !== 'green' || crossingBlocked || (!stop.yieldApproach && (storageFull || yields)))) limitAt(stop.distance);
       if (approachBlocked) limitAt(approach.distance);
+      if (trainOccupiesCrossing && vehicle.distance <= railZone.entry + 1e-7) {
+        // Already crossing cars clear first; followers wait outside the rail
+        // area until the entire committed train has passed, even at tram red.
+        limitAt(railZone.entry + vehicle.length / 2 + STOP_MARGIN);
+      }
       if (creepRequired) {
         // Brake before the outer line so the admitted approach is walking pace,
         // with no instantaneous speed change when the gate becomes committed.
@@ -832,7 +946,7 @@ export class TrafficSimulation {
       const reserves = crossesApproach ? approachStop : crossesGate && !stop.yieldApproach ? stop : null;
       if (reserves?.storage) {
         occupyStorage(reserves.storage.id, approachStop.group, vehicle.length);
-        vehicle.reservations.push({ id: reserves.storage.id,
+        vehicle.reservations.push({ id: reserves.storage.id, ...(closingApproach && approachFull ? { closingOverflow: true } : {}),
           releaseDistance: vehicle.route.stops[crossesApproach ? 1 : stopIndex + 1]?.distance ?? reserves.clearDistance });
       }
       return { vehicle, speed, advance, crossesGate, crossesApproach, stopIndex, braking: speed < vehicle.speed - 0.015 || speed < 0.15 };

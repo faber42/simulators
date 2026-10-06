@@ -579,15 +579,18 @@ for (const scenario of [
     simulation.update(1 / 30);
     if (tick % 10 !== 0) continue;
     if (simulation.transitProtected) for (const group of dortmund.transit.blockedGroups) assert.equal(simulation.getSignal(group), 'red', 'Both B1 left turns stay closed for the whole booked train phase');
-    if (simulation.stage === 'green' && simulation.phaseIndex === 1) assert.equal(simulation.getSignal('north'), simulation.getSignal('middleSouth'));
-    if (simulation.stage === 'green' && simulation.phaseIndex === 3) assert.equal(simulation.getSignal('south'), simulation.getSignal('middleNorth'));
+    assert.equal(simulation.getSignal('north'), simulation.getSignal('middleSouth'));
+    assert.equal(simulation.getSignal('south'), simulation.getSignal('middleNorth'));
     const occupancy = new Map();
     for (const vehicle of simulation.vehicles) {
       for (const reservation of vehicle.reservations) {
-        // B1 turns may queue beyond the nominal holding spaces. Other entries
-        // still reserve bounded storage; their combined occupancy stays capped.
+        // B1 turns may queue beyond nominal holding spaces. A side vehicle
+        // already beyond outer green can also join after synchronous closure;
+        // ordinary new storage admissions still obey the nominal capacity.
         const admission = vehicle.route.stops.find(stop => stop.storage?.id === reservation.id);
-        if (!admission?.storage.allowOverflow) occupancy.set(reservation.id, (occupancy.get(reservation.id) ?? 0) + 1);
+        if (reservation.closingOverflow) assert.ok(vehicle.passedGateIndex >= 0,
+          'Closing overflow is only for a car that already passed its outer signal');
+        if (!admission?.storage.allowOverflow && !reservation.closingOverflow) occupancy.set(reservation.id, (occupancy.get(reservation.id) ?? 0) + 1);
       }
       if (vehicle.routeId.includes('uturn')) observedUTurns.add(vehicle.routeId.startsWith('east') ? 'east' : 'west');
       const nextStop = vehicle.route.stops[vehicle.passedGateIndex + 1];
@@ -597,7 +600,9 @@ for (const scenario of [
     const bodies = [...simulation.vehicles, ...simulation.trams.map(tram => ({ ...tram, kind: 'tram' }))];
     for (const tram of simulation.trams) {
       scheduledTrips.add(tram.scheduledAt);
-      if (tram.committed && tram.distance - tram.length / 2 <= tram.route.clearDistance) assert.ok(dortmund.phases[simulation.phaseIndex].groups.includes('main'), 'A train rear must clear before side traffic is enabled');
+      if (!tram.committed && simulation.getTransitSignal(tram.routeId) !== 'green') assert.ok(
+        tram.distance + tram.length / 2 <= tram.route.stopDistance + 1e-7,
+        'A train may only begin crossing on its green; once committed it can finish after red');
     }
     for (let a = 0; a < bodies.length; a++) {
       for (let b = a + 1; b < bodies.length; b++) {
@@ -610,7 +615,12 @@ for (const scenario of [
   assert.ok(simulation.cycle >= 6, 'Staged vehicles must not deadlock later phases');
   assert.ok(stagedDirections.has('middleNorth') && stagedDirections.has('middleSouth'), 'Both alternating B1 turns must actually wait at their second red light');
   assert.equal(observedUTurns.size, 2, 'U-turn demand from both B1 directions must be simulated');
-  assert.ok(simulation.transitPassed >= 4, 'Each train direction should complete at least two scheduled passages');
+  // The eastbound train can have completely cleared the junction while still
+  // boarding at its outbound platform. Count that finished crossing as well
+  // as trains which have already reached the end of the simulated route.
+  const completedTrainCrossings = simulation.transitPassed + simulation.trams.filter(tram =>
+    tram.committed && tram.distance - tram.length / 2 > tram.route.clearDistance).length;
+  assert.ok(completedTrainCrossings >= 4, 'Each train direction should completely clear the junction on at least two scheduled passages');
   if (scenario.startTime !== undefined) {
     assert.deepEqual([...scheduledTrips].sort((a, b) => a - b), [120, 540, 720, 1140],
       'The rush-hour audit must use real Monday departures at 08:02, 08:09, 08:12 and 08:19');

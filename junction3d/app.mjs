@@ -55,6 +55,7 @@ function start() {
   function invalidateModels() { modelsDirty = true; invalidateView(); }
   function invalidateMap() { mapDirty = true; frameLoop?.invalidate(); }
   let environmentSecond = null, lightLabel = '', trafficLabel = '', darkUI = false;
+  let automaticLight, capturedManualLight = null;
   const lightNames = { day: 'Tageslicht', evening: 'Abendlicht', night: 'Nacht' };
   const mapColors = {
     day: { ground: '#e5ebdc', building: '#c9d3bd', road: '#b3bdb0', rails: '#7d9476',
@@ -72,15 +73,19 @@ function start() {
     let dark;
     if (automatic) {
       const traffic = getTrafficProfile(epoch, timeZone), light = getLightingProfile(epoch, timeZone);
+      automaticLight = light;
       if (Math.abs(simulation.density - traffic.density) > 1e-6) simulation.setDensity(traffic.density);
       trafficLabel = traffic.label; lightLabel = light.label;
       view.setLighting(light); dark = light.daylight < .55;
     } else {
       simulation.setDensity(manualDensity);
-      trafficLabel = densityLabel(manualDensity); lightLabel = lightNames[manualLight];
-      if (manualLight === 'night') view.setLighting({ daylight: 0, warmth: 0 });
+      trafficLabel = densityLabel(manualDensity); lightLabel = capturedManualLight?.label || lightNames[manualLight];
+      // Freeze the full automatic profile, including sun direction and twilight,
+      // until the user explicitly picks a different manual lighting preset.
+      if (capturedManualLight) view.setLighting(capturedManualLight);
+      else if (manualLight === 'night') view.setLighting({ daylight: 0, warmth: 0 });
       else view.setEvening(manualLight === 'evening');
-      dark = manualLight !== 'day';
+      dark = capturedManualLight ? capturedManualLight.daylight < .55 : manualLight !== 'day';
     }
     $('density').value = String(Math.round(simulation.density * 100));
     $('density').disabled = automatic;
@@ -108,7 +113,18 @@ function start() {
     $('clock-input').value = `${local.date}T${local.time}`;
     applyEnvironment(true); updateStatus(); invalidateModels();
   }
-  function setMode(value) { automatic = value; simulation.setMinimumTraffic(value); applyEnvironment(true); updateStatus(); }
+  function setMode(value) {
+    if (automatic === value) return;
+    if (!value) {
+      manualDensity = simulation.density;
+      capturedManualLight = { ...automaticLight };
+      manualLight = automaticLight.daylight === 0 ? 'night' : automaticLight.daylight === 1 ? 'day' : 'evening';
+    }
+    automatic = value;
+    simulation.setMinimumTraffic(value);
+    applyEnvironment(true);
+    updateStatus();
+  }
   $('mode-auto').addEventListener('click', () => setMode(true));
   $('mode-manual').addEventListener('click', () => setMode(false));
   $('clock-now').addEventListener('click', () => { $('time-preset').value = ''; setClock(Date.now()); toast('Simulationsuhr auf die aktuelle Dortmunder Zeit gesetzt.'); });
@@ -128,7 +144,7 @@ function start() {
     const date = new Date(Date.UTC(local.year, local.month - 1, local.day + (preset[0] - local.weekday + 7) % 7));
     setClock(localDateTimeToEpoch(date.toISOString().slice(0, 10), preset[1], timeZone));
   });
-  function setManualLight(value) { manualLight = value; applyEnvironment(true); }
+  function setManualLight(value) { manualLight = value; capturedManualLight = null; applyEnvironment(true); }
   $('manual-light').addEventListener('change', () => setManualLight($('manual-light').value));
   let desiredPosition = new THREE.Vector3(), desiredTarget = new THREE.Vector3(), lookTarget = new THREE.Vector3();
   const freeCamera = new FreeCameraControls();
@@ -227,8 +243,9 @@ function start() {
       const departure = next?.scheduledTime == null ? null : getLocalTime(next.scheduledTime, timeZone);
       const departureLabel = departure ? `${departure.date === local.date ? '' : ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][departure.weekday] + ' '}${departure.time}` : '';
       const dwelling = trams.find(tram => tram.stationState === 'dwelling');
+      const blocked = trams.some(tram => tram.blockedByRoadTraffic);
       row.dataset.active = String(trams.length > 0);
-      state.textContent = dwelling ? `Haltestelle · ${Math.ceil(dwelling.stationRemaining)} s` : trams.length ? trams.some(tram => tram.speed < .2) ? 'wartet auf Grün' : 'fährt' : departure ? `ab ${departureLabel}` : next ? `in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : '–';
+      state.textContent = dwelling ? `Haltestelle · ${Math.ceil(dwelling.stationRemaining)} s` : blocked ? 'wartet auf freie Gleise' : trams.length ? trams.some(tram => tram.speed < .2) ? 'wartet auf Grün' : 'fährt' : departure ? `ab ${departureLabel}` : next ? `in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : '–';
       row.title = departure ? `Fahrplan ${departureLabel} · Ampeln können die Durchfahrt verzögern.` : '';
     }
     for (const indicator of signalIndicators) {

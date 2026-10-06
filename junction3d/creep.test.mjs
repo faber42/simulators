@@ -86,8 +86,6 @@ function assertSafe(simulation) {
   }
   for (const tram of simulation.trams) {
     if (!tram.committed && simulation.getTransitSignal(tram.routeId) !== 'green') assert.ok(tram.distance + tram.length / 2 <= tram.route.stopDistance + 1e-7);
-    if (tram.committed && tram.distance - tram.length / 2 <= tram.route.clearDistance) assert.ok(
-      simulation.phases[simulation.phaseIndex].groups.some(group => simulation.transitConfig.greenGroups.includes(group)));
   }
   const bodies = [...simulation.vehicles, ...simulation.trams.map(tram => ({ ...tram, kind: 'tram' }))];
   for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) assert.equal(
@@ -164,7 +162,7 @@ for (const direction of directions) for (const cause of ['occupied curve', 'full
   assert.ok(side.passedGateIndex >= 1 && side.speed > approach.speed, 'Once the priority queue drains, the side vehicle must continue normally');
 });
 
-for (const direction of directions) test(`${direction.name}: mixed cars, vans and U-turn destinations keep filling and drain after a manual receiving-phase end`, () => {
+for (const direction of directions) test(`${direction.name}: mixed cars and creeping entrants stop at synchronous inner red and resume in a later cycle`, () => {
   const simulation = new TrafficSimulation(configFor());
   until(simulation, () => simulation.phaseIndex === direction.mainPhase && simulation.stage === 'green', 150);
   const initialSerial = simulation.phaseSerial;
@@ -179,32 +177,33 @@ for (const direction of directions) test(`${direction.name}: mixed cars, vans an
   const admittedSide = sideCars.filter(vehicle => vehicle.passedGateIndex >= 0);
   assert.ok(admittedSide.length, 'The manual-end fixture must include already creeping side traffic');
   simulation.requestNextPhase();
+  assert.equal(simulation.getSignal(direction.middleGroup), 'yellow');
+  assert.equal(simulation.getSignal(direction.sideGroup), 'yellow');
   until(simulation, () => simulation.phaseSerial >= initialSerial + 2, 120);
-  for (const vehicle of [...admittedMain, ...admittedSide]) assert.ok(
-    vehicle.distance - vehicle.length / 2 > vehicle.route.stops.at(-1).clearDistance,
-    `Manual end released conflicting traffic before ${vehicle.routeId} drained`);
+  assert.ok([...admittedMain, ...admittedSide].some(vehicle => vehicle.passedGateIndex === 0),
+    'An early end must leave cars waiting on the median rather than prolong its green');
+  until(simulation, () => [...admittedMain, ...admittedSide].every(vehicle => vehicle.passedGateIndex >= 1), 280);
 });
 
-test('a following reserved tram phase waits for mixed turners and creeping side traffic to clear', () => {
+test('mixed turners, creeping side traffic and the following trams all progress without collisions', () => {
   const config = configFor(dortmund, true);
   config.transit.routes.forEach((route, index) => { delete route.schedule; route.offset = 65 + index * 6; });
   const simulation = new TrafficSimulation(config);
   const mainCars = queue(simulation, ['east-south', 'east-uturn'], 14);
   const sideCars = directions[0].sideRoutes.flatMap(id => queue(simulation, id, 4));
   let sawPendingSide = false, sawReserved = false;
-  for (let tick = 0; tick < 170 / STEP; tick++) {
+  for (let tick = 0; tick < 360 / STEP; tick++) {
     step(simulation);
     sawPendingSide ||= sideCars.some(vehicle => vehicle.passedGateIndex === 0 && !vehicle.reservations.length);
     if (simulation.transitProtected) {
       sawReserved = true;
       for (const group of config.transit.blockedGroups) assert.equal(simulation.getSignal(group), 'red');
-      for (const vehicle of [...mainCars, ...sideCars].filter(vehicle => vehicle.passedGateIndex >= 0)) assert.ok(
-        vehicle.distance - vehicle.length / 2 > vehicle.route.stops.at(-1).clearDistance,
-        'A train reservation must wait until pending creep and admitted turns have drained');
     }
-    if (simulation.transitPassed === 2) break;
+    if (simulation.transitPassed === 2 && [...mainCars, ...sideCars].every(vehicle => vehicle.passedGateIndex >= 1)) break;
   }
   assert.ok(sawPendingSide && sawReserved); assert.equal(simulation.transitPassed, 2);
+  assert.ok([...mainCars, ...sideCars].every(vehicle => vehicle.passedGateIndex >= 1),
+    'Train priority must not indefinitely prevent any of the original road queues from leaving the median');
 });
 
 test('Opphoff gates keep hard capacity and ordinary admission without yielding-creep configuration', () => {

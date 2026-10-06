@@ -198,7 +198,7 @@ export const dortmund = {
   ui: {
     roadBadge: 'B 1',
     minimumTrafficNote: 'Mindestens ein Fahrzeug je Minute aus West und Ost sowie je fünf Minuten aus Nord und Süd.',
-    phaseExplainer: 'Die B1 erhält jede zweite Grünphase. Innere und äußere Nebenstraßenampeln starten gemeinsam.',
+    phaseExplainer: 'Die B1 erhält jede zweite Grünphase. Innere und äußere Nebenstraßenampeln schalten gemeinsam.',
     signalIndicators: [
       { group: 'mainLeftSouth', label: 'B1 links → Süd' },
       { group: 'mainLeftNorth', label: 'B1 links → Nord' },
@@ -220,11 +220,11 @@ export const dortmund = {
   phases: [
     { id: 'main-a', label: 'Hauptstraße · West ↔ Ost', groups: ['main', 'mainLeftSouth'], groupDelays: { mainLeftSouth: 7 }, duration: 32,
       uiNote: 'B1 geradeaus; nach 7 s links aus Ost in den Wartebereich Richtung Süd.' },
-    { id: 'north', label: 'Nebenstraße → Süd · Mitte und Voßkuhle gemeinsam', groups: ['middleSouth', 'north'], drainGroups: ['middleSouth'], duration: 22,
+    { id: 'north', label: 'Nebenstraße → Süd · Mitte und Voßkuhle gemeinsam', groups: ['middleSouth', 'north'], receiveOverflowGroups: ['middleSouth'], duration: 22,
       uiNote: 'Voßkuhle und Mitte starten gemeinsam. Die Nebenstraße rollt langsam bis vor die Abbiegekurve; B1-Abbieger räumen zuerst.' },
     { id: 'main-b', label: 'Hauptstraße · West ↔ Ost', groups: ['main', 'mainLeftNorth'], groupDelays: { mainLeftNorth: 7 }, duration: 32,
       uiNote: 'B1 geradeaus; nach 7 s links aus West in den Wartebereich Richtung Nord.' },
-    { id: 'south', label: 'Nebenstraße → Nord · Mitte und Semmerteichstraße gemeinsam', groups: ['middleNorth', 'south'], drainGroups: ['middleNorth'], duration: 22,
+    { id: 'south', label: 'Nebenstraße → Nord · Mitte und Semmerteichstraße gemeinsam', groups: ['middleNorth', 'south'], receiveOverflowGroups: ['middleNorth'], duration: 22,
       uiNote: 'Semmerteichstraße und Mitte starten gemeinsam. Die Nebenstraße rollt langsam bis vor die Abbiegekurve; B1-Abbieger räumen zuerst.' },
   ],
   roads: [
@@ -268,6 +268,7 @@ export const dortmund = {
     { id: 'median-to-north', stopIds: ['middle-north-left', 'middle-north-shared', 'middle-north-through'], anchor: [-1, -4.2], height: 5.8 },
   ],
   transit: {
+    allowBlockedEntry: true,
     greenGroups: ['main'],
     blockedGroups: ['mainLeftSouth', 'mainLeftNorth'],
     // User-provided clock minutes. Sundays use every other departure;

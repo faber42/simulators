@@ -33,9 +33,8 @@ function assertSafe(simulation) {
     if (!tram.committed && simulation.getTransitSignal(tram.routeId) !== 'green') assert.ok(
       tram.distance + tram.length / 2 <= tram.route.stopDistance + 1e-7,
       `${tram.routeId} crossed a closed tram signal`);
-    if (tram.committed && tram.distance - tram.length / 2 <= tram.route.clearDistance) assert.ok(
-      simulation.phases[simulation.phaseIndex].groups.some(group => simulation.transitConfig.greenGroups.includes(group)),
-      'Side traffic opened before the complete tram rear cleared the crossing');
+    // A train already inside may wait for red median traffic to get its next
+    // green. Simultaneous occupancy is legitimate; body overlap is not.
   }
   const bodies = [...simulation.vehicles, ...simulation.trams.map(tram => ({ ...tram, kind: 'tram' }))];
   for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) assert.equal(
@@ -154,7 +153,7 @@ for (const scenario of scenarios) test(`${scenario.route}: green admits spillbac
   t.diagnostic(`${overloaded.map(([id, count]) => `${id}: ${count}`).join(', ')}; ${bentWaiters.size} stopped bend cars; side yielded up to ${maxSideStoppedFor.toFixed(1)} s`);
 });
 
-for (const scenario of scenarios.slice(4)) test(`${scenario.route}: immediately ending the receiving side phase still drains inherited spillback`, () => {
+for (const scenario of scenarios.slice(4)) test(`${scenario.route}: an early receiving-phase end holds inherited spillback until the next inner green`, () => {
   const simulation = new TrafficSimulation(quietConfig(dortmund));
   advanceUntil(simulation, () => simulation.phaseIndex === scenario.mainPhase && simulation.stage === 'green', 150);
   const initialSerial = simulation.phaseSerial;
@@ -165,16 +164,18 @@ for (const scenario of scenarios.slice(4)) test(`${scenario.route}: immediately 
   assert.ok(admitted.length > 6, 'The early-end fixture must inherit more cars than fit in the three middle lanes');
   assert.ok(admitted.some(vehicle => vehicle.distance - vehicle.length / 2 < vehicle.route.stops[0].clearDistance));
   simulation.requestNextPhase();
-  assert.equal(simulation.getSignal(scenario.middleGroup), 'green', 'The receiving middle signal must keep draining after the manual end');
-  assert.notEqual(simulation.getSignal(scenario.sideGroup), 'green');
+  assert.equal(simulation.getSignal(scenario.middleGroup), 'yellow');
+  assert.equal(simulation.getSignal(scenario.sideGroup), 'yellow', 'Inner and outer signals must close together after a manual end');
   advanceUntil(simulation, () => simulation.phaseSerial >= initialSerial + 2, 100);
-  for (const vehicle of admitted) assert.ok(vehicle.distance - vehicle.length / 2 > vehicle.route.stops.at(-1).clearDistance,
-    `Next conflicting main phase opened before inherited turner ${vehicle.id} fully cleared`);
+  assert.ok(admitted.some(vehicle => vehicle.passedGateIndex === 0), 'The next phase must be allowed while cars wait at inner red');
   assert.ok(sideCars.every(vehicle => vehicle.passedGateIndex < 0), 'A manual early end must not admit the side queue through its closed outer gate');
+  advanceUntil(simulation, () => admitted.every(vehicle => vehicle.passedGateIndex >= 1), 200);
+  assert.ok(simulation.phaseSerial >= initialSerial + 5, 'The stopped median queue must wait for the next matching green');
 });
 
-for (const unavailable of ['middle group absent', 'middle group does not drain']) test(`overflow cannot hand off to an unsafe next phase: ${unavailable}`, () => {
+for (const unavailable of ['middle group absent', 'middle group does not receive overflow']) test(`overflow cannot hand off to an unsafe next phase: ${unavailable}`, () => {
   const config = quietConfig(dortmund);
+  delete config.phases[1].receiveOverflowGroups;
   if (unavailable === 'middle group absent') {
     config.phases[1].groups = ['north']; config.phases[1].drainGroups = [];
   } else config.phases[1].drainGroups = [];
@@ -211,7 +212,7 @@ test('a booked tram phase still closes both spilling B1 left entries until a lat
   assert.ok(sawTram && resumed); assert.equal(simulation.transitPassed, 2);
 });
 
-test('the tram phase following spillback begins only after the whole inherited turning queue has cleared', () => {
+test('a tram phase following spillback remains collision-free and eventually serves both trains', () => {
   const config = quietConfig(dortmund, { transit: true });
   config.transit.routes.forEach((route, index) => { delete route.schedule; route.offset = 65 + index * 6; });
   const simulation = new TrafficSimulation(config);
@@ -219,21 +220,19 @@ test('the tram phase following spillback begins only after the whole inherited t
   const turners = addQueue(simulation, ['east-south', 'east-uturn'], 12);
   ['north-left', 'north-shared-straight', 'north-through'].forEach(id => addQueue(simulation, id, 3));
   let overloaded = false, sawFollowingReservation = false, sawTrain = false;
-  for (let tick = 0; tick < 150 / STEP; tick++) {
+  for (let tick = 0; tick < 360 / STEP; tick++) {
     simulation.update(STEP); assertSafe(simulation);
     overloaded ||= [...occupancy(simulation).values()].some(count => count > 2);
     if (simulation.transitProtected && simulation.phaseIndex === 2) {
       sawFollowingReservation = true;
       for (const group of config.transit.blockedGroups) assert.equal(simulation.getSignal(group), 'red');
-      for (const vehicle of turners.filter(vehicle => vehicle.passedGateIndex >= 0)) assert.ok(
-        vehicle.distance - vehicle.length / 2 > vehicle.route.stops.at(-1).clearDistance,
-        'Booked following tram phase started with a residual B1 turning tail in the crossing');
     }
     sawTrain ||= simulation.trams.some(tram => tram.committed && simulation.phaseIndex === 2);
-    if (simulation.transitPassed === 2) break;
+    if (simulation.transitPassed === 2 && turners.every(vehicle => vehicle.passedGateIndex >= 1)) break;
   }
   assert.ok(overloaded && sawFollowingReservation && sawTrain);
   assert.equal(simulation.transitPassed, 2, 'Both trains must eventually traverse after the spilled queue drains');
+  assert.ok(turners.every(vehicle => vehicle.passedGateIndex >= 1), 'Every original turning car must eventually leave the median despite train reservations');
 });
 
 test('Opphoff keeps hard storage capacity on every gate and continues alternating both axes', () => {
