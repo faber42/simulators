@@ -332,6 +332,17 @@ folgende Nebenstraßenphase warten. Neu anfahrender Nebenstraßenverkehr gibt
 ihnen beim Einordnen Vorrang. Fahrzeugabstände und belegte Querungsbereiche
 gelten auch während dieser Übergänge weiter.
 
+Blockieren nur ein oder zwei normale Pkw nebeneinander direkt an der roten
+Mittelampel die Bahn knapp, können sie langsam wenige Zentimeter vorrollen.
+Das geschieht erst vor einer tatsächlich wartenden Bahn und nur, wenn dadurch
+alle Hindernisse auf ihrem Weg beide Gleise freigeben. Bei einer zweiten Reihe,
+längeren Fahrzeugen oder unzureichendem Platz bleibt die Schlange stehen.
+Der kurze Weg wird auf freie Fahrzeugkörper geprüft und endet weiterhin vor
+der roten Haltelinie; ein Überfahren bei Rot ist damit nicht verbunden.
+Ist der innere Abbiegeweg durch die wartende Gegenrichtung blockiert,
+fahren aus der Nebenstraße keine weiteren Abbieger in diesen Rückstau ein.
+Freie Nachbarspuren und das gewollte Nachrücken der B1-Abbieger bleiben nutzbar.
+
 Grünzeiten (32 / 22 / 32 / 22 Sekunden), Gelb (3 Sekunden), Räumzeit
 (3 Sekunden), Rot-Gelb (1 Sekunde) sowie die Verzögerung von 7 Sekunden für
 B1-Linksabbieger in Phasen ohne Stadtbahn
@@ -396,6 +407,8 @@ Umgebung, Signalpositionen und Kameras.
 | `spillback.test.mjs` | Rückstau der Voßkuhle-B1-Abbieger, Vorrang beim Räumen und kollisionsfreies Nachrücken der Nebenstraße. |
 | `signal-synchronization.test.mjs` | Gemeinsame Signalwechsel an der Voßkuhle, Grundumlauf ohne Nachlauf und Warten bis zum nächsten Mittelgrün. |
 | `tram-blocking.test.mjs` | Von Mittelautos blockierte Bahnen, spätere Räumung bei Mittelgrün und Weiterfahrt bereits eingelassener Bahnen bei Rot. |
+| `tram-nudge.test.mjs` | Kurzes Vorrollen einzelner Pkw bei Mittelrot: freie Gleise ohne Rotüberfahrt, keine Ausnahme für zweite Reihen oder längere Fahrzeuge. |
+| `holding-entry.test.mjs` | Keine weitere Nebenstraßeneinfahrt in blockierte innere Abbiegewege; freie Nachbarspuren und B1-Rückstau bleiben erhalten. |
 | `creep.test.mjs` | Auffüllen freier Mittelspuren und langsames Vorrücken der Nebenstraße bis vor die belegte Abbiegekurve. |
 | `creep-following.test.mjs` | Normales Nachfahren hinter gleichgerichtetem Nebenstraßenverkehr ohne unnötiges Schritttempo. |
 | `minimum-arrivals.test.mjs` | Nächtliche Mindestzuflüsse je Richtung, freie Zufahrten, Fristen und manueller Nullverkehr. |
@@ -601,6 +614,15 @@ auch nach dessen Wechsel auf Rot fortsetzen. Eine durch Autos blockierte
 Bahn verhindert nicht den nächsten Phasenwechsel, der diese Autos freigibt.
 Ohne diese Option bleibt die Bahnfreigabe bei reservierten Mittelbereichen
 gesperrt.
+
+`transit.allowMedianNudge: true` ergänzt an der Voßkuhle das kurze Platzmachen
+für eine bereits eingelassene und durch Autos angehaltene Bahn. Nur ein oder
+zwei Pkw in erster Reihe je betroffener Mittelrichtung kommen infrage. Ihr
+gesamter Vorrollweg bleibt frei, beträgt höchstens 65 cm und endet mindestens
+15 cm vor der Haltelinie. Die Geschwindigkeit beträgt höchstens 0,6 m/s. Erst nach
+Erreichen der geprüften Position mit zusätzlichem Abstand zu beiden Gleisen
+wird die konservative Gleisreservierung dieser Autos freigegeben. Grün und
+die übrigen Regeln zum Warten und Räumen bleiben unverändert.
 
 Eine Bahnroute kann `stationStop: { point: [x, z], dwell: 20 }` angeben.
 `point` ist die Position der Mitte des gesamten Verbands auf seinem Fahrweg; anders als bei

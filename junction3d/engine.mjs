@@ -10,6 +10,8 @@ const GAP = 2.2;
 const STOP_MARGIN = 0.8;
 const TRAM_BRAKING = 1.3;
 const TRAM_ACCELERATION = 1.1;
+const MEDIAN_NUDGE_LIMIT = 0.65;
+const MEDIAN_NUDGE_SPEED = 0.6;
 const VEHICLE_TYPES = {
   car: { weight: 83, length: 4.5, width: 1.82 },
   van: { weight: 14, length: 5.4, width: 2.05 },
@@ -601,10 +603,8 @@ export class TrafficSimulation {
       }
       let roadLimit = Infinity;
       if (this.transitConfig.allowBlockedEntry) for (const vehicle of this.vehicles) {
-        const zone = vehicle.route.railZones.get(vehicle.kind);
-        if (!zone || vehicle.distance <= zone.entry + 1e-7 || vehicle.distance >= zone.exit) continue;
-        const corridor = zone.corridors.get(tram.routeId);
-        if (tram.distance - tram.length / 2 > corridor.to) continue;
+        const corridor = this.tramObstruction(vehicle, tram);
+        if (!corridor) continue;
         roadLimit = Math.min(roadLimit, Math.max(0, corridor.from - tram.length / 2 - tram.distance));
       }
       if (Number.isFinite(roadLimit)) {
@@ -710,6 +710,64 @@ export class TrafficSimulation {
   waitsAtInnerRed(vehicle) {
     const next = vehicle.route.stops[vehicle.passedGateIndex + 1];
     return vehicle.passedGateIndex >= 0 && next && this.holdingGroups.has(next.group) && this.getSignal(next.group) === 'red';
+  }
+
+  tramObstruction(vehicle, tram) {
+    const zone = vehicle.route.railZones.get(vehicle.kind);
+    if (!zone || vehicle.distance <= zone.entry + 1e-7 || vehicle.distance >= zone.exit) return null;
+    // The normal swept corridor is deliberately generous. A small, verified
+    // move at the inner red can clear the actual tracks before that corridor
+    // ends; release it only once the car has really reached its safe position.
+    if (vehicle.railNudge && vehicle.distance >= vehicle.railNudge.distance - 1e-7) return null;
+    const corridor = zone.corridors.get(tram.routeId);
+    return tram.distance - tram.length / 2 <= corridor.to ? corridor : null;
+  }
+
+  clearsTracks(vehicle, distance) {
+    const pose = samplePath(vehicle.route.path, distance);
+    return this.transitRoutes.every(track => {
+      const projection = projectedDistance(track.path, [pose.x, pose.z]);
+      return !bodyConflict(pose, vehicle, { ...samplePath(track.path, projection), kind: 'tram', length: 2 * vehicle.length + 6 }, .1);
+    });
+  }
+
+  planMedianNudges() {
+    if (!this.transitConfig.allowMedianNudge) return;
+    for (const tram of this.trams) {
+      if (!tram.committed || !tram.blockedByRoadTraffic) continue;
+      const blockers = this.vehicles.filter(vehicle => this.tramObstruction(vehicle, tram));
+      if (!blockers.length || blockers.some(vehicle => !this.waitsAtInnerRed(vehicle))) continue;
+      const groups = new Set(blockers.map(vehicle => vehicle.route.stops[vehicle.passedGateIndex + 1].group));
+      const queue = this.vehicles.filter(vehicle => vehicle.passedGateIndex >= 0 &&
+        groups.has(vehicle.route.stops[vehicle.passedGateIndex + 1]?.group));
+      // A second row cannot clear the rails this way. Nor can a long vehicle,
+      // or a queue that has not yet settled right at its red middle signal.
+      if ([...groups].some(group => queue.filter(vehicle => vehicle.route.stops[vehicle.passedGateIndex + 1].group === group).length > 2) ||
+          queue.some(vehicle => {
+            const stop = vehicle.route.stops[vehicle.passedGateIndex + 1];
+            const normalPosition = stop.distance - vehicle.length / 2 - STOP_MARGIN;
+            return vehicle.kind !== 'car' || vehicle.length > VEHICLE_TYPES.car.length ||
+              (!vehicle.railNudge && vehicle.speed > .05) || vehicle.distance < normalPosition - .08;
+          })) continue;
+      const plans = [];
+      for (const vehicle of blockers) {
+        if (vehicle.railNudge) { plans.push([vehicle, vehicle.railNudge]); continue; }
+        const stopIndex = vehicle.passedGateIndex + 1, stop = vehicle.route.stops[stopIndex];
+        const lastPosition = Math.min(vehicle.distance + MEDIAN_NUDGE_LIMIT,
+          stop.distance - vehicle.length / 2 - (STOP_MARGIN - MEDIAN_NUDGE_LIMIT));
+        let target = null;
+        for (let distance = vehicle.distance + .025; distance <= lastPosition + 1e-7; distance += .025) {
+          const pose = samplePath(vehicle.route.path, distance);
+          if (this.vehicles.some(other => other !== vehicle && bodyConflict(pose, vehicle, other, .1)) ||
+              this.trams.some(other => bodyConflict(pose, vehicle, { ...other, kind: 'tram' }, .1))) break;
+          if (this.clearsTracks(vehicle, distance)) { target = distance; break; }
+        }
+        if (target === null) break;
+        plans.push([vehicle, { stopIndex, distance: target }]);
+      }
+      // Do not inch forward pointlessly if another obstruction will remain.
+      if (plans.length === blockers.length) for (const [vehicle, plan] of plans) vehicle.railNudge = plan;
+    }
   }
 
   entryBlockedByHoldingTraffic(route, stopIndex, holdingTraffic) {
@@ -843,6 +901,7 @@ export class TrafficSimulation {
       else this.arrivals.set(route.id, 0);
     }
     this.spawnMinimumArrivals();
+    this.planMedianNudges();
 
     const holdingTraffic = this.holdingGroups.size ? this.vehicles.filter(vehicle => this.waitsAtInnerRed(vehicle)) : [];
     const greenGroups = this.phases[this.phaseIndex].groups.filter(group => this.getSignal(group) === 'green').join(',');
@@ -855,6 +914,13 @@ export class TrafficSimulation {
           this.blockedHoldingGates.add(`${route.id}:${index}`);
         }
       });
+      // Do not feed an already blocked inner turn with more side-road cars.
+      // Otherwise each direction can fill the opposite turn's exit with its
+      // queue tail, leaving both green phases unable to release either queue.
+      for (const route of this.routes) if (route.stops[0].yieldApproach &&
+          route.stops.some((stop, index) => index > 0 && this.blockedHoldingGates.has(`${route.id}:${index}`))) {
+        this.blockedHoldingGates.add(`${route.id}:0`);
+      }
     }
 
     const vehiclesByRoute = new Map();
@@ -920,7 +986,24 @@ export class TrafficSimulation {
         const targetSpeed = Math.sqrt(2 * 2.7 * Math.max(0, distanceToStop));
         acceleration = Math.min(acceleration, (targetSpeed - vehicle.speed) * 2.5);
       };
-      if (stop && (this.getSignal(stop.group) !== 'green' || crossingBlocked || (!stop.yieldApproach && (storageFull || yields)))) limitAt(stop.distance);
+      const nudge = vehicle.railNudge?.stopIndex === stopIndex && this.getSignal(stop.group) === 'red' ? vehicle.railNudge : null;
+      if (stop && (this.getSignal(stop.group) !== 'green' || crossingBlocked || (!stop.yieldApproach && (storageFull || yields)))) {
+        limitAt(nudge ? nudge.distance + vehicle.length / 2 + STOP_MARGIN : stop.distance);
+      }
+      if (nudge) {
+        acceleration = Math.min(acceleration, .45, (MEDIAN_NUDGE_SPEED - vehicle.speed) / dt);
+        // Recheck the short remaining move against traffic that may have
+        // approached since the plan was made. A grant never bypasses bodies.
+        for (let distance = vehicle.distance; distance < nudge.distance; distance += .025) {
+          const next = Math.min(distance + .025, nudge.distance);
+          const pose = samplePath(vehicle.route.path, next);
+          if (this.vehicles.some(other => other !== vehicle && bodyConflict(pose, vehicle, other, .1)) ||
+              this.trams.some(other => bodyConflict(pose, vehicle, { ...other, kind: 'tram' }, .1))) {
+            maximumAdvance = Math.min(maximumAdvance, Math.max(0, distance - vehicle.distance));
+            break;
+          }
+        }
+      }
       if (approachBlocked) limitAt(approach.distance);
       if (trainOccupiesCrossing && vehicle.distance <= railZone.entry + 1e-7) {
         // Already crossing cars clear first; followers wait outside the rail

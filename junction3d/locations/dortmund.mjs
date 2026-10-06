@@ -269,6 +269,7 @@ export const dortmund = {
   ],
   transit: {
     allowBlockedEntry: true,
+    allowMedianNudge: true,
     greenGroups: ['main'],
     blockedGroups: ['mainLeftSouth', 'mainLeftNorth'],
     // User-provided clock minutes. Sundays use every other departure;
