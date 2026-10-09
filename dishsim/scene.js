@@ -254,7 +254,8 @@ export class DishwasherScene {
     this.filterDebris = new THREE.InstancedMesh(new THREE.SphereGeometry(.024, 6, 4), new THREE.MeshStandardMaterial({ color: '#9c6a32', roughness: .93 }), 28);
     filter.add(this.filterDebris);
     const sump = cylinder(group, m.dark, .30, .22, .29, [.35, .29, .48]); sump.castShadow = true;
-    this.pump = cylinder(group, m.steel, .22, .22, .41, [-.62, .23, .24]); this.pump.rotation.z = Math.PI / 2;
+    // Recess the steel end cap inside the heater so their front faces cannot overlap.
+    this.pump = cylinder(group, m.steel, .22, .22, .37, [-.64, .23, .24]); this.pump.rotation.z = Math.PI / 2;
     cylinder(group, m.graphite, .24, .24, .12, [-.83, .23, .24]).rotation.z = Math.PI / 2;
     this.heater = cylinder(group, m.heat, .235, .235, .17, [-.50, .23, .24]); this.heater.rotation.z = Math.PI / 2;
     const pumpFeet = box(group, m.graphite, [.63, .09, .51], [-.62, .015, .24]); pumpFeet.castShadow = true;
