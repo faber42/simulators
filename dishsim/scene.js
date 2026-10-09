@@ -386,7 +386,7 @@ export class DishwasherScene {
     on('pointermove', e => {
       if (!drag || drag.id !== e.pointerId) return;
       this.orbitGoal.theta -= (e.clientX-drag.x)*.007;
-      this.orbitGoal.phi = clamp(this.orbitGoal.phi+(e.clientY-drag.y)*.006,.25,1.5);
+      this.orbitGoal.phi = clamp(this.orbitGoal.phi-(e.clientY-drag.y)*.006,.25,1.5);
       drag.x=e.clientX; drag.y=e.clientY;
     });
     const end = e => { if (drag && drag.id === e.pointerId) { drag=null; this.canvas.style.cursor='grab'; } };
