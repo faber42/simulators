@@ -1,6 +1,6 @@
 # DishLab — Geschirrspüler in 3D
 
-Ein einsehbarer Geschirrspüler mit Edelstahlrahmen, Drahtkörben und violettem
+Ein einsehbarer Geschirrspüler mit Edelstahlrahmen, Drahtkörben und rotem
 Geschirr, angelehnt an die Bildreferenz. Die frei drehbare Three.js-Szene nutzt
 die im Pinsetter-Projekt lokal vorhandene 3D-Bibliothek.
 
@@ -58,6 +58,22 @@ Die Tastenkürzel funktionieren, wenn das 3D-Bild oder der Seitenhintergrund
 den Fokus hat. Eingabefelder, Schaltflächen und der Infodialog behalten ihre
 eigene Tastaturbedienung. Ein Klick auf eine Bauteilbeschriftung öffnet eine
 Erklärung und die passende Kameraansicht.
+
+Die gesamte Oberfläche und die 3D-Szene übernehmen automatisch den hellen
+oder dunklen Modus des Betriebssystems. Ein Wechsel der Systemeinstellung
+wird auch bei bereits geöffneter Simulation übernommen.
+
+## Farben lesen
+
+- **Blau:** klares Wasser; kalt ist es dunkelblau, warmes Wasser wird heller.
+- **Violett:** Wasser mit gelöstem Reiniger (Spüllauge).
+- **Ocker:** Schmutzanteile im Wasser und zurückgehaltene Speisereste.
+- **Rot:** Geschirr. Die roten Teller bleiben so vom Wasser gut unterscheidbar.
+
+Die Helligkeit des Wassers zeigt seine Temperatur innerhalb der jeweiligen
+Farbe. Die Zahlenanzeigen nennen zusätzlich die Modelltemperaturen. Nach
+dem Spülgang kühlen Geschirr, Innenraum und Wassertasche passiv weiter ab;
+dabei startet kein neuer Wasser- oder Pumpenkreislauf.
 
 ## Modell und Grenzen
 

@@ -1,4 +1,5 @@
 import { Cycle, PHASES, TOTAL_DURATION } from './cycle.mjs';
+import { waterColor } from './water-color.mjs';
 
 const $ = id => document.getElementById(id);
 const cycle = new Cycle();
@@ -9,6 +10,17 @@ let focusedComponent = null;
 let currentView = 'overview';
 let lastTime = performance.now();
 let uiElapsed = 0;
+const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+const themeName = () => systemTheme.matches ? 'dark' : 'light';
+let appliedTheme;
+function syncTheme() {
+  const nextTheme = themeName();
+  if (scene && appliedTheme !== nextTheme) {
+    scene.setTheme(nextTheme);
+    appliedTheme = nextTheme;
+  }
+}
+systemTheme.addEventListener('change', () => { syncTheme(); renderNow(); });
 
 const chapters = [
   { title: 'Einlassen', caption: 'Der Wasserweg', phase: 'fill', end: 'prewash' },
@@ -44,7 +56,7 @@ const insights = {
   'final-rinse': ['VORBEREITUNG ZUM TROCKNEN', 'Die Teller speichern Wärme.', 'Heißes Wasser erwärmt Keramik und Glas auf über 60 °C. Klarspüler senkt die Oberflächenspannung: Wasser läuft als dünner Film leichter ab. Diese Restwärme trocknet das Geschirr später.'],
   'drain-final': ['EINE KÜHLE SEITE', 'Kalt neben warm – mit Absicht.', 'Das heiße Spülwasser wird abgepumpt. Eine neue kalte Füllung in der Wassertasche kühlt die Seitenwand. Das Geschirr bleibt warm: Der Temperaturunterschied ist jetzt erwünscht.'],
   dry: ['SO FUNKTIONIERT DAS TROCKNEN', 'Warm verdunstet. Kalt kondensiert.', 'Der Wasserfilm verdunstet mit der Restwärme des Geschirrs. An der kühleren Seitenwand entstehen Tropfen, die nach unten laufen. Die Heizung und die Sprüharme bleiben dabei aus.'],
-  complete: ['DER SPÜLGANG IST GESCHAFFT', 'Saubere Teller. Reste im Sieb.', 'Das Keramikgeschirr ist sauber und trocken. Das Sieb hat grobe Reste zurückgehalten und braucht weiterhin Pflege. Kunststoff trocknet oft schlechter, weil er weniger Wärme speichert.'],
+  complete: ['DER SPÜLGANG IST GESCHAFFT', 'Sauber, trocken – und noch warm.', 'Bei geöffneter Tür gibt das Geschirr seine Restwärme langsam an die Raumluft ab. Das Rot wird dabei dunkler. Grobe Speisereste bleiben im Sieb zurück und müssen von Hand entfernt werden.'],
 };
 
 const conciseTitles = { fill: 'Wasser einlassen', prewash: 'Erst einmal vorspülen.', 'drain-prewash': 'Schmutzwasser raus.', 'main-fill': 'Frisches Wasser.', wash: 'Jetzt wird’s sauber.', 'drain-wash': 'Lauge abpumpen.', rinse: 'Reiniger ausspülen.', 'drain-rinse': 'Wasser wechseln.', 'final-rinse': 'Heiß klarspülen.', 'drain-final': 'Die Wand wird kühl.', dry: 'Trocknen mit Restwärme.', complete: 'Sauber. Und trocken.' };
@@ -110,6 +122,12 @@ function updateUI() {
   $('annotation-drying').textContent = `Seitenwand · ${Math.round(s.wallTemp)} °C`;
   $('clean-meter').style.width = `${(1 - s.soil) * 100}%`;
   $('wet-meter').style.width = `${s.wetness * 100}%`;
+  const waterKind = s.waterSoil > .2 ? 'Schmutzwasser' : s.detergent > .1 ? 'Lauge' : 'Klares Wasser';
+  const hasWater = s.waterLevel > .01 && !s.complete;
+  $('water-sample').style.backgroundColor = waterColor(s.waterTemp, s.detergent, s.waterSoil);
+  $('water-sample').hidden = !hasWater;
+  $('water-properties-text').textContent = hasWater ? `${waterKind} · ${Math.round(s.waterTemp)} °C` : s.complete ? 'Tür offen · Raumluft 20 °C' : ready ? 'Spülraum noch ohne Wasser' : 'Spülraum ohne Wasser';
+  $('dish-temperature').textContent = `Geschirr ${Math.round(s.dishTemp)} °C`;
   $('water-used').textContent = `${s.waterUsed.toFixed(1).replace('.', ',')} l`;
   $('water-used').title = 'Bisher eingefülltes Frischwasser · illustrative Modellwerte';
   $('flow-icon').classList.toggle('running', cycle.playing);
@@ -119,7 +137,7 @@ function updateUI() {
   if (s.drain) flows.push('Ablaufpumpe an');
   if (s.drying && !s.drain) flows.push('Restwärme trocknet');
   if (s.pocketRelease && !s.fill) flows.push('Tasche entleert');
-  $('flow-text').textContent = ready ? 'Bereit · Geschirr ist beladen' : s.complete ? 'Programm beendet' : `${!cycle.playing ? 'Pause · ' : ''}${flows.join(' · ') || 'Wasser im Spülraum'}`;
+  $('flow-text').textContent = ready ? 'Bereit · Geschirr ist beladen' : s.complete ? (s.cooling ? 'Programm beendet · Geschirr kühlt ab' : 'Programm beendet · Abgekühlt') : `${!cycle.playing ? 'Pause · ' : ''}${flows.join(' · ') || 'Wasser im Spülraum'}`;
   const [kicker, title, explanation] = insights[s.phase.id];
   $('explain-kicker').textContent = kicker;
   $('explain-title').textContent = title;
@@ -164,7 +182,9 @@ function updateAnnotations() {
     if (visible) {
       // Keep labels within the interactive viewport at narrow screen widths.
       const halfWidth = button.offsetWidth / 2 + 8;
-      button.style.left = `${Math.max(halfWidth, Math.min(canvas.clientWidth - halfWidth, anchor.x))}px`;
+      // Keep the dispenser itself unobstructed, including its visible tablet.
+      const anchorX = anchor.x + (id === 'detergent' ? 72 : 0);
+      button.style.left = `${Math.max(halfWidth, Math.min(canvas.clientWidth - halfWidth, anchorX))}px`;
       button.style.top = `${Math.max(currentView === 'overview' ? 175 : 82, Math.min(canvas.clientHeight - 108, anchor.y))}px`;
     }
   }
@@ -213,11 +233,11 @@ window.addEventListener('keydown', event => {
   if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(event.code)) setView(['overview', 'pocket', 'filter', 'drying'][Number(event.code.slice(-1)) - 1]);
 });
 window.addEventListener('resize', () => { scene?.resize(); updateAnnotations(); });
-document.addEventListener('visibilitychange', () => { lastTime = performance.now(); });
+document.addEventListener('visibilitychange', () => { lastTime = performance.now(); syncTheme(); });
 
 // A small diagnostic surface, also useful for deterministic browser checks.
 window.DISHSIM = Object.freeze({
-  snapshot: () => ({ ...cycle.state, playing: cycle.playing, speed: Number($('speed').value), view: currentView, cutaway, labels: showLabels, focusedComponent }),
+  snapshot: () => ({ ...cycle.state, playing: cycle.playing, speed: Number($('speed').value), view: currentView, cutaway, labels: showLabels, focusedComponent, theme: themeName(), visuals: scene?.inspect() ?? null }),
   seek: time => { cycle.seek(time); updateUI(); renderNow(); return cycle.state; },
   play: () => { cycle.play(); updateUI(); },
   pause: () => { cycle.pause(); updateUI(); },
@@ -228,13 +248,18 @@ updateUI();
 try {
   const { DishwasherScene } = await import('./scene.js');
   scene = new DishwasherScene($('scene'));
+  syncTheme();
   $('loader').hidden = true;
   $('play').disabled = false;
   renderNow();
   requestAnimationFrame(function frame(now) {
     const dt = document.hidden ? 0 : Math.min((now - lastTime) / 1000, .1);
     lastTime = now;
-    cycle.advance(dt * Number($('speed').value));
+    // Keep the WebGL canvas aligned with CSS even if an embedded browser delays
+    // the media-query change event while hidden or during a frame capture.
+    syncTheme();
+    // The selected speed compresses the programme; the open dishes cool in real time.
+    cycle.advance(dt * Number($('speed').value), dt);
     // Camera easing continues while paused, simulation positions depend on time.
     scene.update(cycle.state, dt);
     updateAnnotations();

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PHASES, TOTAL_DURATION, PROGRAM_MINUTES, sampleCycle, Cycle } from './cycle.mjs';
+import { PHASES, TOTAL_DURATION, PROGRAM_MINUTES, COOLING_DURATION, sampleCycle, Cycle } from './cycle.mjs';
 
 const at = (id, fraction = .5) => {
   const phase = PHASES.find(item => item.id === id);
@@ -19,7 +19,7 @@ test('the timeline covers the whole programme and selects exact boundaries', () 
 });
 
 test('water stays in the sump; pumping, chemistry and hygiene states are bounded', () => {
-  const fractions = ['waterLevel', 'soil', 'wetness', 'detergent', 'detergentTablet', 'rinseAid',
+  const fractions = ['waterLevel', 'soil', 'waterSoil', 'wetness', 'detergent', 'detergentTablet', 'rinseAid',
     'pocketLevel', 'filterSoil', 'spray', 'evaporation', 'condensation', 'heatRecovery'];
   let previous = sampleCycle(0);
   for (let time = 0; time <= TOTAL_DURATION; time += .1) {
@@ -47,6 +47,31 @@ test('prewash has no detergent; the main wash dissolves the tab and removes soil
   assert.equal(washLate.detergentCompartmentOpen, true);
   assert.ok(at('drain-wash', .95).detergent < washLate.detergent);
   assert.equal(at('final-rinse').detergent, 0);
+});
+
+test('soil moves off dishes into each water filling and fresh rinses do not inherit all removed dirt', () => {
+  const early = at('wash', .1);
+  const late = at('wash', .9);
+  assert.ok(late.soil < early.soil);
+  assert.ok(late.waterSoil > early.waterSoil);
+  assert.ok(at('prewash', .9).waterSoil > at('prewash', .1).waterSoil);
+  assert.equal(at('drain-wash', .9).waterSoil, at('drain-wash', .1).waterSoil,
+    'draining less water must not pretend the remaining water becomes clean');
+  assert.ok(at('drain-wash', .9).waterLevel < at('drain-wash', .1).waterLevel);
+  assert.equal(at('wash', .22).waterSoil, 0, 'early dissolved detergent must have a clear violet interval');
+  assert.ok(at('wash', .22).detergent > .6);
+  assert.equal(at('main-fill').waterSoil, 0);
+  assert.ok(at('rinse').waterSoil < .05);
+  assert.equal(at('final-rinse').waterSoil, 0);
+  assert.equal(at('final-rinse').soil, 0);
+  assert.equal(at('dry').waterSoil, 0);
+  for (const phase of PHASES) {
+    const before = sampleCycle(phase.start - 1e-6).waterSoil;
+    const after = sampleCycle(phase.start + 1e-6).waterSoil;
+    if (sampleCycle(phase.start).waterLevel > .01) {
+      assert.ok(Math.abs(after - before) < 1e-5, `water pollution jumped in a filled sump entering ${phase.id}`);
+    }
+  }
 });
 
 test('the isolated pocket recovers heat, supplies the rinse, then refills cold', () => {
@@ -158,4 +183,73 @@ test('invalid input is contained and negative deltas never reverse playback', ()
   cycle.advance(10);
   for (const delta of [-1, Infinity, NaN]) cycle.advance(delta);
   assert.equal(cycle.time, 10);
+});
+
+test('the opened-door cooldown is gradual, bounded and leaves the programme complete', () => {
+  let previous = sampleCycle(TOTAL_DURATION);
+  assert.equal(previous.dishTemp, 40);
+  assert.equal(previous.cooling, true);
+  for (let elapsed = 1; elapsed <= COOLING_DURATION; elapsed++) {
+    const state = sampleCycle(TOTAL_DURATION, elapsed);
+    for (const key of ['dishTemp', 'wallTemp', 'waterTemp', 'pocketTemp']) {
+      assert.ok(state[key] < previous[key], `${key} did not cool`);
+      assert.ok(state[key] >= 20, `${key} fell below ambient`);
+    }
+    assert.equal(state.complete, true);
+    assert.equal(state.time, TOTAL_DURATION);
+    assert.equal(state.phase.id, 'complete');
+    assert.equal(state.soil, 0);
+    assert.equal(state.wetness, 0);
+    previous = state;
+  }
+  assert.equal(previous.dishTemp, 20);
+  assert.equal(previous.cooling, false);
+  assert.deepEqual(sampleCycle(TOTAL_DURATION, 1000), previous);
+  assert.deepEqual(sampleCycle(TOTAL_DURATION, NaN), sampleCycle(TOTAL_DURATION));
+  assert.deepEqual(sampleCycle(100, 30), sampleCycle(100));
+});
+
+test('passive cooling uses real elapsed time after natural completion, even when playback stops', () => {
+  const cycle = new Cycle();
+  cycle.seek(TOTAL_DURATION - .5);
+  cycle.play();
+  cycle.advance(2, 1);
+  assert.equal(cycle.playing, false);
+  assert.equal(cycle.coolingElapsed, .75);
+  cycle.advance(20, 1);
+  assert.equal(cycle.coolingElapsed, 1.75);
+  assert.equal(cycle.time, TOTAL_DURATION);
+  assert.deepEqual(cycle.state, sampleCycle(TOTAL_DURATION, 1.75));
+  const split = new Cycle();
+  split.seek(TOTAL_DURATION - .5);
+  split.play();
+  for (let n = 0; n < 4; n++) split.advance(.5, .25);
+  assert.deepEqual(split.state, sampleCycle(TOTAL_DURATION, .75));
+});
+
+test('choosing the final phase starts cooldown, explicit pause freezes it, and reset removes it', () => {
+  const cycle = new Cycle();
+  cycle.pause();
+  cycle.seek(TOTAL_DURATION);
+  cycle.advance(10, 10);
+  assert.equal(cycle.coolingElapsed, 10);
+  cycle.pause();
+  const frozen = cycle.state;
+  cycle.advance(10, 10);
+  assert.deepEqual(cycle.state, frozen);
+  cycle.seek(TOTAL_DURATION);
+  assert.equal(cycle.coolingElapsed, 0);
+  cycle.advance(4);
+  assert.equal(cycle.coolingElapsed, 4);
+  cycle.play();
+  assert.equal(cycle.time, 0);
+  assert.equal(cycle.coolingElapsed, 0);
+  assert.equal(cycle.state.cooling, false);
+  cycle.seek(TOTAL_DURATION);
+  cycle.advance(20);
+  cycle.reset();
+  assert.deepEqual(cycle.state, sampleCycle(0));
+  cycle.advance(20);
+  assert.equal(cycle.time, 0);
+  assert.equal(cycle.coolingElapsed, 0);
 });

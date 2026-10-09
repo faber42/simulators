@@ -14,3 +14,102 @@ dialog{max-width:480px;border:1px solid #ced9c4;border-radius:12px;padding:35px;
 @media(max-width:780px){.inspector{grid-column:1}.phase-description{font-size:11px}.explainer p,.component-info p{font-size:11px}}
 @media(max-width:430px){.inspector{padding:22px 20px;column-gap:16px}.phase-heading h2{font-size:23px}.phase-heading #phase-symbol{display:none}.metrics{gap:9px}.metrics strong{font-size:21px}.metrics>div>span{font-size:8px}.phase-description{font-size:11px}.flow-state{font-size:8px;flex-wrap:wrap}.flow-state>span:last-child{display:none}.cycle-console{padding:17px 14px}.time-display{flex-direction:column;gap:0}.play-button{padding:9px 11px}.reset-button{width:31px}.view-presets button{font-size:8px;padding:8px 10px}.edition{display:none}.scene-legend{left:22px}.topbar{justify-content:flex-start;gap:20px}.brand{margin-left:auto}.stage-heading p{display:none}dialog{margin:16px;padding:28px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* Current liquid composition and dish temperature remain readable together. */
+#annotation-detergent:after{content:"";position:absolute;width:35px;height:1px;right:100%;top:50%;background:currentColor;opacity:.5;pointer-events:none}
+.water-properties{display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:center;column-gap:7px;row-gap:4px;margin-top:11px;font-size:9px;line-height:1.6;color:#52684a;font-variant-numeric:tabular-nums}
+.water-sample{width:8px;height:8px;border:1px solid #809dab;border-radius:50%;background:#288bcd}
+#water-properties-text{grid-column:2;min-width:0}
+#dish-temperature{grid-column:3;color:#695349;white-space:nowrap}
+@media(max-width:780px){.water-properties{grid-column:1/-1;margin:0 0 15px;font-size:10px}}
+@media(max-width:430px){.water-properties{font-size:9px}}
+
+/* The legend separates liquid contents from the red ceramic dishes. */
+.scene-legend{right:36px;width:fit-content;max-width:calc(100% - 72px);flex-wrap:wrap;column-gap:13px;row-gap:7px;padding:8px 10px;border:1px solid #d1d9cad9;border-radius:6px;background:#f8faf2e8;color:#53674b;box-shadow:0 2px 10px #33472b08}
+.scene-legend>span{white-space:nowrap}
+.scene-legend .dot{width:7px;height:7px;flex-shrink:0}
+.scene-legend .water{background:#288bcd}
+.scene-legend .detergent{background:#9b5ad4}
+.scene-legend .dirty-water{background:#b58c36}
+.scene-legend .dish{background:#c34645}
+.temperature-scale{display:inline-block;flex-shrink:0;width:42px;height:6px;border:1px solid #7ca6c7;border-radius:3px;background:linear-gradient(90deg,#17477b,#b8e7f4)}
+@media(max-width:1100px){.scene-legend{right:24px;max-width:calc(100% - 48px)}}
+@media(max-width:780px){.scene-legend{left:22px;right:22px;max-width:calc(100% - 44px);column-gap:11px;row-gap:6px;padding:7px 8px}}
+
+/* Native controls follow the same system preference as the page and 3D scene. */
+:root{color-scheme:light}
+@media(prefers-color-scheme:dark){
+  :root{color-scheme:dark;color:#e5eee6;background:#121b17;--muted:#a7b8aa;--line:#35473b;--green:#a7d3af;--water:#79c5e6;--violet:#c9a6e8}
+  body{background:#121b17}
+  .topbar{background:#18231d}
+  .back-link,.brand small,.edition{color:#a9bbac}
+  .brand-icon{color:#a4d0ac}
+  .brand-rule{background:#435648}
+  .edition>span{color:#97aa9b}
+  .machine-stage,#loader{background:#18251e}
+  .stage-heading p,.eyebrow,.explainer .eyebrow{color:#aec2ad}
+  .tool{background:#22352aeb;border-color:#607965;color:#d0e0cd;box-shadow:0 2px 7px #0003}
+  .tool.active{background:#344d3b;color:#ecf6e8;border-color:#86a57e}
+  .view-presets{background:#1c2c23f2;border-color:#526b55;box-shadow:0 2px 15px #0003}
+  .view-presets button{color:#bed0b8}
+  .view-presets button.active{background:#abd1a4;color:#162719}
+  .orbit-hint{color:#b4c6ac}
+  .scene-legend{color:#d2e1c8;background:#203027ed;border-color:#66805acc;box-shadow:0 2px 10px #0003}
+  .scene-legend .water{background:#60b4ef}
+  .scene-legend .detergent{background:#c38bec}
+  .scene-legend .dirty-water{background:#d7ac4f}
+  .scene-legend .dish{background:#ea7775}
+  .temperature-scale{border-color:#6f97bc;background:linear-gradient(90deg,#17477b,#b8e7f4)}
+  .annotation{background:#203429f2;border-color:#728c68;color:#d9ecd0;box-shadow:0 2px 12px #0004}
+  .annotation:before{background:#abd294}
+  .annotation:hover{background:#344b35;border-color:#adc995}
+  .annotation.active{background:#b1d29e;color:#192c19;border-color:#c6e0b5}
+  .annotation.active:before{background:#42633c}
+  .inspector,.cycle-console{background:#1b2820}
+  .program-pill{background:#2c3d2c;color:#d0dfbd}
+  #phase-symbol{color:#a5bf90}
+  .phase-description{color:#bbcbb5}
+  .metrics>div>span,.metrics small{color:#afc2a5}
+  .meter{background:#3c503a}
+  .meter i{background:#8dc5c1}
+  .meter.violet i{background:#c4a6df}
+  .flow-state{color:#b8cfab}
+  .water-properties{color:#bbd1ad}
+  .water-sample{border-color:#96b7c3}
+  #dish-temperature{color:#e3bcb0}
+  .flow-indicator{background:#8da57b}
+  .flow-indicator.running{background:#a5d695;box-shadow:0 0 0 3px #354e32}
+  .explainer{background:#263723;border-color:#506544}
+  .explainer p,.component-info p{color:#c3d4b6}
+  .thermal-comparison{border-color:#526747;color:#b9cda9}
+  .thermal-comparison b{color:#dceccc}
+  .component-info{border-color:#a9c38f}
+  .component-info>button{color:#c2d8ad}
+  .inspector-footer{color:#acbf9b}
+  .status-dot{background:#b0c890}
+  .inspector-footer button{border-color:#74885f;color:#d3e4bb}
+  .play-button{background:#a7d3af;color:#172c1c}
+  .reset-button{border-color:#627857;color:#c5dcaf}
+  .time-display>span,.speed-control label,.demo-note,.timeline-labels{color:#b4c7a3}
+  .speed-control select{background:#2d402a;border-color:#6b805c;color:#e0edce}
+  .timeline{background:linear-gradient(to right,#b0d38f var(--progress,0%),#4a5f3c var(--progress,0%));accent-color:#b0d38f}
+  .timeline::-webkit-slider-thumb{background:#b0d38f;border-color:#1b2820;box-shadow:0 0 0 1px #b0d38f}
+  .timeline::-moz-range-thumb{background:#b0d38f;border-color:#1b2820}
+  .phase-step{color:#afc49a}
+  .phase-step .step-index{border-color:#68814f}
+  .phase-step.active{color:#e0f1c7}
+  .phase-step.active .step-index{background:#b8d590;border-color:#b8d590;color:#203017}
+  .phase-step.done{color:#c2dba7}
+  .phase-step.done .step-index{background:#3f5730;border-color:#6a8552}
+  .phase-step small{color:#acc194}
+  .phase-step:hover{background:#2e4026}
+  #loader{color:#c4d7b9}
+  #scene-error{background:#24321f;border-color:#82926c;color:#d9e7c8}
+  dialog{background:#202d1d;border-color:#657853;color:#e4efd5;box-shadow:0 20px 90px #0009}
+  dialog::backdrop{background:#050d09b3}
+  dialog p{color:#c4d6b1}
+  dialog a{color:#d4edb1;text-decoration-color:#91b56b;text-underline-offset:3px}
+  .dialog-close{color:#c9ddb1}
+  button:hover{filter:brightness(1.08)}
+  button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,#scene:focus-visible{outline-color:#d0eda4}
+}

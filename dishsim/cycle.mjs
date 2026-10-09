@@ -66,6 +66,15 @@ export const PHASES = Object.freeze(definitions.map(([id, title, duration, phase
 }));
 export const TOTAL_DURATION = seconds;
 export const PROGRAM_MINUTES = minutes;
+export const COOLING_DURATION = 90;
+
+// An accelerated, exponential-shaped cooldown, normalized to reach room
+// temperature at its endpoint. This is an explanatory animation, not a measured
+// cooling rate; an opened door lets the load gradually release its residual heat.
+const coolingRetention = (elapsed, constant) => {
+  const endpoint = Math.exp(-COOLING_DURATION / constant);
+  return clamp((Math.exp(-elapsed / constant) - endpoint) / (1 - endpoint));
+};
 
 // Exact integral of a linear spray ramp. Accumulating frame deltas in the scene
 // would make arm orientation depend on pauses, playback speed and seek history.
@@ -87,7 +96,7 @@ function integratedSprayTime(time) {
 
 const initial = Object.freeze({
   waterLevel: 0, waterTemp: 20, dishTemp: 20, wallTemp: 20,
-  soil: 1, wetness: 0, detergent: 0, detergentTablet: 1, rinseAid: 0,
+  soil: 1, waterSoil: 0, wetness: 0, detergent: 0, detergentTablet: 1, rinseAid: 0,
   pocketLevel: 0, pocketTemp: 20, filterSoil: 0, waterUsed: 0,
 });
 
@@ -95,16 +104,16 @@ const initial = Object.freeze({
 // seeking independent of frame rate or the order in which phases are visited.
 const ends = [
   { waterLevel: 1, waterUsed: 3 },
-  { waterTemp: 23, dishTemp: 22, wallTemp: 22, soil: .76, wetness: 1, filterSoil: .18 },
+  { waterTemp: 23, dishTemp: 22, wallTemp: 22, soil: .76, waterSoil: .32, wetness: 1, filterSoil: .18 },
   { waterLevel: 0, filterSoil: .14 },
-  { waterLevel: 1, waterTemp: 20, waterUsed: 6 },
-  { waterTemp: 55, dishTemp: 54, wallTemp: 48, soil: .025, detergent: 1, detergentTablet: 0,
+  { waterLevel: 1, waterTemp: 20, waterSoil: 0, waterUsed: 6 },
+  { waterTemp: 55, dishTemp: 54, wallTemp: 48, soil: .025, waterSoil: .9, detergent: 1, detergentTablet: 0,
     pocketLevel: 1, pocketTemp: 42, filterSoil: .55, waterUsed: 9 },
   { waterLevel: 0, waterTemp: 53, dishTemp: 52, wallTemp: 47, detergent: .06, filterSoil: .4 },
-  { waterLevel: 1, waterTemp: 40, dishTemp: 43, wallTemp: 42, soil: 0, detergent: .006,
+  { waterLevel: 1, waterTemp: 40, dishTemp: 43, wallTemp: 42, soil: 0, waterSoil: .042, detergent: .006,
     pocketLevel: 0, filterSoil: .41 },
   { waterLevel: 0, detergent: 0, filterSoil: .38 },
-  { waterLevel: 1, waterTemp: 65, dishTemp: 63, wallTemp: 58, rinseAid: 1, waterUsed: 12 },
+  { waterLevel: 1, waterTemp: 65, dishTemp: 63, wallTemp: 58, waterSoil: 0, rinseAid: 1, waterUsed: 12 },
   { waterLevel: .05, dishTemp: 61, wallTemp: 28, rinseAid: 0, wetness: .74,
     pocketLevel: 1, pocketTemp: 20, waterUsed: 15 },
   { waterLevel: 0, waterTemp: 30, dishTemp: 40, wallTemp: 30, wetness: 0, pocketTemp: 30 },
@@ -117,17 +126,25 @@ const endpointStates = ends.reduce((states, end) => [...states, Object.freeze({ 
  * Fractions: soil/wetness on dishes; detergent/rinseAid in circulating water;
  * detergentTablet remaining solid tab; waterLevel in sump (NOT tub depth);
  * pocketLevel in isolated side reservoir; filterSoil coarse debris retained.
+ * waterSoil is the pollution concentration/tint of the current water filling,
+ * independent of dirt still on dishes. Draining reduces water volume without
+ * making the remaining water cleaner; a new fill replaces or dilutes the tint.
  * Temperatures are °C, waterUsed is illustrative cumulative fresh litres.
  * spray/evaporation/condensation/heatRecovery are animation intensities, 0..1.
  * sprayTime is the exact cumulative integral of spray intensity in demo seconds;
  * multiply by an angular speed to obtain seek-stable spray-arm orientation.
  * pocketFilling and pocketRelease distinguish supply from reservoir discharge.
+ * Optional coolingElapsed advances the opened-door cooldown only at completion;
+ * programme time remains 210 and the completed phase stays selected throughout.
  */
-export function sampleCycle(requestedTime = 0) {
+export function sampleCycle(requestedTime = 0, requestedCoolingElapsed = 0) {
   const numericTime = Number(requestedTime);
   const time = Number.isNaN(numericTime) ? 0 : clamp(numericTime, 0, TOTAL_DURATION);
   const phaseIndex = time === TOTAL_DURATION ? PHASES.length - 1 : PHASES.findIndex(phase => time < phase.end);
   const phase = PHASES[phaseIndex];
+  const numericCooling = Number(requestedCoolingElapsed);
+  const coolingElapsed = time === TOTAL_DURATION && !Number.isNaN(numericCooling)
+    ? clamp(numericCooling, 0, COOLING_DURATION) : 0;
   const p = phase.duration ? clamp((time - phase.start) / phase.duration) : 1;
   const before = endpointStates[phaseIndex];
   const after = endpointStates[phaseIndex + 1];
@@ -138,6 +155,7 @@ export function sampleCycle(requestedTime = 0) {
     minutesElapsed: mix(phase.minutesStart, phase.minutesEnd, p), programMinutes: PROGRAM_MINUTES,
     spray: 0, drain: false, fill: false, drying: phase.id === 'dry', complete: phase.id === 'complete',
     sprayTime: integratedSprayTime(time),
+    coolingElapsed, cooling: phase.id === 'complete' && coolingElapsed < COOLING_DURATION,
     circulating: false, heater: false, pocketFilling: false, pocketRelease: false,
     evaporation: 0, condensation: 0, heatRecovery: 0,
     detergentReleased: time >= PHASES[4].start,
@@ -154,6 +172,7 @@ export function sampleCycle(requestedTime = 0) {
       state.pocketLevel = p < .5 ? p * 2 : 2 * (1 - p);
       state.waterLevel = ramp(p, .5, 1);
       state.waterUsed = before.waterUsed + 3 * ramp(p, 0, .5);
+      state.waterSoil = 0;
       break;
     case 'prewash':
       state.spray = .72;
@@ -168,6 +187,9 @@ export function sampleCycle(requestedTime = 0) {
       state.detergent = dissolve;
       state.detergentTablet = 1 - dissolve;
       state.soil = mix(before.soil, after.soil, smooth(ramp(p, .08, .95)));
+      // Detergent first creates a clearly violet solution; loosened food then
+      // progressively dominates its tint while the dishes become cleaner.
+      state.waterSoil = .9 * smooth(ramp(p, .24, .95));
       state.pocketFilling = p > .1 && p < .28;
       state.fill = state.pocketFilling;
       state.pocketLevel = ramp(p, .1, .28);
@@ -183,8 +205,10 @@ export function sampleCycle(requestedTime = 0) {
       state.waterTemp = mix(before.waterTemp, 42, ramp(p, 0, .22)) - 2 * ramp(p, .22, 1);
       state.spray = .82 * ramp(p, .22, .27);
       state.soil = mix(before.soil, 0, ramp(p, .25, .9));
+      state.waterSoil = mix(before.waterSoil, .002, ramp(p, 0, .16)) + .04 * ramp(p, .25, .9);
       break;
     case 'final-rinse':
+      state.waterSoil = 0;
       state.fill = p < .2;
       state.waterUsed = before.waterUsed + 3 * ramp(p, 0, .2);
       state.waterLevel = ramp(p, 0, .2);
@@ -215,6 +239,11 @@ export function sampleCycle(requestedTime = 0) {
       break;
   }
 
+  if (state.complete) {
+    for (const [key, constant] of [['dishTemp', 24], ['wallTemp', 18], ['waterTemp', 30], ['pocketTemp', 40]]) {
+      state[key] = 20 + (state[key] - 20) * coolingRetention(coolingElapsed, constant);
+    }
+  }
   state.circulating = state.spray > 0;
   return state;
 }
@@ -224,36 +253,64 @@ export class Cycle {
   constructor() {
     this.time = 0;
     this.playing = false;
+    this.coolingElapsed = 0;
+    this.coolingPaused = false;
   }
 
-  get state() { return sampleCycle(this.time); }
+  get state() { return sampleCycle(this.time, this.coolingElapsed); }
 
   play() {
     if (this.time >= TOTAL_DURATION) this.time = 0;
+    this.coolingElapsed = 0;
+    this.coolingPaused = false;
     this.playing = true;
     return this.state;
   }
 
   pause() {
     this.playing = false;
+    this.coolingPaused = true;
     return this.state;
   }
 
   reset() {
     this.time = 0;
     this.playing = false;
+    this.coolingElapsed = 0;
+    this.coolingPaused = false;
     return this.state;
   }
 
   seek(time) {
     this.time = sampleCycle(time).time;
-    if (this.time >= TOTAL_DURATION) this.playing = false;
+    this.coolingElapsed = 0;
+    if (this.time >= TOTAL_DURATION) {
+      this.playing = false;
+      // Choosing the final chapter opens the door and starts passive cooling,
+      // even if earlier playback was paused. An explicit pause AFTER this seek
+      // freezes cooling as well, useful for inspection and deterministic checks.
+      this.coolingPaused = false;
+    }
     return this.state;
   }
 
-  advance(deltaSeconds) {
+  // Pass raw real-time dt as the optional second argument when the wash playback
+  // speed is accelerated. Cooling remains passive after playing becomes false.
+  advance(deltaSeconds, coolingDeltaSeconds = deltaSeconds) {
     const delta = Number(deltaSeconds);
-    if (this.playing && Number.isFinite(delta) && delta > 0) this.seek(this.time + delta);
+    const rawCoolingDelta = Number(coolingDeltaSeconds);
+    const coolingDelta = Number.isFinite(rawCoolingDelta) && rawCoolingDelta > 0 ? rawCoolingDelta : 0;
+    if (this.playing && Number.isFinite(delta) && delta > 0) {
+      const remaining = TOTAL_DURATION - this.time;
+      this.time = clamp(this.time + delta, 0, TOTAL_DURATION);
+      if (this.time >= TOTAL_DURATION) {
+        this.playing = false;
+        this.coolingPaused = false;
+        this.coolingElapsed = clamp(coolingDelta * clamp((delta - remaining) / delta), 0, COOLING_DURATION);
+      }
+    } else if (this.time >= TOTAL_DURATION && !this.coolingPaused) {
+      this.coolingElapsed = clamp(this.coolingElapsed + coolingDelta, 0, COOLING_DURATION);
+    }
     return this.state;
   }
 }

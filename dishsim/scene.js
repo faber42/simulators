@@ -1,4 +1,5 @@
 import * as THREE from '../pinsim/three.module.min.js';
+import { waterColor, dishColor } from './water-color.mjs';
 
 // Coordinates: +y is up; the loading door faces +z. Distances are illustrative.
 const TAU = Math.PI * 2;
@@ -60,7 +61,7 @@ export class DishwasherScene {
     this.targetGoal = this.target.clone();
     this.orbit = { theta: -.68, phi: 1.14, radius: 10.2 };
     this.orbitGoal = { ...this.orbit };
-    this.cutaway = true; this.labels = true; this.doorAngle = Math.PI / 2;
+    this.cutaway = true; this.labels = true; this.theme = 'light'; this.doorAngle = Math.PI / 2;
     this.shellMaterials = []; this.soilMeshes = []; this.wetDrops = []; this.arms = [];
     this.flowPaths = []; this.disposables = []; this.listeners = [];
     this.width = 1; this.height = 1;
@@ -83,17 +84,17 @@ export class DishwasherScene {
       wire: standard({ color: '#9eaeb0', metalness: .58, roughness: .27 }),
       graphite: standard({ color: '#263c44', metalness: .2, roughness: .45 }),
       dark: standard({ color: '#455865', metalness: .38, roughness: .43 }),
-      ceramic: standard({ color: '#6950d6', metalness: .06, roughness: .22 }),
-      ceramicLight: standard({ color: '#8e78e2', metalness: .04, roughness: .2 }),
-      rim: standard({ color: '#b8a6f7', metalness: .09, roughness: .21 }),
-      blue: standard({ color: '#4cb7d0', metalness: .25, roughness: .22 }),
-      water: standard({ color: '#55c4de', transparent: true, opacity: .42, metalness: .1, roughness: .12, depthWrite: false }),
+      ceramic: standard({ color: dishColor(20), metalness: .06, roughness: .22 }),
+      ceramicLight: standard({ color: dishColor(20, 1), metalness: .04, roughness: .2 }),
+      rim: standard({ color: dishColor(20, 1), metalness: .09, roughness: .21 }),
+      blue: standard({ color: '#7f979e', metalness: .1, roughness: .28, transparent: true, opacity: .45, depthWrite: false }),
+      water: standard({ color: waterColor(20), transparent: true, opacity: .42, metalness: .1, roughness: .12, depthWrite: false }),
       glass: standard({ color: '#c3e7e9', transparent: true, opacity: .16, metalness: .1, roughness: .2, depthWrite: false, side: THREE.DoubleSide }),
       pocketTrack: standard({ color: '#e0f4ed', metalness: .05, roughness: .2, transparent: true, opacity: .58, depthWrite: false }),
       heat: standard({ color: '#e39a58', metalness: .5, roughness: .3, emissive: '#d97533', emissiveIntensity: .1 }),
-      drain: standard({ color: '#63858b', metalness: .4, roughness: .28 }),
+      drain: standard({ color: '#849392', metalness: .1, roughness: .28, transparent: true, opacity: .45, depthWrite: false }),
       soap: standard({ color: '#ecf2e4', metalness: .08, roughness: .38 }),
-      soapBlue: standard({ color: '#449fbd', metalness: .02, roughness: .3 }),
+      soapBlue: standard({ color: '#7850b0', metalness: .02, roughness: .3 }),
     };
   }
 
@@ -107,10 +108,13 @@ export class DishwasherScene {
     const front = new THREE.DirectionalLight('#ffffff', .8); front.position.set(0, 3, 7); this.scene.add(front);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: '#e5e5dc', roughness: .86 }));
     floor.rotation.x = -Math.PI / 2; floor.position.y = -.17; floor.receiveShadow = true; this.scene.add(floor);
+    this.floor=floor;
     const grid = new THREE.GridHelper(24, 48, '#c6cec3', '#d7dcd0'); grid.position.y = -.165;
     grid.material.transparent = true; grid.material.opacity = .46; this.scene.add(grid);
+    this.grid=grid;this.grid.material.vertexColors=false;this.grid.material.color.set('#cbd2c8');
     const plinth = box(this.scene, new THREE.MeshStandardMaterial({ color: '#d8dcd3', roughness: .75 }), [4.1, .065, 4.05], [0, -.12, .13]);
     plinth.receiveShadow = true;
+    this.plinth=plinth;
     this.machine = new THREE.Group(); this.scene.add(this.machine);
   }
 
@@ -189,11 +193,11 @@ export class DishwasherScene {
     const count = nozzles.length * 8;
     const positions = new Float32Array(count * 6);
     const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const material = new THREE.LineBasicMaterial({ color: '#0783ad', transparent: true, opacity: .65, depthWrite: false });
+    const material = new THREE.LineBasicMaterial({ color: waterColor(20), transparent: true, opacity: .65, depthWrite: false });
     const streams = new THREE.LineSegments(geometry, material); streams.frustumCulled = false; group.add(streams);
-    const jetBodies = new THREE.InstancedMesh(new THREE.CylinderGeometry(.009, .011, 1, 5), new THREE.MeshBasicMaterial({ color: '#158dae', transparent: true, opacity: .52, depthWrite: false }), count);
+    const jetBodies = new THREE.InstancedMesh(new THREE.CylinderGeometry(.009, .011, 1, 5), new THREE.MeshBasicMaterial({ color: waterColor(20), transparent: true, opacity: .52, depthWrite: false }), count);
     jetBodies.frustumCulled = false; group.add(jetBodies);
-    const drops = new THREE.InstancedMesh(new THREE.SphereGeometry(.014, 5, 4), new THREE.MeshBasicMaterial({ color: '#39b8d7', transparent: true, opacity: .84, depthWrite: false }), nozzles.length * 7);
+    const drops = new THREE.InstancedMesh(new THREE.SphereGeometry(.014, 5, 4), new THREE.MeshBasicMaterial({ color: waterColor(20), transparent: true, opacity: .84, depthWrite: false }), nozzles.length * 7);
     drops.frustumCulled = false; group.add(drops);
     this.arms.push({ group, nozzles, geometry, material, streams, jetBodies, drops, index });
   }
@@ -214,7 +218,7 @@ export class DishwasherScene {
     }
     trackPoints.push([-1.59, 3.22, .86], [-1.59, 3.37, .86]);
     this.pocketCurve = pipe(group, trackPoints, .063, m.pocketTrack).curve;
-    this.pocketFlowMat = new THREE.MeshStandardMaterial({ color: '#1296bd', roughness: .18, transparent: true, opacity: .86, depthWrite: false });
+    this.pocketFlowMat = new THREE.MeshStandardMaterial({ color: waterColor(20), roughness: .18, transparent: true, opacity: .86, depthWrite: false });
     this.pocketFlow = pipe(group, trackPoints, .043, this.pocketFlowMat).mesh;
     this.pocketGeometry = this.pocketFlow.geometry;
     this.pocketTotalIndices = this.pocketGeometry.index.count;
@@ -265,7 +269,7 @@ export class DishwasherScene {
     ];
     paths.forEach(({ kind, points, radius }) => {
       const { curve } = pipe(group, points, radius, kind === 'drain' ? m.drain : m.blue);
-      const particles = new THREE.InstancedMesh(new THREE.SphereGeometry(radius * .67, 6, 4), new THREE.MeshBasicMaterial({ color: kind === 'drain' ? '#bd9d52' : '#a9eeef', transparent: true, opacity: .95, depthWrite: false }), 20);
+      const particles = new THREE.InstancedMesh(new THREE.SphereGeometry(radius * .67, 6, 4), new THREE.MeshBasicMaterial({ color: waterColor(20), transparent: true, opacity: .95, depthWrite: false }), 20);
       group.add(particles); this.flowPaths.push({ kind, curve, particles });
     });
   }
@@ -321,7 +325,7 @@ export class DishwasherScene {
   }
 
   addSurfaceDrops(parent, seed, radius, height, count) {
-    const mat = new THREE.MeshPhysicalMaterial({ color: '#b7e0f3', metalness: .1, roughness: .08, transparent: true, opacity: .66, depthWrite: false });
+    const mat = new THREE.MeshPhysicalMaterial({ color: waterColor(20), metalness: .1, roughness: .08, transparent: true, opacity: .66, depthWrite: false });
     for (let i = 0; i < count; i++) {
       const a = RANDOM(seed * 21 + i) * TAU, r = Math.sqrt(RANDOM(seed * 41 + i + 2)) * radius;
       const mesh = sphere(parent, mat, .02 + RANDOM(seed + i) * .011, [Math.cos(a)*r, height + Math.max(0,r-.33)*.2, Math.sin(a)*r], [1,.36,1.25]);
@@ -341,13 +345,17 @@ export class DishwasherScene {
     const control = new THREE.MeshBasicMaterial({ color: '#a3dfc5' });
     box(door, control, [.18,.035,.012], [.98,3.079,.077]);
     // Detergent dispenser is mounted on the inside of the door.
-    this.dispenser = new THREE.Group(); this.dispenser.position.set(-.69,1.40,-.070); door.add(this.dispenser);
-    box(this.dispenser, m.graphite, [.53,.42,.05], [0,0,0]);
-    box(this.dispenser, m.steel, [.42,.3,.03], [0,0,-.04]);
-    this.tablet = new THREE.Group(); this.tablet.position.set(0,0,-.072); this.dispenser.add(this.tablet);
+    this.dispenser = new THREE.Group(); this.dispenser.position.set(-.62,1.40,-.070); door.add(this.dispenser);
+    this.dispenserBackMaterial=new THREE.MeshStandardMaterial({ color:'#455865', metalness:.22, roughness:.38, transparent:true, opacity:.16, depthWrite:false, side:THREE.DoubleSide });
+    box(this.dispenser, this.dispenserBackMaterial, [.53,.42,.022], [0,0,.015]);
+    // A real open cavity, instead of an opaque cuboid in front of the tablet.
+    [-.25,.25].forEach(x=>box(this.dispenser,m.graphite,[.03,.42,.13],[x,0,-.045]));
+    [-.195,.195].forEach(y=>box(this.dispenser,m.graphite,[.5,.03,.13],[0,y,-.045]));
+    this.tablet = new THREE.Group(); this.tablet.position.set(0,0,-.052); this.dispenser.add(this.tablet);
     box(this.tablet, m.soap, [.22,.16,.048], [0,0,0]); box(this.tablet,m.soapBlue,[.09,.14,.009],[.055,0,-.03]);
-    this.dispenserLid = new THREE.Group(); this.dispenserLid.position.set(-.24,0,-.11); this.dispenser.add(this.dispenserLid);
-    box(this.dispenserLid, m.dark, [.47,.35,.035], [.235,0,0]);
+    this.dispenserLid = new THREE.Group(); this.dispenserLid.position.set(-.265,0,-.122); this.dispenser.add(this.dispenserLid);
+    this.dispenserLidMaterial=new THREE.MeshStandardMaterial({ color:'#667e86', metalness:.25, roughness:.3, transparent:true, opacity:.27, depthWrite:false, side:THREE.DoubleSide });
+    this.dispenserLidMesh=box(this.dispenserLid, this.dispenserLidMaterial, [.51,.39,.02], [.255,0,0]);
     const rinseCap = cylinder(this.dispenser, m.blue, .063,.063,.025,[.37,0,0],22); rinseCap.rotation.x=Math.PI/2;
     [-1.17,1.17].forEach(x => cylinder(this.machine,m.steel,.055,.055,.18,[x,.50,1.29],18).rotation.z=Math.PI/2);
     door.rotation.x = this.doorAngle;
@@ -358,13 +366,12 @@ export class DishwasherScene {
       const mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(radius, 6, 4), new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false }), count);
       mesh.frustumCulled = false; this.machine.add(mesh); return mesh;
     };
-    this.vapor = makeParticles(70, '#d2e7e7', .04, .28);
-    this.condensate = makeParticles(56, '#56b3d1', .023, .78);
-    this.soapParticles = makeParticles(38, '#d9f4f2', .017, .66);
-    this.pocketBubbles = makeParticles(15, '#daf8f1', .018, .82);
+    this.vapor = makeParticles(70, waterColor(20), .04, .28);
+    this.condensate = makeParticles(56, waterColor(20), .023, .78);
+    this.soapParticles = makeParticles(38, waterColor(20), .017, .66);
+    this.pocketBubbles = makeParticles(15, waterColor(20), .018, .82);
     this.heatTransfer = makeParticles(18, '#dc892b', .023, .86);
     // Few subtle visible wisps emphasize vapor, without suggesting boiling water.
-    this.vapor.material.color.set('#cadedd');
   }
 
   bindControls() {
@@ -395,8 +402,31 @@ export class DishwasherScene {
     this.renderer.setSize(this.width,this.height,false); this.camera.aspect=this.width/this.height; this.camera.updateProjectionMatrix();
   }
 
-  setCutaway(enabled) { this.cutaway=Boolean(enabled); }
+  setCutaway(enabled) { this.cutaway=Boolean(enabled); this.applyHousingMaterials(); }
   setLabels(enabled) { this.labels=Boolean(enabled); }
+
+  applyHousingMaterials() {
+    const apply=(material,cutawayOpacity)=>{
+      if(material.transparent!==this.cutaway){material.transparent=this.cutaway;material.needsUpdate=true;}
+      material.opacity=this.cutaway?cutawayOpacity:1;
+      material.depthWrite=!this.cutaway;
+    };
+    this.shellMaterials.forEach(material=>apply(material,.08));
+    apply(this.doorMaterial,this.doorAngle>.4?.42:.07);
+    apply(this.dispenserBackMaterial,.16);
+    apply(this.dispenserLidMaterial,.27);
+  }
+
+  setTheme(name) {
+    this.theme=name==='dark'?'dark':'light';
+    const dark=this.theme==='dark';
+    this.scene.background.set(dark?'#18251e':'#f0efe9');
+    this.scene.fog.color.copy(this.scene.background);
+    this.floor.material.color.set(dark?'#101b16':'#e5e5dc');
+    this.plinth.material.color.set(dark?'#16251c':'#d8dcd3');
+    this.grid.material.color.set(dark?'#314939':'#cbd2c8');
+    this.grid.material.opacity=dark?.7:.46;
+  }
 
   setView(name) {
     const views={
@@ -435,11 +465,23 @@ export class DishwasherScene {
     this.updateCamera(k);
     this.doorAngle=state.complete ? Math.PI/2 : Math.PI/2*(1-clamp(cycleTime));
     this.door.rotation.x=this.doorAngle;
-    this.shellMaterials.forEach(mat=>mat.opacity=easeTo(mat.opacity,this.cutaway ? .08 : .94,k));
-    // Door pose and transparency must agree immediately after a timeline seek.
-    this.doorMaterial.opacity=this.cutaway ? (this.doorAngle>.4 ? .42 : .07) : .96;
+    // Opaque housing writes depth; cutaway materials reveal the internals.
+    this.applyHousingMaterials();
     this.water.visible=waterLevel>.005; this.water.scale.y=.8+waterLevel*4.8; this.water.position.y=.535+waterLevel*.042;
-    this.mat.water.color.set('#20a2c4');
+    const washColor=waterColor(state.waterTemp??20,state.detergent??0,state.waterSoil??0);
+    const pocketColor=waterColor(state.pocketTemp??20);
+    const inletColor=waterColor(20);
+    const condensationColor=waterColor(state.wallTemp??20);
+    this.mat.water.color.set(washColor);
+    this.mat.ceramic.color.set(dishColor(state.dishTemp??20));
+    this.mat.ceramicLight.color.set(dishColor(state.dishTemp??20,1));
+    this.mat.rim.color.set(dishColor(state.dishTemp??20,1)).lerp(new THREE.Color('#ffffff'),.20);
+    this.arms.forEach(({material,jetBodies,drops})=>{material.color.set(washColor);jetBodies.material.color.set(washColor);drops.material.color.set(washColor);});
+    this.wetDrops.forEach(({mesh})=>mesh.material.color.set(waterColor(state.dishTemp??20,state.detergent??0,state.waterSoil??0)));
+    this.soapParticles.material.color.set(washColor);
+    this.pocketBubbles.material.color.set(pocketColor);
+    this.condensate.material.color.set(condensationColor);
+    this.vapor.material.color.set(waterColor(state.dishTemp??20));
     this.mat.heat.emissiveIntensity=state.heater ? .85 : .03;
     this.wallTint.opacity=.035+condensation*.16;
     const serviceView=this.view==='filter' && this.cutaway;
@@ -456,13 +498,14 @@ export class DishwasherScene {
     this.wetDrops.forEach(({mesh,threshold})=>{ mesh.visible=wetness>threshold*.8+.025&&!serviceView; });
     this.pocketGeometry.setDrawRange(0,Math.floor(this.pocketTotalIndices*pocketLevel/6)*6);
     this.pocketReservoir.visible=pocketLevel>.01; this.pocketReservoir.scale.y=Math.max(.01,pocketLevel);this.pocketReservoir.position.y=.61+pocketLevel*.16;
-    const pocketWarm=clamp(((state.pocketTemp ?? 18)-18)/38);
-    this.pocketFlowMat.color.set('#149bc2').lerp(new THREE.Color('#e7992d'),pocketWarm);
-    this.dispenserLid.rotation.y=state.detergentCompartmentOpen || state.detergentReleased ? -1.83 : 0;
+    this.pocketFlowMat.color.set(pocketColor);
+    // Positive Y opens into the -z tub interior; stay below 90° to clear plates.
+    this.dispenserLid.rotation.y=state.detergentCompartmentOpen || state.detergentReleased ? 1.45 : 0;
     const tabletAmount=clamp(state.detergentTablet ?? (state.detergentReleased ? 0 : 1));
     this.tablet.scale.setScalar(Math.max(.001,tabletAmount)); this.tablet.visible=tabletAmount>.025;
     this.arms.forEach(arm=>this.updateSprayArm(arm,spray,state.sprayTime ?? visualTime,visualTime));
     this.flowPaths.forEach(({kind,curve,particles})=>{
+      particles.material.color.set(kind==='circulating'||kind==='drain'?washColor:kind==='pocketOutlet'?pocketColor:inletColor);
       const active=clamp(kind==='circulating' ? (state.circulating ?? spray)
         : kind==='supply' ? state.pocketFilling
         : kind==='pocketOutlet' ? state.pocketRelease
@@ -551,10 +594,52 @@ export class DishwasherScene {
     this.machine.updateMatrixWorld();
     return Object.entries(this.anchorPoints).filter(([id])=>this.view==='filter' || !['pump','drain','heater'].includes(id)).map(([id,point])=>{
       let p=point.clone();
-      if(id==='detergent') { p.set(-.69,1.4,-.10); this.door.localToWorld(p); }
+      if(id==='detergent') { p.set(-.62,1.4,-.10); this.door.localToWorld(p); }
       p.project(this.camera);
       return {id,x:(p.x*.5+.5)*this.width,y:(-.5*p.y+.5)*this.height,visible:p.z>-1 && p.z<1 && Math.abs(p.x)<1.06 && Math.abs(p.y)<1.06};
     });
+  }
+
+  inspect() {
+    const hex=material=>`#${material.color.getHexString()}`;
+    this.scene.updateMatrixWorld(true);
+    const inDoorBounds=object=>{
+      const bounds=new THREE.Box3();
+      object.traverse(child=>{
+        if(!child.geometry) return;
+        child.geometry.computeBoundingBox();
+        const local=child.geometry.boundingBox;
+        for(const x of [local.min.x,local.max.x])for(const y of [local.min.y,local.max.y])for(const z of [local.min.z,local.max.z]) {
+          const point=child.localToWorld(v3(x,y,z));this.door.worldToLocal(point);bounds.expandByPoint(point);
+        }
+      });
+      return {min:bounds.min.toArray(),max:bounds.max.toArray()};
+    };
+    const lidDoorBounds=inDoorBounds(this.dispenserLidMesh),tabletDoorBounds=inDoorBounds(this.tablet);
+    return {
+      theme:this.theme,background:`#${this.scene.background.getHexString()}`,
+      floor:hex(this.floor.material),plinth:hex(this.plinth.material),grid:hex(this.grid.material),
+      housing:{
+        door:{transparent:this.doorMaterial.transparent,opacity:this.doorMaterial.opacity,depthWrite:this.doorMaterial.depthWrite},
+        shell:this.shellMaterials.map(material=>({transparent:material.transparent,opacity:material.opacity,depthWrite:material.depthWrite})),
+      },
+      water:{
+        sump:hex(this.mat.water),pocket:hex(this.pocketFlowMat),
+        jets:this.arms.map(arm=>({line:hex(arm.material),body:hex(arm.jetBodies.material),drops:hex(arm.drops.material)})),
+        flow:this.flowPaths.map(path=>({kind:path.kind,color:hex(path.particles.material)})),
+        surfaceDrops:[...new Set(this.wetDrops.map(({mesh})=>hex(mesh.material)))],
+        condensate:hex(this.condensate.material),vapor:hex(this.vapor.material),
+      },
+      dishes:{ceramic:hex(this.mat.ceramic),ceramicLight:hex(this.mat.ceramicLight),rim:hex(this.mat.rim)},
+      detergent:{
+        lidAngle:this.dispenserLid.rotation.y,lidDoorBounds,tabletDoorBounds,
+        doorInnerSurfaceZ:-.0385,lidInsideDoor:lidDoorBounds.max[2]<-.0385,
+        lidWithinTub:lidDoorBounds.min[2]>-2.53,
+        lidTabletClearance:tabletDoorBounds.min[2]-lidDoorBounds.max[2],
+        tabletVisible:this.tablet.visible&&this.dispenser.visible,tabletScale:this.tablet.scale.x,
+        lidOpacity:this.dispenserLidMaterial.opacity,backOpacity:this.dispenserBackMaterial.opacity,
+      },
+    };
   }
 
   dispose() {
