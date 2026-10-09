@@ -19,6 +19,8 @@ const smooth = p => p * p * (3 - 2 * p);
 export const DOOR_MOTION_DURATION = 1;
 // Illustrative demonstration timing, not a specification for a real appliance.
 export const SPRAY_ARM_INTERVAL = 4;
+export const DETERGENT_LID_DURATION = .6;
+export const DETERGENT_DROP_DURATION = 1.2;
 
 const definitions = [
   ['close-door', 'Tür schließen', DOOR_MOTION_DURATION, 0,
@@ -37,7 +39,7 @@ const definitions = [
     'Die Maschine nimmt eine neue, kleine Wasserfüllung auf.',
     'Das schmutzige Vorspülwasser wurde abgepumpt. Der Reiniger wird erst im folgenden Hauptwaschgang dosiert.'],
   ['wash', 'Hauptwäsche & Wärmerückgewinnung', 45, 45,
-    'Der Reiniger löst sich. Heißes Wasser, Chemie und die Wasserstrahlen lösen die Beläge.',
+    'Die Reinigerklappe öffnet sich. Der Tab fällt ins Wasser und löst sich dort auf. Heißes Wasser, Chemie und Wasserstrahlen lösen die Beläge.',
     'Die Heizung erwärmt das Spülwasser hier auf 55 °C. Gleichzeitig steht frisches Wasser in der Seitentasche: Wärme aus dem Spülraum wärmt es für den nächsten Spülgang vor. Die beiden Wasserkreisläufe vermischen sich dabei nicht.'],
   ['drain-wash', 'Lauge abpumpen', 8, 2,
     'Gelöster Schmutz und Reiniger verlassen den Spülraum mit der Lauge.',
@@ -77,7 +79,11 @@ export const PHASES = Object.freeze(definitions.map(([id, title, duration, phase
 export const TOTAL_DURATION = seconds;
 export const PROGRAM_MINUTES = minutes;
 export const COOLING_DURATION = 90;
-const mainWashStart = PHASES.find(phase => phase.id === 'wash').start;
+const mainWash = PHASES.find(phase => phase.id === 'wash');
+const mainWashStart = mainWash.start;
+const detergentReleaseTime = mainWashStart + DETERGENT_LID_DURATION;
+const detergentLandingTime = mainWashStart + (DETERGENT_LID_DURATION + DETERGENT_DROP_DURATION);
+const detergentDissolvedTime = mainWashStart + mainWash.duration * .3;
 
 // An accelerated, exponential-shaped cooldown, normalized to reach room
 // temperature at its endpoint. This is an explanatory animation, not a measured
@@ -166,6 +172,10 @@ const endpointStates = ends.reduce((states, end) => [...states, Object.freeze({ 
  * Sample the entire state at an absolute demo time in seconds.
  * Fractions: soil/wetness on dishes; detergent/rinseAid in circulating water;
  * detergentTablet remaining solid tab; waterLevel in sump (NOT tub depth);
+ * detergentLidOpen and detergentDropProgress describe the opening and fall.
+ * detergentReleased follows a fully open lid; detergentInWater follows landing.
+ * The solid tab only dissolves after landing; detergentTabletStage distinguishes
+ * 'stored', 'falling', 'in-water' and 'dissolved', independently of seek history.
  * pocketLevel in isolated side reservoir; filterSoil coarse debris retained.
  * waterSoil is the pollution concentration/tint of the current water filling,
  * independent of dirt still on dishes. Draining reduces water volume without
@@ -205,7 +215,10 @@ export function sampleCycle(requestedTime = 0, requestedCoolingElapsed = 0) {
     doorClosing: phase.id === 'close-door', doorOpening: phase.id === 'open-door',
     circulating: false, heater: false, pocketFilling: false, pocketRelease: false,
     evaporation: 0, condensation: 0, heatRecovery: 0,
-    detergentReleased: time >= mainWashStart,
+    detergentLidOpen: smooth(ramp(time, mainWashStart, detergentReleaseTime)),
+    detergentDropProgress: ramp(time, detergentReleaseTime, detergentLandingTime),
+    detergentReleased: time >= detergentReleaseTime,
+    detergentInWater: time >= detergentLandingTime,
     detergentCompartmentOpen: time >= mainWashStart,
     rinseAidActive: false,
   });
@@ -231,7 +244,7 @@ export function sampleCycle(requestedTime = 0, requestedCoolingElapsed = 0) {
       state.wetness = ramp(p, 0, .14);
       break;
     case 'wash': {
-      const dissolve = ramp(p, .04, .3);
+      const dissolve = ramp(time, detergentLandingTime, detergentDissolvedTime);
       state.heater = p < .38;
       state.waterTemp = mix(before.waterTemp, 55, ramp(p, 0, .38));
       state.dishTemp = mix(before.dishTemp, 54, ramp(p, 0, .58));
@@ -288,6 +301,9 @@ export function sampleCycle(requestedTime = 0, requestedCoolingElapsed = 0) {
       break;
   }
 
+  state.detergentTabletStage = !state.detergentReleased ? 'stored'
+    : !state.detergentInWater ? 'falling'
+    : state.detergentTablet > 0 ? 'in-water' : 'dissolved';
   if (state.complete) {
     for (const [key, constant] of [['dishTemp', 24], ['wallTemp', 18], ['waterTemp', 30], ['pocketTemp', 40]]) {
       state[key] = 20 + (state[key] - 20) * coolingRetention(coolingElapsed, constant);

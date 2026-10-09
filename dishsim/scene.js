@@ -354,8 +354,12 @@ export class DishwasherScene {
     box(this.dispenser, this.dispenserBackMaterial, [.53,.42,.022], [0,0,.015]);
     // A real open cavity, instead of an opaque cuboid in front of the tablet.
     [-.25,.25].forEach(x=>box(this.dispenser,m.graphite,[.03,.42,.13],[x,0,-.045]));
-    [-.195,.195].forEach(y=>box(this.dispenser,m.graphite,[.5,.03,.13],[0,y,-.045]));
-    this.tablet = new THREE.Group(); this.tablet.position.set(0,0,-.052); this.dispenser.add(this.tablet);
+    box(this.dispenser,m.graphite,[.5,.03,.13],[0,.195,-.045]);
+    // A shallow lower lip lets the tab tip out into the gap ahead of the basket.
+    box(this.dispenser,m.graphite,[.5,.03,.08],[0,-.195,-.02]);
+    // Keep one parent throughout the cycle: seeking never leaves the tab attached
+    // to the wrong object, and hiding the dispenser cannot hide a fallen tab.
+    this.tablet = new THREE.Group(); this.machine.add(this.tablet);
     box(this.tablet, m.soap, [.22,.16,.048], [0,0,0]); box(this.tablet,m.soapBlue,[.09,.14,.009],[.055,0,-.03]);
     this.dispenserLid = new THREE.Group(); this.dispenserLid.position.set(-.265,0,-.122); this.dispenser.add(this.dispenserLid);
     this.dispenserLidMaterial=new THREE.MeshStandardMaterial({ color:'#667e86', metalness:.25, roughness:.3, transparent:true, opacity:.27, depthWrite:false, side:THREE.DoubleSide });
@@ -363,6 +367,41 @@ export class DishwasherScene {
     const rinseCap = cylinder(this.dispenser, m.blue, .063,.063,.025,[.37,0,0],22); rinseCap.rotation.x=Math.PI/2;
     [-1.17,1.17].forEach(x => cylinder(this.machine,m.steel,.055,.055,.18,[x,.50,1.29],18).rotation.z=Math.PI/2);
     door.rotation.x = this.doorAngle;
+    this.updateDetergent({ detergentTablet:1, detergentTabletStage:'stored' });
+  }
+
+  updateDetergent(state) {
+    this.tabletLidOpen=clamp(state.detergentLidOpen??(state.detergentCompartmentOpen?1:0));
+    // Positive Y opens into the -z tub interior; stay below 90° to clear plates.
+    this.dispenserLid.rotation.y=1.45*this.tabletLidOpen;
+    const amount=clamp(state.detergentTablet??1), progress=clamp(state.detergentDropProgress??0);
+    this.tabletReleased=Boolean(state.detergentReleased);
+    this.tabletInWater=Boolean(state.detergentInWater);
+    this.tabletStage=state.detergentTabletStage??'stored';
+    this.tablet.scale.setScalar(Math.max(.001,amount));
+    this.tablet.visible=amount>.025&&(this.tabletReleased||this.dispenser.visible);
+
+    this.dispenser.updateWorldMatrix(true,false);
+    const origin=this.machine.worldToLocal(this.dispenser.localToWorld(v3(0,0,-.052)));
+    if(!this.tabletReleased) {
+      this.tablet.position.copy(origin);
+      const parentRotation=this.machine.getWorldQuaternion(new THREE.Quaternion()).invert();
+      this.tablet.quaternion.copy(parentRotation.multiply(this.dispenser.getWorldQuaternion(new THREE.Quaternion())));
+      return;
+    }
+
+    // First clear the lip, then accelerate downward in the narrow space between
+    // door and basket. Only tip flat once the entire tab is below the lower rack.
+    const smooth=t=>t*t*(3-2*t);
+    const exit=smooth(clamp(progress/.18));
+    const fall=clamp((progress-.18)/.82);
+    const settle=smooth(clamp((progress-.84)/.16));
+    this.tablet.position.set(-.62,lerp(origin.y,.545,fall*fall),lerp(lerp(origin.z,1.115,exit),1.07,settle));
+    this.tablet.rotation.set(settle*Math.PI/2,0,Math.sin(progress*Math.PI)*.10*(1-settle));
+    if(this.tabletInWater) {
+      this.tablet.position.set(-.62,.521+.024*amount,1.07);
+      this.tablet.rotation.set(Math.PI/2,0,0);
+    }
   }
 
   createParticles() {
@@ -373,6 +412,7 @@ export class DishwasherScene {
     this.vapor = makeParticles(70, waterColor(20), .04, .28);
     this.condensate = makeParticles(56, waterColor(20), .023, .78);
     this.soapParticles = makeParticles(38, waterColor(20), .017, .66);
+    this.tabletDissolution = makeParticles(18, waterColor(20,1), .014, .72);
     this.pocketBubbles = makeParticles(15, waterColor(20), .018, .82);
     this.heatTransfer = makeParticles(18, '#dc892b', .023, .86);
     // Few subtle visible wisps emphasize vapor, without suggesting boiling water.
@@ -505,10 +545,7 @@ export class DishwasherScene {
     this.pocketGeometry.setDrawRange(0,Math.floor(this.pocketTotalIndices*pocketLevel/6)*6);
     this.pocketReservoir.visible=pocketLevel>.01; this.pocketReservoir.scale.y=Math.max(.01,pocketLevel);this.pocketReservoir.position.y=.61+pocketLevel*.16;
     this.pocketFlowMat.color.set(pocketColor);
-    // Positive Y opens into the -z tub interior; stay below 90° to clear plates.
-    this.dispenserLid.rotation.y=state.detergentCompartmentOpen || state.detergentReleased ? 1.45 : 0;
-    const tabletAmount=clamp(state.detergentTablet ?? (state.detergentReleased ? 0 : 1));
-    this.tablet.scale.setScalar(Math.max(.001,tabletAmount)); this.tablet.visible=tabletAmount>.025;
+    this.updateDetergent(state);
     this.arms.forEach(arm=>{
       const intensity=clamp((arm.index===0?state.sprayLower:state.sprayUpper)??0);
       const armTime=(arm.index===0?state.sprayTimeLower:state.sprayTimeUpper)??0;
@@ -592,6 +629,16 @@ export class DishwasherScene {
       DUMMY.quaternion.identity();DUMMY.scale.setScalar(.55+Math.sin(t*Math.PI)*.65);DUMMY.updateMatrix();this.soapParticles.setMatrixAt(i,DUMMY.matrix);
     }
     this.soapParticles.instanceMatrix.needsUpdate=true;
+    const tabletAmount=clamp(state.detergentTablet??1);
+    this.tabletDissolution.visible=this.tabletInWater&&tabletAmount>.025&&tabletAmount<.999;
+    this.tabletDissolution.material.color.set(waterColor(state.waterTemp??20,1));
+    for(let i=0;i<this.tabletDissolution.count;i++) {
+      const t=(time*.7+RANDOM(i*19))%1,angle=i*2.39996;
+      // Dissolved cleaner leaves the tab near the floor and joins the sump water.
+      DUMMY.position.set(-.62+Math.cos(angle)*t*.14,.55+Math.sin(t*Math.PI)*.065,1.065-t*.18+Math.sin(angle)*.018);
+      DUMMY.quaternion.identity();DUMMY.scale.setScalar(Math.sin(t*Math.PI)*Math.sqrt(tabletAmount));DUMMY.updateMatrix();this.tabletDissolution.setMatrixAt(i,DUMMY.matrix);
+    }
+    this.tabletDissolution.instanceMatrix.needsUpdate=true;
     this.pocketBubbles.visible=pocketLevel>.03 && Boolean(state.pocketFilling);
     for(let i=0;i<this.pocketBubbles.count;i++) {
       const t=((time*.11+i/this.pocketBubbles.count)%1)*Math.max(.001,pocketLevel);
@@ -612,7 +659,10 @@ export class DishwasherScene {
     this.machine.updateMatrixWorld();
     return Object.entries(this.anchorPoints).filter(([id])=>this.view==='filter' || !['pump','drain','heater'].includes(id)).map(([id,point])=>{
       let p=point.clone();
-      if(id==='detergent') { p.set(-.62,1.4,-.10); this.door.localToWorld(p); }
+      if(id==='detergent') {
+        if(this.tabletReleased&&this.tablet.visible) this.tablet.getWorldPosition(p);
+        else { p.set(-.62,1.4,-.10); this.door.localToWorld(p); }
+      }
       p.project(this.camera);
       return {id,x:(p.x*.5+.5)*this.width,y:(-.5*p.y+.5)*this.height,visible:p.z>-1 && p.z<1 && Math.abs(p.x)<1.06 && Math.abs(p.y)<1.06};
     });
@@ -634,6 +684,7 @@ export class DishwasherScene {
       return {min:bounds.min.toArray(),max:bounds.max.toArray()};
     };
     const lidDoorBounds=inDoorBounds(this.dispenserLidMesh),tabletDoorBounds=inDoorBounds(this.tablet);
+    const tabletWorldBounds=new THREE.Box3().setFromObject(this.tablet);
     return {
       theme:this.theme,background:`#${this.scene.background.getHexString()}`,
       floor:hex(this.floor.material),plinth:hex(this.plinth.material),grid:hex(this.grid.material),
@@ -655,10 +706,14 @@ export class DishwasherScene {
       dishes:{ceramic:hex(this.mat.ceramic),ceramicLight:hex(this.mat.ceramicLight),rim:hex(this.mat.rim)},
       detergent:{
         lidAngle:this.dispenserLid.rotation.y,lidDoorBounds,tabletDoorBounds,
+        lidOpen:this.tabletLidOpen,tabletStage:this.tabletStage,tabletInWater:this.tabletInWater,
+        compartmentOccupied:!this.tabletReleased&&this.tablet.scale.x>.025,
+        tabletPosition:this.tablet.getWorldPosition(v3()).toArray(),
+        tabletWorldBounds:{min:tabletWorldBounds.min.toArray(),max:tabletWorldBounds.max.toArray()},
         doorInnerSurfaceZ:-.0385,lidInsideDoor:lidDoorBounds.max[2]<-.0385,
         lidWithinTub:lidDoorBounds.min[2]>-2.53,
         lidTabletClearance:tabletDoorBounds.min[2]-lidDoorBounds.max[2],
-        tabletVisible:this.tablet.visible&&this.dispenser.visible,tabletScale:this.tablet.scale.x,
+        tabletVisible:this.tablet.visible,tabletScale:this.tablet.scale.x,dissolutionVisible:this.tabletDissolution.visible,
         lidOpacity:this.dispenserLidMaterial.opacity,backOpacity:this.dispenserBackMaterial.opacity,
       },
     };

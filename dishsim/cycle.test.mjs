@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PHASES, TOTAL_DURATION, PROGRAM_MINUTES, COOLING_DURATION, DOOR_MOTION_DURATION, SPRAY_ARM_INTERVAL, sampleCycle, Cycle } from './cycle.mjs';
+import { PHASES, TOTAL_DURATION, PROGRAM_MINUTES, COOLING_DURATION, DOOR_MOTION_DURATION, SPRAY_ARM_INTERVAL,
+  DETERGENT_LID_DURATION, DETERGENT_DROP_DURATION, sampleCycle, Cycle } from './cycle.mjs';
 
 const at = (id, fraction = .5) => {
   const phase = PHASES.find(item => item.id === id);
@@ -20,7 +21,8 @@ test('the timeline covers the whole programme and selects exact boundaries', () 
 
 test('water stays in the sump; pumping, chemistry and hygiene states are bounded', () => {
   const fractions = ['waterLevel', 'soil', 'waterSoil', 'wetness', 'detergent', 'detergentTablet', 'rinseAid',
-    'pocketLevel', 'filterSoil', 'spray', 'sprayLower', 'sprayUpper', 'evaporation', 'condensation', 'heatRecovery', 'doorOpen'];
+    'pocketLevel', 'filterSoil', 'spray', 'sprayLower', 'sprayUpper', 'evaporation', 'condensation', 'heatRecovery', 'doorOpen',
+    'detergentLidOpen', 'detergentDropProgress'];
   let previous = sampleCycle(0);
   for (let time = 0; time <= TOTAL_DURATION; time += .1) {
     const state = sampleCycle(time);
@@ -39,7 +41,8 @@ test('water stays in the sump; pumping, chemistry and hygiene states are bounded
 test('prewash has no detergent; the main wash dissolves the tab and removes soil', () => {
   assert.equal(at('main-fill', .99).detergentReleased, false);
   assert.equal(at('main-fill', .99).detergentCompartmentOpen, false);
-  assert.equal(at('wash', 0).detergentReleased, true);
+  assert.equal(at('wash', 0).detergentReleased, false);
+  assert.equal(at('wash', 0).detergentCompartmentOpen, true);
   assert.equal(at('prewash').detergentReleased, false);
   assert.equal(at('prewash').detergent, 0);
   assert.equal(at('prewash').detergentTablet, 1);
@@ -50,6 +53,94 @@ test('prewash has no detergent; the main wash dissolves the tab and removes soil
   assert.equal(washLate.detergentCompartmentOpen, true);
   assert.ok(at('drain-wash', .95).detergent < washLate.detergent);
   assert.equal(at('final-rinse').detergent, 0);
+});
+
+test('the lid clears the solid tab before release and dissolution waits until it lands in water', () => {
+  const wash = PHASES.find(phase => phase.id === 'wash');
+  const release = wash.start + DETERGENT_LID_DURATION;
+  const landing = wash.start + (DETERGENT_LID_DURATION + DETERGENT_DROP_DURATION);
+  const dissolved = wash.start + wash.duration * .3;
+  const stored = sampleCycle(wash.start - .01);
+  assert.equal(stored.detergentLidOpen, 0);
+  assert.equal(stored.detergentDropProgress, 0);
+  assert.equal(stored.detergentTabletStage, 'stored');
+  const opening = sampleCycle(wash.start + DETERGENT_LID_DURATION / 2);
+  assert.ok(opening.detergentLidOpen > 0 && opening.detergentLidOpen < 1);
+  assert.equal(opening.detergentReleased, false);
+  assert.equal(opening.detergentTabletStage, 'stored');
+  const released = sampleCycle(release);
+  assert.equal(released.detergentLidOpen, 1);
+  assert.equal(released.detergentReleased, true);
+  assert.equal(released.detergentDropProgress, 0);
+  assert.equal(released.detergentTabletStage, 'falling');
+  const falling = sampleCycle(release + DETERGENT_DROP_DURATION / 2);
+  assert.ok(falling.detergentDropProgress > 0 && falling.detergentDropProgress < 1);
+  assert.equal(falling.detergentTabletStage, 'falling');
+  for (const state of [stored, opening, released, falling, sampleCycle(landing - 1e-6)]) {
+    assert.equal(state.detergentTablet, 1, `tab shrank before landing at ${state.time}`);
+    assert.equal(state.detergent, 0, `detergent reached water before landing at ${state.time}`);
+    assert.equal(state.detergentInWater, false);
+  }
+  const landed = sampleCycle(landing);
+  assert.equal(landed.detergentDropProgress, 1);
+  assert.equal(landed.detergentInWater, true);
+  assert.equal(landed.detergentTabletStage, 'in-water');
+  assert.equal(landed.detergentTablet, 1);
+  assert.equal(landed.detergent, 0);
+  assert.ok(landed.waterLevel > .1, 'tab must land in water');
+  const dissolving = sampleCycle((landing + dissolved) / 2);
+  assert.ok(dissolving.detergentTablet > 0 && dissolving.detergentTablet < 1);
+  assert.ok(dissolving.detergent > 0 && dissolving.detergent < 1);
+  assert.equal(dissolving.detergentTabletStage, 'in-water');
+  assert.equal(sampleCycle(dissolved).detergentTabletStage, 'dissolved');
+  for (const phase of PHASES.filter(phase => phase.start >= dissolved)) {
+    const state = sampleCycle(phase.start);
+    assert.equal(state.detergentLidOpen, 1);
+    assert.equal(state.detergentDropProgress, 1);
+    assert.equal(state.detergentReleased, true);
+    assert.equal(state.detergentInWater, true);
+    assert.equal(state.detergentTablet, 0);
+    assert.equal(state.detergentTabletStage, 'dissolved');
+  }
+});
+
+test('lid opening, tab falling and dissolution remain continuous at their boundaries', () => {
+  const wash = PHASES.find(phase => phase.id === 'wash');
+  const release = wash.start + DETERGENT_LID_DURATION;
+  for (const boundary of [wash.start, release, wash.start + (DETERGENT_LID_DURATION + DETERGENT_DROP_DURATION), wash.start + wash.duration * .3]) {
+    const before = sampleCycle(boundary - 1e-6);
+    const after = sampleCycle(boundary + 1e-6);
+    for (const key of ['detergentLidOpen', 'detergentDropProgress', 'detergentTablet', 'detergent']) {
+      assert.ok(Math.abs(after[key] - before[key]) < 1e-5, `${key} jumped at ${boundary}`);
+    }
+  }
+});
+
+test('tab motion and dissolution pause, seek and reset with deterministic programme time', () => {
+  const wash = PHASES.find(phase => phase.id === 'wash');
+  const cycle = new Cycle();
+  for (const offset of [DETERGENT_LID_DURATION / 2,
+    DETERGENT_LID_DURATION + DETERGENT_DROP_DURATION / 2, wash.duration * .15]) {
+    const target = wash.start + offset;
+    cycle.seek(target - .125);
+    cycle.play();
+    cycle.advance(.125);
+    const expected = sampleCycle(target);
+    assert.deepEqual(cycle.state, expected);
+    cycle.pause();
+    cycle.advance(10);
+    assert.deepEqual(cycle.state, expected);
+    cycle.seek(TOTAL_DURATION);
+    cycle.seek(target);
+    assert.deepEqual(cycle.state, expected);
+    cycle.reset();
+    assert.equal(cycle.state.detergentTabletStage, 'stored');
+    assert.equal(cycle.state.detergentTablet, 1);
+    assert.equal(cycle.state.detergentLidOpen, 0);
+    assert.equal(cycle.state.detergentDropProgress, 0);
+    assert.equal(cycle.state.detergentReleased, false);
+    assert.equal(cycle.state.detergentInWater, false);
+  }
 });
 
 test('soil moves off dishes into each water filling and fresh rinses do not inherit all removed dirt', () => {

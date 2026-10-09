@@ -21,7 +21,10 @@ Die Projektstartseite enthält ebenfalls eine Karte für den Simulator.
 2. **Schmutzwasser abpumpen:** Wasser und feine Schmutzanteile verlassen die
    Maschine. Das Sieb hält gröbere Speisereste zurück.
 3. **Hauptwäsche mit Reiniger:** Frisches Wasser wird erwärmt, das Reinigerfach
-   öffnet sich, der Tab löst sich auf. Warmes Wasser, Reiniger und wiederholte
+   öffnet sich und gibt den Tab frei. Er fällt überwiegend senkrecht an der
+   Türinnenseite ins Wasser und löst sich erst dort allmählich auf. Das Fach
+   bleibt leer, während die Umwälzpumpe den gelösten Reiniger verteilt.
+   Warmes Wasser, Reiniger und wiederholte
    Strahltreffer entfernen die sichtbaren Beläge. Die Sprüharme drehen sich
    durch den Rückstoß ihrer schräg gerichteten Düsen.
 4. **Wärme zurückgewinnen und zwischenspülen:** Die seitliche Wassertasche

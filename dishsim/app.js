@@ -40,7 +40,7 @@ const componentDetails = {
   pocket: { label: 'Wassertasche', title: 'Ein Wärmetauscher an der Seite', text: 'Frischwasser bleibt hier vom Spülwasser getrennt. Während der Hauptwäsche nimmt es Wärme aus dem Spülraum auf und wird später zum Zwischenspülen verwendet. Eine kalte neue Füllung kühlt anschließend die Wand für die Trocknung.', view: 'pocket' },
   spray: { label: 'Sprüharme', title: 'Oben und unten wechseln sich ab', text: `Die Wasserweiche leitet das Pumpenwasser jeweils zu einem Sprüharm. Dessen schräge Düsen treiben ihn durch Rückstoß an; der andere Arm ruht. Das konzentriert den Wasserstrom auf eine Zone. Unser Modell schaltet alle ${SPRAY_ARM_INTERVAL} Demo-Sekunden um. Echte Schaltzeiten und Armgruppen hängen von Gerät und Programm ab.`, view: 'overview' },
   filter: { label: 'Sieb & Ablauf', title: 'Zwei Pumpen, zwei Aufgaben', text: 'Das Sieb hält grobe Speisereste zurück. Die Umwälzpumpe schickt gefiltertes Wasser wieder zu den Düsen; die separate Ablaufpumpe entfernt die gebrauchte Füllung. Grobe Reste im Sieb müssen nach dem Spülen von Hand entfernt werden.', view: 'filter' },
-  detergent: { label: 'Reiniger', title: 'Die Klappe öffnet zur Hauptwäsche', text: 'Der Reiniger bleibt beim Vorspülen noch im Dosierfach. Erst in der Hauptwäsche öffnet die Klappe und der Tab löst sich auf. Klarspüler wird separat und in kleiner Menge im letzten Spülgang dosiert.', view: 'overview' },
+  detergent: { label: 'Reiniger', title: 'Aus dem Fach ins Spülwasser', text: 'Beim Vorspülen bleibt der Tab im Dosierfach. Zur Hauptwäsche öffnet sich die Klappe; der Tab fällt an der Innenseite der Tür nach unten ins Wasser. Dort löst er sich allmählich auf. Die Umwälzpumpe verteilt den gelösten Reiniger über die Sprüharme. Klarspüler wird separat erst im letzten Spülgang dosiert.', view: 'overview' },
   drying: { label: 'Kühle Seitenwand', title: 'Hier wird Dampf wieder zu Wasser', text: 'Das heiße Klarspülen erwärmt Teller und Tassen. Danach verdunstet der Wasserfilm mit der gespeicherten Wärme. An der kälteren Edelstahlwand kondensiert die Feuchtigkeit und läuft nach unten. Die animierten Nebelpunkte machen den eigentlich unsichtbaren Wasserdampf sichtbar.', view: 'drying' },
 };
 
@@ -125,6 +125,8 @@ function updateUI() {
   $('annotation-drying').textContent = `Seitenwand · ${Math.round(s.wallTemp)} °C`;
   const sprayZone = s.activeSprayArm === 'lower' ? 'unten' : s.activeSprayArm === 'upper' ? 'oben' : null;
   $('annotation-spray').textContent = sprayZone ? `Sprüharme · ${sprayZone} aktiv` : 'Sprüharme';
+  $('annotation-detergent').textContent = s.detergentTabletStage === 'falling' ? 'Reiniger · Tab fällt'
+    : s.detergentTabletStage === 'in-water' ? 'Reiniger · Tab im Wasser' : 'Reiniger';
   $('clean-meter').style.width = `${(1 - s.soil) * 100}%`;
   $('wet-meter').style.width = `${s.wetness * 100}%`;
   const waterKind = s.waterSoil > .2 ? 'Schmutzwasser' : s.detergent > .1 ? 'Lauge' : 'Klares Wasser';
@@ -145,7 +147,20 @@ function updateUI() {
   if (s.drying && !s.drain) flows.push('Restwärme trocknet');
   if (s.pocketRelease && !s.fill) flows.push('Tasche entleert');
   $('flow-text').textContent = ready ? 'Bereit · Geschirr ist beladen' : s.complete ? (s.cooling ? 'Programm beendet · Geschirr kühlt ab' : 'Programm beendet · Abgekühlt') : `${!cycle.playing ? 'Pause · ' : ''}${flows.join(' · ') || 'Wasser im Spülraum'}`;
-  const [kicker, title, explanation] = insights[s.phase.id];
+  let [kicker, title, explanation] = insights[s.phase.id];
+  if (s.phase.id === 'wash' && s.detergentTabletStage !== 'dissolved') {
+    kicker = 'VOM TAB ZUR SPÜLLAUGE';
+    if (s.detergentTabletStage === 'stored') {
+      title = 'Die Reinigerklappe öffnet sich.';
+      explanation = 'Beim Vorspülen blieb der Tab noch im Fach. Jetzt gibt die Klappe ihn für die Hauptwäsche frei.';
+    } else if (s.detergentTabletStage === 'falling') {
+      title = 'Der Tab fällt ins Wasser.';
+      explanation = 'Der Tab verlässt das geöffnete Fach und fällt an der Türinnenseite nach unten. Erst im Wasser beginnt er sich aufzulösen.';
+    } else {
+      title = 'Im Wasser wird der Tab kleiner.';
+      explanation = 'Der Tab liegt unten im Spülwasser und löst sich allmählich auf. Die Umwälzpumpe verteilt den gelösten Reiniger zu den Sprüharmen. Die violette Wasserfarbe zeigt die entstehende Spüllauge.';
+    }
+  }
   $('explain-kicker').textContent = kicker;
   $('explain-title').textContent = title;
   $('explain-text').textContent = explanation;
