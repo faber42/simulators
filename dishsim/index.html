@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#eeefeb">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <title>DishLab · Geschirrspüler-Simulator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="back-link" href="../" aria-label="Zur Simulatorübersicht">↗ <span>Simulatoren</span></a>
+    <div class="brand"><span class="brand-icon" aria-hidden="true">◉</span> DISH<span>LAB</span><span class="brand-rule"></span><small>Ein Spülgang. Von innen.</small></div>
+    <span class="edition">INTERAKTIVES SCHNITTMODELL <span>01 / HAUSHALT</span></span>
+  </header>
+  <main class="workspace">
+    <section class="machine-stage" aria-label="Interaktives 3D-Modell des Geschirrspülers">
+      <div class="stage-heading"><span class="eyebrow">DIE TECHNIK HINTER DEM ALLTAG</span><h1>Was passiert<br>hinter der Tür?</h1><p>Wasser, Wärme und ein ziemlich guter Kreislauf.</p></div>
+      <canvas id="scene" aria-label="3D-Geschirrspüler. Ziehen zum Drehen, scrollen zum Zoomen." tabindex="0"></canvas>
+      <div id="annotations" class="annotations"></div>
+      <div class="view-tools" aria-label="Modelldarstellung">
+        <button id="cutaway" class="tool active" aria-pressed="true"><span aria-hidden="true">◫</span> Schnittansicht</button>
+        <button id="labels" class="tool active" aria-pressed="true"><span aria-hidden="true">⊙</span> Bauteile</button>
+      </div>
+      <div class="stage-bottom"><div class="view-presets" role="group" aria-label="Kameraperspektiven"><button data-view="overview" class="active" aria-pressed="true">Übersicht</button><button data-view="pocket" aria-pressed="false">Wassertasche</button><button data-view="filter" aria-pressed="false">Sieb & Pumpe</button><button data-view="drying" aria-pressed="false">Trocknung</button></div><span class="orbit-hint">Ziehen: drehen <span>·</span> Scrollen: zoomen</span></div>
+      <div class="scene-legend"><span><i class="dot water"></i> Wasser</span><span><i class="dot heat"></i> Wärme</span><span><i class="dot detergent"></i> Reiniger</span></div>
+      <div id="loader" role="status">Das Innenleben wird aufgebaut<span class="loading-dots">…</span></div>
+      <div id="scene-error" hidden role="alert"></div>
+    </section>
+    <section class="cycle-console" aria-label="Steuerung des Spülprogramms">
+      <div class="transport"><button id="play" class="play-button" disabled><span id="play-icon" aria-hidden="true">▶</span><span id="play-text">Spülgang starten</span></button><button id="reset" class="reset-button" title="Neues schmutziges Geschirr" aria-label="Spülgang zurücksetzen">↺</button><div class="time-display"><strong id="elapsed">00:00</strong><span>/ <span id="total">03:30</span> Demo</span></div><div class="speed-control"><label for="speed">Tempo</label><select id="speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></div><span class="demo-note">Ein ganzer Spülgang, auf wenige Minuten verdichtet.</span></div>
+      <div class="timeline-labels"><span id="timeline-status">BELADEN & BEREIT</span><span id="timeline-percent">0 %</span></div>
+      <input id="timeline" class="timeline" type="range" min="0" max="210" step="0.1" value="0" aria-label="Zeitpunkt im Spülgang" aria-valuetext="Beginn des Spülgangs">
+      <nav class="phase-list" id="phase-list" aria-label="Zu einer Programmphase springen"></nav>
+    </section>
+    <aside class="inspector" aria-label="Zyklus und Erklärungen">
+      <div class="program-bar"><span class="eyebrow">PROGRAMM</span><span class="program-pill">Alltag · 65 °C</span></div>
+      <div class="phase-heading"><div><span class="eyebrow" id="phase-number">BEREIT FÜR DEN SPÜLGANG</span><h2 id="phase-title">Dreck rein.<br>Wissen raus.</h2></div><span id="phase-symbol" aria-hidden="true">↻</span></div>
+      <p id="phase-description" class="phase-description">Starte einen vollständigen Spülgang und verfolge, wie aus schmutzigen Tellern sauberes, trockenes Geschirr wird.</p>
+      <div class="metrics" aria-label="Aktuelle Messwerte">
+        <div><span id="temperature-label">Spülwasser</span><strong id="water-temp">20<small> °C</small></strong><div class="meter"><i id="water-meter"></i></div></div>
+        <div><span>Geschirr sauber</span><strong id="clean-value">0<small> %</small></strong><div class="meter violet"><i id="clean-meter"></i></div></div>
+        <div><span>Restfeuchte</span><strong id="wet-value">0<small> %</small></strong><div class="meter"><i id="wet-meter"></i></div></div>
+      </div>
+      <div class="flow-state"><span id="flow-icon" class="flow-indicator"></span><span id="flow-text">Bereit · Geschirr ist beladen</span><span id="water-used">0,0 l</span></div>
+      <div class="explainer" id="explainer"><span class="eyebrow" id="explain-kicker">GENAU HINSEHEN</span><h3 id="explain-title">Kein Wasser bis zum Rand.</h3><p id="explain-text">Nur unten steht eine kleine Menge Wasser. Eine Pumpe schickt sie immer wieder durch die Sprüharme. Das Geschirr wird besprüht, nicht eingetaucht.</p><div id="thermal-comparison" class="thermal-comparison" hidden><span>Geschirr <b id="dish-temp">—</b></span><span class="thermal-arrow">→</span><span>Seitenwand <b id="wall-temp">—</b></span></div></div>
+      <div class="component-info" id="component-info" hidden><button id="close-component" aria-label="Bauteil-Erklärung schließen">×</button><span class="eyebrow">BAUTEIL IM FOKUS</span><h3 id="component-title"></h3><p id="component-text"></p></div>
+      <div class="inspector-footer"><span class="status-dot"></span><span>Wärmetauscher & Kondensationstrocknung</span><button id="about" aria-label="Informationen zum Modell">i</button></div>
+    </aside>
+  </main>
+  <dialog id="about-dialog" aria-labelledby="about-title"><button class="dialog-close" id="close-about" aria-label="Informationen schließen">×</button><span class="eyebrow">ÜBER DIESES MODELL</span><h2 id="about-title">Die Idee hinter DishLab</h2><p>Dieses Schnittmodell zeigt einen beispielhaften Geschirrspüler mit seitlichem Wärmetauscher und Kondensationstrocknung. Bauformen und Programme unterscheiden sich je nach Gerät.</p><p>Wasserwege, Tropfen und Wärmeübergänge sind didaktisch dargestellt. Zeit, Temperatur und Verbrauch sind illustrative Modellwerte, keine Messwerte eines bestimmten Geräts. Das Wasser wird von einer Heizung erwärmt; die Wassertasche nutzt zusätzlich Wärme aus dem Spülraum.</p><p>Beim Spülen ist die Tür geschlossen. Die transparente Ansicht macht die Vorgänge sichtbar. Die Trocknung nutzt die Wärme des letzten heißen Klarspülgangs und die kühlere Seitenwand.</p><p class="source-links">Technischer Hintergrund: <a href="https://www.bosch-home.com/us/en/c/spotlight/bltcab88ca4f3027fe1" target="_blank" rel="noreferrer">Bosch: Kondensationstrocknung</a> · <a href="https://www.bosch-home.com/kw/en/experience-bosch/buying-guides/dishwasher-buying-guide" target="_blank" rel="noreferrer">Bosch: Wärmetauscher</a></p><button class="play-button" id="about-done">Verstanden</button></dialog>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
