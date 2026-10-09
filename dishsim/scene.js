@@ -61,7 +61,7 @@ export class DishwasherScene {
     this.targetGoal = this.target.clone();
     this.orbit = { theta: -.68, phi: 1.14, radius: 10.2 };
     this.orbitGoal = { ...this.orbit };
-    this.cutaway = true; this.labels = true; this.theme = 'light'; this.doorAngle = Math.PI / 2;
+    this.cutaway = true; this.labels = true; this.theme = 'light'; this.doorOpen = 1; this.doorAngle = Math.PI / 2;
     this.shellMaterials = []; this.soilMeshes = []; this.wetDrops = []; this.arms = [];
     this.flowPaths = []; this.disposables = []; this.listeners = [];
     this.width = 1; this.height = 1;
@@ -128,8 +128,8 @@ export class DishwasherScene {
     });
     [.48, 3.68].forEach(y => [-1.27, 1.27].forEach(z => frame.push([[-1.36, y, z], [1.36, y, z]])));
     wires(body, frame, m.steel, .037);
-    this.baseMaterial=m.steel.clone();this.baseMaterial.transparent=true;
-    this.base=box(body, this.baseMaterial, [2.77, .13, 2.61], [0, .45, 0]);this.base.receiveShadow=true;
+    this.baseMaterial=m.steel.clone();this.baseMaterial.transparent=true;this.baseMaterial.opacity=.12;this.baseMaterial.depthWrite=false;
+    this.base=box(body, this.baseMaterial, [2.77, .13, 2.61], [0, .45, 0]);
     box(body, m.graphite, [2.69, .13, .12], [0, .35, 1.23]);
     [-1.16, 1.16].forEach(x => [-1.1, 1.1].forEach(z => cylinder(body, m.graphite, .1, .11, .16, [x, -.015, z])));
     const shell = new THREE.MeshStandardMaterial({ color: '#b2c4c4', metalness: .45, roughness: .3, transparent: true, opacity: .10, depthWrite: false, side: THREE.DoubleSide });
@@ -412,6 +412,9 @@ export class DishwasherScene {
       material.depthWrite=!this.cutaway;
     };
     this.shellMaterials.forEach(material=>apply(material,.08));
+    apply(this.baseMaterial,.12);
+    this.base.castShadow=!this.cutaway;
+    this.base.receiveShadow=!this.cutaway;
     apply(this.doorMaterial,this.doorAngle>.4?.42:.07);
     apply(this.dispenserBackMaterial,.16);
     apply(this.dispenserLidMaterial,.27);
@@ -463,7 +466,8 @@ export class DishwasherScene {
     const condensation=clamp(state.condensation ?? drying);
     const k=1-Math.exp(-elapsed*7);
     this.updateCamera(k);
-    this.doorAngle=state.complete ? Math.PI/2 : Math.PI/2*(1-clamp(cycleTime));
+    this.doorOpen=clamp(state.doorOpen??1);
+    this.doorAngle=this.doorOpen*Math.PI/2;
     this.door.rotation.x=this.doorAngle;
     // Opaque housing writes depth; cutaway materials reveal the internals.
     this.applyHousingMaterials();
@@ -486,8 +490,6 @@ export class DishwasherScene {
     this.wallTint.opacity=.035+condensation*.16;
     const serviceView=this.view==='filter' && this.cutaway;
     this.mat.water.opacity=serviceView?.16:.42;
-    this.baseMaterial.opacity=easeTo(this.baseMaterial.opacity,serviceView?.09:1,k);
-    this.baseMaterial.depthWrite=!serviceView;
     for(const name of ['ceramic','ceramicLight','rim','wire']) {
       const material=this.mat[name];
       if(material.transparent!==serviceView){material.transparent=serviceView;material.needsUpdate=true;}
@@ -619,9 +621,11 @@ export class DishwasherScene {
     return {
       theme:this.theme,background:`#${this.scene.background.getHexString()}`,
       floor:hex(this.floor.material),plinth:hex(this.plinth.material),grid:hex(this.grid.material),
+      door:{open:this.doorOpen,angle:this.doorAngle},
       housing:{
         door:{transparent:this.doorMaterial.transparent,opacity:this.doorMaterial.opacity,depthWrite:this.doorMaterial.depthWrite},
         shell:this.shellMaterials.map(material=>({transparent:material.transparent,opacity:material.opacity,depthWrite:material.depthWrite})),
+        base:{transparent:this.baseMaterial.transparent,opacity:this.baseMaterial.opacity,depthWrite:this.baseMaterial.depthWrite,castShadow:this.base.castShadow,receiveShadow:this.base.receiveShadow},
       },
       water:{
         sump:hex(this.mat.water),pocket:hex(this.pocketFlowMat),

@@ -1,6 +1,7 @@
 /**
  * Deterministic teaching model of a dishwasher with a side heat exchanger.
- * Time is compressed: 210 demo seconds represent an illustrative 140 minutes.
+ * Time is compressed: 210 wash seconds represent an illustrative 140 minutes,
+ * with one additional demo second at each end for closing/opening the door.
  * Temperatures, water quantities and phase lengths are examples, not a measured
  * appliance programme. Fractions are visual state, not a fluid/chemical solver.
  *
@@ -15,8 +16,12 @@ const clamp = (value, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, value));
 const ramp = (value, start = 0, end = 1) => clamp((value - start) / (end - start));
 const mix = (a, b, p) => a + (b - a) * p;
 const smooth = p => p * p * (3 - 2 * p);
+export const DOOR_MOTION_DURATION = 1;
 
 const definitions = [
+  ['close-door', 'Tür schließen', DOOR_MOTION_DURATION, 0,
+    'Zuerst schließt sich die Tür vollständig. Erst danach beginnt der Wasserzulauf.',
+    'Während sich die Tür bewegt, bleiben Zulauf, Pumpen und Heizung aus. Auch die seitliche Wassertasche ist noch leer.'],
   ['fill', 'Wasser einlassen', 12, 3,
     'Frischwasser nimmt den Weg durch die seitliche Wassertasche in den Pumpensumpf.',
     'Nur der Bodenbereich wird gefüllt. Die Körbe stehen nicht unter Wasser: Eine kleine Wassermenge wird später immer wieder umgewälzt.'],
@@ -50,6 +55,9 @@ const definitions = [
   ['dry', 'Kondensationstrocknen', 49, 44,
     'Wasser verdunstet am warmen Geschirr und kondensiert an der kühleren Seitenwand.',
     'Die Sprüharme stehen. Restwärme lässt den dünnen Wasserfilm verdunsten; an der kalten Wand bilden sich Tropfen und laufen nach unten. Das Kondensat wird abgepumpt. Kunststoff trocknet oft schlechter, weil er weniger Wärme speichert.'],
+  ['open-door', 'Tür öffnen', DOOR_MOTION_DURATION, 0,
+    'Das Spülprogramm ist fertig. Die Tür öffnet sich langsam zum Entladen.',
+    'Pumpen, Heizung und Wasserzulauf bleiben aus. Die Tür fährt dieselbe Bewegung wie beim Schließen in umgekehrter Richtung; anschließend kühlt das Geschirr an der Raumluft ab.'],
   ['complete', 'Sauber & trocken', 0, 0,
     'Der vollständige Spülgang ist beendet. Das Keramikgeschirr ist sauber und trocken.',
     'Die Restwärme hat das Geschirr getrocknet. Grobe Speisereste bleiben im Sieb zurück. Diese Darstellung zeigt ein Prinzip mit Wärmetauscher; andere Geräte nutzen beispielsweise Türöffnung oder Zeolith.'],
@@ -67,6 +75,7 @@ export const PHASES = Object.freeze(definitions.map(([id, title, duration, phase
 export const TOTAL_DURATION = seconds;
 export const PROGRAM_MINUTES = minutes;
 export const COOLING_DURATION = 90;
+const mainWashStart = PHASES.find(phase => phase.id === 'wash').start;
 
 // An accelerated, exponential-shaped cooldown, normalized to reach room
 // temperature at its endpoint. This is an explanatory animation, not a measured
@@ -103,6 +112,7 @@ const initial = Object.freeze({
 // Values at the END of each phase. Unspecified values carry over. This makes
 // seeking independent of frame rate or the order in which phases are visited.
 const ends = [
+  {}, // close-door: only the door moves; the hydraulic initial state is unchanged.
   { waterLevel: 1, waterUsed: 3 },
   { waterTemp: 23, dishTemp: 22, wallTemp: 22, soil: .76, waterSoil: .32, wetness: 1, filterSoil: .18 },
   { waterLevel: 0, filterSoil: .14 },
@@ -117,6 +127,7 @@ const ends = [
   { waterLevel: .05, dishTemp: 61, wallTemp: 28, rinseAid: 0, wetness: .74,
     pocketLevel: 1, pocketTemp: 20, waterUsed: 15 },
   { waterLevel: 0, waterTemp: 30, dishTemp: 40, wallTemp: 30, wetness: 0, pocketTemp: 30 },
+  {}, // open-door: preserve the finished wash until the door is fully open.
   {},
 ];
 const endpointStates = ends.reduce((states, end) => [...states, Object.freeze({ ...states.at(-1), ...end })], [initial]);
@@ -134,8 +145,10 @@ const endpointStates = ends.reduce((states, end) => [...states, Object.freeze({ 
  * sprayTime is the exact cumulative integral of spray intensity in demo seconds;
  * multiply by an angular speed to obtain seek-stable spray-arm orientation.
  * pocketFilling and pocketRelease distinguish supply from reservoir discharge.
+ * doorOpen is 0 when closed and 1 when open; close-door and open-door use the
+ * same smooth motion in reverse and never run hydraulics or heating.
  * Optional coolingElapsed advances the opened-door cooldown only at completion;
- * programme time remains 210 and the completed phase stays selected throughout.
+ * programme time remains TOTAL_DURATION and the completed phase stays selected.
  */
 export function sampleCycle(requestedTime = 0, requestedCoolingElapsed = 0) {
   const numericTime = Number(requestedTime);
@@ -156,14 +169,22 @@ export function sampleCycle(requestedTime = 0, requestedCoolingElapsed = 0) {
     spray: 0, drain: false, fill: false, drying: phase.id === 'dry', complete: phase.id === 'complete',
     sprayTime: integratedSprayTime(time),
     coolingElapsed, cooling: phase.id === 'complete' && coolingElapsed < COOLING_DURATION,
+    doorOpen: phase.id === 'complete' ? 1 : 0,
+    doorClosing: phase.id === 'close-door', doorOpening: phase.id === 'open-door',
     circulating: false, heater: false, pocketFilling: false, pocketRelease: false,
     evaporation: 0, condensation: 0, heatRecovery: 0,
-    detergentReleased: time >= PHASES[4].start,
-    detergentCompartmentOpen: time >= PHASES[4].start,
+    detergentReleased: time >= mainWashStart,
+    detergentCompartmentOpen: time >= mainWashStart,
     rinseAidActive: false,
   });
 
   switch (phase.id) {
+    case 'close-door':
+      state.doorOpen = 1 - smooth(p);
+      break;
+    case 'open-door':
+      state.doorOpen = smooth(p);
+      break;
     case 'fill':
     case 'main-fill':
       state.fill = p < .96;

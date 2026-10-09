@@ -12,7 +12,9 @@ Die Projektstartseite enthält ebenfalls eine Karte für den Simulator.
 
 ## Was der Spülgang zeigt
 
-1. **Wasser einlassen und vorspülen:** Wenige Liter sammeln sich im Bodenbereich.
+1. **Tür schließen, Wasser einlassen und vorspülen:** Zuerst schließt die Tür
+   vollständig. Erst danach läuft Wasser in die Seitentasche und wenige Liter
+   sammeln sich im Bodenbereich.
    Die Umwälzpumpe versorgt die Sprüharme; die Wasserstrahlen lösen erste
    Speisereste. Das Geschirr steht nicht in einer gefüllten Wanne.
 2. **Schmutzwasser abpumpen:** Wasser und feine Schmutzanteile verlassen die
@@ -32,7 +34,8 @@ Die Projektstartseite enthält ebenfalls eine Karte für den Simulator.
    angrenzende Wand. Die im Geschirr gespeicherte Wärme lässt Wasser auf seiner
    Oberfläche verdunsten. Der Wasserdampf kondensiert an der kühleren Wand;
    Tropfen laufen zum Sumpf und werden abgeführt. Die Sprüharme stehen dabei.
-7. **Sauber und trocken:** Das Keramikgeschirr ist sauber und trocken. Einige
+7. **Sauber und trocken:** Die Tür öffnet sich gleichmäßig mit der umgekehrten
+   Bewegung vom Start. Das saubere, trockene Geschirr kühlt danach langsam ab. Einige
    gröbere Reste bleiben im Sieb sichtbar: Das Sieb muss auch bei einer echten
    Maschine regelmäßig gereinigt werden.
 
@@ -47,7 +50,7 @@ Die Projektstartseite enthält ebenfalls eine Karte für den Simulator.
 | Übersicht / Wassertasche / Sieb & Pumpe / Trocknung | Vorgegebene Kameraperspektive wählen |
 | Ziehen im 3D-Bild | Kamera um die Maschine drehen |
 | Mausrad | Kamera hinein- und herauszoomen |
-| Schnittansicht | Durchsichtige Erklärung und geschlossenere Geräteansicht vergleichen |
+| Schnittansicht | Gehäuse einschließlich Boden in allen Kameraperspektiven durchsichtig oder geschlossen anzeigen |
 | Bauteile | Bauteilbezeichnungen ein- und ausblenden |
 | Information (i) | Hinweise zur dargestellten Bauart und zu den Modellwerten |
 | Leertaste | Spülgang pausieren oder fortsetzen |

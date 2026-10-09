@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PHASES, TOTAL_DURATION, PROGRAM_MINUTES, COOLING_DURATION, sampleCycle, Cycle } from './cycle.mjs';
+import { PHASES, TOTAL_DURATION, PROGRAM_MINUTES, COOLING_DURATION, DOOR_MOTION_DURATION, sampleCycle, Cycle } from './cycle.mjs';
 
 const at = (id, fraction = .5) => {
   const phase = PHASES.find(item => item.id === id);
@@ -8,7 +8,7 @@ const at = (id, fraction = .5) => {
 };
 
 test('the timeline covers the whole programme and selects exact boundaries', () => {
-  assert.equal(TOTAL_DURATION, 210);
+  assert.equal(TOTAL_DURATION, 212);
   assert.equal(PROGRAM_MINUTES, 140);
   assert.equal(PHASES[0].start, 0);
   for (const [index, phase] of PHASES.entries()) {
@@ -20,7 +20,7 @@ test('the timeline covers the whole programme and selects exact boundaries', () 
 
 test('water stays in the sump; pumping, chemistry and hygiene states are bounded', () => {
   const fractions = ['waterLevel', 'soil', 'waterSoil', 'wetness', 'detergent', 'detergentTablet', 'rinseAid',
-    'pocketLevel', 'filterSoil', 'spray', 'evaporation', 'condensation', 'heatRecovery'];
+    'pocketLevel', 'filterSoil', 'spray', 'evaporation', 'condensation', 'heatRecovery', 'doorOpen'];
   let previous = sampleCycle(0);
   for (let time = 0; time <= TOTAL_DURATION; time += .1) {
     const state = sampleCycle(time);
@@ -37,6 +37,9 @@ test('water stays in the sump; pumping, chemistry and hygiene states are bounded
 });
 
 test('prewash has no detergent; the main wash dissolves the tab and removes soil', () => {
+  assert.equal(at('main-fill', .99).detergentReleased, false);
+  assert.equal(at('main-fill', .99).detergentCompartmentOpen, false);
+  assert.equal(at('wash', 0).detergentReleased, true);
   assert.equal(at('prewash').detergentReleased, false);
   assert.equal(at('prewash').detergent, 0);
   assert.equal(at('prewash').detergentTablet, 1);
@@ -135,7 +138,7 @@ test('spray rotation integrates intensity continuously and freezes when the arms
     const after = sampleCycle(phase.start + 1e-6).sprayTime;
     assert.ok(after - before < 3e-6, `orientation jumped entering ${phase.id}`);
   }
-  for (const id of ['drain-prewash', 'drain-wash', 'drain-rinse', 'drain-final', 'dry']) {
+  for (const id of ['close-door', 'drain-prewash', 'drain-wash', 'drain-rinse', 'drain-final', 'dry', 'open-door']) {
     assert.equal(at(id, .01).sprayTime, at(id, .99).sprayTime, `arms rotate during ${id}`);
   }
   const cycle = new Cycle();
@@ -148,6 +151,93 @@ test('spray rotation integrates intensity continuously and freezes when the arms
   cycle.seek(TOTAL_DURATION);
   cycle.seek(PHASES.find(phase => phase.id === 'wash').start + 10);
   assert.equal(cycle.state.sprayTime, pausedAngle);
+});
+
+test('water, pumps and heater wait for a fully closed door and remain off while opening', () => {
+  const hydraulicFlags = ['fill', 'drain', 'circulating', 'pocketFilling', 'pocketRelease', 'heater'];
+  for (let index = 0; index < 100; index++) {
+    const fraction = index / 100;
+    const closing = at('close-door', fraction);
+    const opening = at('open-door', fraction);
+    for (const state of [closing, opening]) {
+      for (const flag of hydraulicFlags) assert.equal(state[flag], false, `${flag} active while ${state.phase.id}`);
+      assert.equal(state.spray, 0);
+      assert.equal(state.waterLevel, 0);
+      assert.equal(state.evaporation, 0);
+      assert.equal(state.condensation, 0);
+      assert.equal(state.cooling, false);
+      assert.equal(state.complete, false);
+    }
+    assert.equal(closing.pocketLevel, 0);
+    assert.equal(closing.waterUsed, 0);
+    assert.equal(closing.waterTemp, 20);
+    assert.equal(closing.dishTemp, 20);
+    assert.equal(opening.waterUsed, 15);
+    assert.equal(opening.pocketLevel, 1);
+    assert.equal(opening.dishTemp, 40);
+  }
+  const fillStart = PHASES.find(phase => phase.id === 'fill').start;
+  assert.equal(fillStart, DOOR_MOTION_DURATION);
+  assert.equal(sampleCycle(fillStart).doorOpen, 0);
+  assert.equal(sampleCycle(fillStart).fill, true);
+  assert.ok(sampleCycle(fillStart + .1).waterUsed > 0);
+  assert.equal(sampleCycle(TOTAL_DURATION).doorOpen, 1);
+  assert.equal(sampleCycle(TOTAL_DURATION).cooling, true);
+});
+
+test('door opening exactly reverses the continuous monotonic closing movement', () => {
+  const close = PHASES.find(phase => phase.id === 'close-door');
+  const open = PHASES.find(phase => phase.id === 'open-door');
+  assert.equal(close.duration, DOOR_MOTION_DURATION);
+  assert.equal(open.duration, close.duration);
+  assert.equal(close.minutes, 0);
+  assert.equal(open.minutes, 0);
+  assert.equal(close.start, 0);
+  assert.equal(open.start, TOTAL_DURATION - DOOR_MOTION_DURATION);
+  let previousClose = 1;
+  let previousOpen = 0;
+  for (let index = 0; index <= 100; index++) {
+    const p = index / 100;
+    const closing = at('close-door', p).doorOpen;
+    const opening = at('open-door', p).doorOpen;
+    assert.ok(closing <= previousClose);
+    assert.ok(opening >= previousOpen);
+    assert.ok(Math.abs(closing - at('open-door', 1 - p).doorOpen) < 1e-12);
+    previousClose = closing;
+    previousOpen = opening;
+  }
+  for (const boundary of [close.end, open.start, open.end]) {
+    assert.ok(Math.abs(sampleCycle(boundary - 1e-4).doorOpen - sampleCycle(boundary + 1e-4).doorOpen) < 1e-6,
+      `door jumps at ${boundary}`);
+  }
+  for (const phase of PHASES.filter(phase => !['close-door', 'open-door', 'complete'].includes(phase.id))) {
+    assert.equal(at(phase.id).doorOpen, 0, `door open during ${phase.id}`);
+  }
+});
+
+test('door phases pause, resume, seek and reset without depending on earlier frames', () => {
+  const cycle = new Cycle();
+  for (const id of ['close-door', 'open-door']) {
+    const phase = PHASES.find(item => item.id === id);
+    cycle.seek(phase.start + phase.duration * .25);
+    cycle.play();
+    cycle.advance(phase.duration * .25);
+    assert.deepEqual(cycle.state, at(id, .5));
+    cycle.pause();
+    const paused = cycle.state;
+    cycle.advance(5);
+    assert.deepEqual(cycle.state, paused);
+    cycle.seek(phase.start + phase.duration * .75);
+    assert.deepEqual(cycle.state, at(id, .75));
+    cycle.seek(phase.start + phase.duration * .5);
+    cycle.play();
+    cycle.advance(phase.duration * .25);
+    assert.deepEqual(cycle.state, at(id, .75));
+    cycle.reset();
+    assert.equal(cycle.state.doorOpen, 1);
+    assert.equal(cycle.state.waterUsed, 0);
+    assert.equal(cycle.playing, false);
+  }
 });
 
 test('pause, completion, replay and reset cannot advance accidentally', () => {

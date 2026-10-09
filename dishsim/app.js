@@ -23,13 +23,13 @@ function syncTheme() {
 systemTheme.addEventListener('change', () => { syncTheme(); renderNow(); });
 
 const chapters = [
-  { title: 'Einlassen', caption: 'Der Wasserweg', phase: 'fill', end: 'prewash' },
+  { title: 'Einlassen', caption: 'Tür zu, Wasser rein', phase: 'close-door', end: 'prewash' },
   { title: 'Vorspülen', caption: 'Lose Reste lösen', phase: 'prewash', end: 'main-fill' },
   { title: 'Reinigen', caption: 'Wärme & Chemie', phase: 'main-fill', end: 'rinse' },
   { title: 'Zwischenspülen', caption: 'Reiniger ausspülen', phase: 'rinse', end: 'final-rinse' },
   { title: 'Klarspülen', caption: 'Wärme speichern', phase: 'final-rinse', end: 'dry' },
-  { title: 'Trocknen', caption: 'Feuchte abgeben', phase: 'dry', end: 'complete' },
-  { title: 'Fertig', caption: 'Sauber & trocken', phase: 'complete', end: null },
+  { title: 'Trocknen', caption: 'Feuchte abgeben', phase: 'dry', end: 'open-door' },
+  { title: 'Fertig', caption: 'Sauber & trocken', phase: 'open-door', end: null },
 ].map(chapter => ({ ...chapter, start: PHASES.find(phase => phase.id === chapter.phase).start,
   endTime: chapter.end ? PHASES.find(phase => phase.id === chapter.end).start : Infinity }));
 
@@ -45,6 +45,7 @@ const componentDetails = {
 };
 
 const insights = {
+  'close-door': ['ZUERST DIE TÜR SCHLIESSEN', 'Erst geschlossen, dann Wasser.', 'Die Tür schließt vollständig, bevor Wasser in die Seitentasche läuft. Wasserzulauf und Pumpen bleiben während der Türbewegung aus.'],
   fill: ['DER WASSERWEG', 'Kein Wasser bis zum Rand.', 'Nur unten steht eine kleine Menge Wasser. Die seitliche Tasche führt Frischwasser in den Pumpensumpf. Die Körbe bleiben oberhalb des Wasserspiegels.'],
   prewash: ['BEWEGUNG DURCH RÜCKSTOSS', 'Die Düsen drehen den Arm.', 'Die Pumpe setzt das Wasser unter Druck. Schräg gerichtete Düsen erzeugen den Rückstoß für die Drehung. Lose Speisereste lösen sich und landen im Sieb.'],
   'drain-prewash': ['WASSERWECHSEL', 'Schmutzwasser muss raus.', 'Jetzt arbeitet die Ablaufpumpe. Die Sprüharme stehen. Das Sieb hält grobe Reste zurück, während Schmutzwasser und feine Bestandteile in den Abfluss gelangen.'],
@@ -56,11 +57,12 @@ const insights = {
   'final-rinse': ['VORBEREITUNG ZUM TROCKNEN', 'Die Teller speichern Wärme.', 'Heißes Wasser erwärmt Keramik und Glas auf über 60 °C. Klarspüler senkt die Oberflächenspannung: Wasser läuft als dünner Film leichter ab. Diese Restwärme trocknet das Geschirr später.'],
   'drain-final': ['EINE KÜHLE SEITE', 'Kalt neben warm – mit Absicht.', 'Das heiße Spülwasser wird abgepumpt. Eine neue kalte Füllung in der Wassertasche kühlt die Seitenwand. Das Geschirr bleibt warm: Der Temperaturunterschied ist jetzt erwünscht.'],
   dry: ['SO FUNKTIONIERT DAS TROCKNEN', 'Warm verdunstet. Kalt kondensiert.', 'Der Wasserfilm verdunstet mit der Restwärme des Geschirrs. An der kühleren Seitenwand entstehen Tropfen, die nach unten laufen. Die Heizung und die Sprüharme bleiben dabei aus.'],
+  'open-door': ['DER SPÜLGANG IST GESCHAFFT', 'Die Tür öffnet sich.', 'Nach dem Trocknen öffnet die Tür mit derselben Bewegung wie beim Schließen. Wasserzulauf und Pumpen sind aus. Das saubere Geschirr ist noch warm und kühlt anschließend langsam ab.'],
   complete: ['DER SPÜLGANG IST GESCHAFFT', 'Sauber, trocken – und noch warm.', 'Bei geöffneter Tür gibt das Geschirr seine Restwärme langsam an die Raumluft ab. Das Rot wird dabei dunkler. Grobe Speisereste bleiben im Sieb zurück und müssen von Hand entfernt werden.'],
 };
 
-const conciseTitles = { fill: 'Wasser einlassen', prewash: 'Erst einmal vorspülen.', 'drain-prewash': 'Schmutzwasser raus.', 'main-fill': 'Frisches Wasser.', wash: 'Jetzt wird’s sauber.', 'drain-wash': 'Lauge abpumpen.', rinse: 'Reiniger ausspülen.', 'drain-rinse': 'Wasser wechseln.', 'final-rinse': 'Heiß klarspülen.', 'drain-final': 'Die Wand wird kühl.', dry: 'Trocknen mit Restwärme.', complete: 'Sauber. Und trocken.' };
-const symbols = { fill: '↓', prewash: '↻', 'drain-prewash': '↘', 'main-fill': '↓', wash: '✳', 'drain-wash': '↘', rinse: '↻', 'drain-rinse': '↘', 'final-rinse': '☼', 'drain-final': '↘', dry: '≋', complete: '✓' };
+const conciseTitles = { 'close-door': 'Die Tür schließt.', fill: 'Wasser einlassen', prewash: 'Erst einmal vorspülen.', 'drain-prewash': 'Schmutzwasser raus.', 'main-fill': 'Frisches Wasser.', wash: 'Jetzt wird’s sauber.', 'drain-wash': 'Lauge abpumpen.', rinse: 'Reiniger ausspülen.', 'drain-rinse': 'Wasser wechseln.', 'final-rinse': 'Heiß klarspülen.', 'drain-final': 'Die Wand wird kühl.', dry: 'Trocknen mit Restwärme.', 'open-door': 'Die Tür öffnet sich.', complete: 'Sauber. Und trocken.' };
+const symbols = { 'close-door': '↗', fill: '↓', prewash: '↻', 'drain-prewash': '↘', 'main-fill': '↓', wash: '✳', 'drain-wash': '↘', rinse: '↻', 'drain-rinse': '↘', 'final-rinse': '☼', 'drain-final': '↘', dry: '≋', 'open-door': '↙', complete: '✓' };
 const formatTime = time => `${String(Math.floor(time / 60)).padStart(2, '0')}:${String(Math.floor(time % 60)).padStart(2, '0')}`;
 
 for (const [index, chapter] of chapters.entries()) {
@@ -112,8 +114,9 @@ function updateUI() {
   else $('phase-title').textContent = conciseTitles[s.phase.id];
   $('phase-symbol').textContent = symbols[s.phase.id];
   $('phase-description').textContent = ready ? 'Starte einen vollständigen Spülgang und verfolge, wie aus schmutzigen Tellern sauberes, trockenes Geschirr wird.' : s.phase.description;
-  const temperature = s.drying || s.complete ? s.dishTemp : s.waterTemp;
-  $('temperature-label').textContent = s.drying || s.complete ? 'Geschirr' : s.waterLevel < .01 ? 'Wasserzulauf' : 'Spülwasser';
+  const showDishTemperature = s.drying || s.doorOpening || s.complete;
+  const temperature = showDishTemperature ? s.dishTemp : s.waterTemp;
+  $('temperature-label').textContent = showDishTemperature ? 'Geschirr' : s.waterLevel < .01 ? 'Wasserzulauf' : 'Spülwasser';
   $('water-temp').innerHTML = `${Math.round(temperature)}<small> °C</small>`;
   $('clean-value').innerHTML = `${Math.round((1 - s.soil) * 100)}<small> %</small>`;
   $('wet-value').innerHTML = `${Math.round(s.wetness * 100)}<small> %</small>`;
@@ -126,12 +129,14 @@ function updateUI() {
   const hasWater = s.waterLevel > .01 && !s.complete;
   $('water-sample').style.backgroundColor = waterColor(s.waterTemp, s.detergent, s.waterSoil);
   $('water-sample').hidden = !hasWater;
-  $('water-properties-text').textContent = hasWater ? `${waterKind} · ${Math.round(s.waterTemp)} °C` : s.complete ? 'Tür offen · Raumluft 20 °C' : ready ? 'Spülraum noch ohne Wasser' : 'Spülraum ohne Wasser';
+  $('water-properties-text').textContent = hasWater ? `${waterKind} · ${Math.round(s.waterTemp)} °C` : s.complete ? 'Tür offen · Raumluft 20 °C' : s.doorOpening ? 'Tür öffnet · Spülgang beendet' : ready ? 'Spülraum noch ohne Wasser' : 'Spülraum ohne Wasser';
   $('dish-temperature').textContent = `Geschirr ${Math.round(s.dishTemp)} °C`;
   $('water-used').textContent = `${s.waterUsed.toFixed(1).replace('.', ',')} l`;
   $('water-used').title = 'Bisher eingefülltes Frischwasser · illustrative Modellwerte';
   $('flow-icon').classList.toggle('running', cycle.playing);
   const flows = [];
+  if (s.doorClosing) flows.push('Tür schließt');
+  if (s.doorOpening) flows.push('Tür öffnet');
   if (s.fill) flows.push(s.pocketFilling && !s.pocketRelease ? 'Wassertasche füllt' : 'Wasserzulauf');
   if (s.circulating) flows.push('Umwälzpumpe an');
   if (s.drain) flows.push('Ablaufpumpe an');
