@@ -25,8 +25,13 @@
         <button id="cutaway" class="tool active" aria-pressed="true"><span aria-hidden="true">◫</span> Schnittansicht</button>
         <button id="labels" class="tool active" aria-pressed="true"><span aria-hidden="true">⊙</span> Bauteile</button>
       </div>
-      <div class="stage-bottom"><div class="view-presets" role="group" aria-label="Kameraperspektiven"><button data-view="overview" class="active" aria-pressed="true">Übersicht</button><button data-view="pocket" aria-pressed="false">Wassertasche</button><button data-view="filter" aria-pressed="false">Sieb & Pumpe</button><button data-view="drying" aria-pressed="false">Trocknung</button></div><span class="orbit-hint">Ziehen: drehen <span>·</span> Scrollen: zoomen</span></div>
-      <div class="scene-legend" aria-label="Farbcode: Blau ist klares Wasser, Violett ist Lauge, Braun ist Schmutzwasser, Rot ist Geschirr. Je wärmer, desto heller."><span><i class="dot water"></i> Klar</span><span><i class="dot detergent"></i> Lauge</span><span><i class="dot dirty-water"></i> Schmutzig</span><span><i class="dot dish"></i> Geschirr</span><span class="temperature-key"><i class="temperature-scale" aria-hidden="true"></i> kalt → warm · dunkel → hell</span></div>
+      <div class="stage-bottom">
+        <div class="view-presets" role="group" aria-label="Kameraperspektiven"><button data-view="overview" class="active" aria-pressed="true">Übersicht</button><button data-view="pocket" aria-pressed="false">Wassertasche</button><button data-view="filter" aria-pressed="false">Sieb & Pumpe</button><button data-view="drying" aria-pressed="false">Trocknung</button></div>
+        <div class="scene-guide">
+          <span class="orbit-hint">Ziehen: drehen <span>·</span> Scrollen: zoomen</span>
+          <div class="scene-legend" aria-label="Farbcode: Blau ist klares Wasser, Violett ist Lauge, Braun ist Schmutzwasser, Rot ist Geschirr. Je wärmer, desto heller."><span><i class="dot water"></i> Klar</span><span><i class="dot detergent"></i> Lauge</span><span><i class="dot dirty-water"></i> Schmutzig</span><span><i class="dot dish"></i> Geschirr</span><span class="temperature-key"><i class="temperature-scale" aria-hidden="true"></i> kalt → warm · dunkel → hell</span></div>
+        </div>
+      </div>
       <div id="loader" role="status">Das Innenleben wird aufgebaut<span class="loading-dots">…</span></div>
       <div id="scene-error" hidden role="alert"></div>
     </section>

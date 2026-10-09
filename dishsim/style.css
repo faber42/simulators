@@ -25,7 +25,9 @@ dialog{max-width:480px;border:1px solid #ced9c4;border-radius:12px;padding:35px;
 @media(max-width:430px){.water-properties{font-size:9px}}
 
 /* The legend separates liquid contents from the red ceramic dishes. */
-.scene-legend{right:36px;width:fit-content;max-width:calc(100% - 72px);flex-wrap:wrap;column-gap:13px;row-gap:7px;padding:8px 10px;border:1px solid #d1d9cad9;border-radius:6px;background:#f8faf2e8;color:#53674b;box-shadow:0 2px 10px #33472b08}
+.stage-bottom{align-items:flex-end}
+.scene-guide{display:flex;flex-direction:column;align-items:flex-end;gap:12px;min-width:0;max-width:100%}
+.scene-legend{position:static;width:fit-content;max-width:100%;flex-wrap:wrap;column-gap:13px;row-gap:7px;padding:8px 10px;border:1px solid #d1d9cad9;border-radius:6px;background:#f8faf2e8;color:#53674b;box-shadow:0 2px 10px #33472b08}
 .scene-legend>span{white-space:nowrap}
 .scene-legend .dot{width:7px;height:7px;flex-shrink:0}
 .scene-legend .water{background:#288bcd}
@@ -33,8 +35,8 @@ dialog{max-width:480px;border:1px solid #ced9c4;border-radius:12px;padding:35px;
 .scene-legend .dirty-water{background:#b58c36}
 .scene-legend .dish{background:#c34645}
 .temperature-scale{display:inline-block;flex-shrink:0;width:42px;height:6px;border:1px solid #7ca6c7;border-radius:3px;background:linear-gradient(90deg,#17477b,#b8e7f4)}
-@media(max-width:1100px){.scene-legend{right:24px;max-width:calc(100% - 48px)}}
-@media(max-width:780px){.scene-legend{left:22px;right:22px;max-width:calc(100% - 44px);column-gap:11px;row-gap:6px;padding:7px 8px}}
+@media(max-width:1100px){.stage-bottom{align-items:stretch}.view-presets{align-self:center}.scene-guide{align-self:flex-end}}
+@media(max-width:780px){.scene-legend{column-gap:11px;row-gap:6px;padding:7px 8px}}
 
 /* Native controls follow the same system preference as the page and 3D scene. */
 :root{color-scheme:light}
