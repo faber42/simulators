@@ -15,7 +15,8 @@ Die Projektstartseite enthält ebenfalls eine Karte für den Simulator.
 1. **Tür schließen, Wasser einlassen und vorspülen:** Zuerst schließt die Tür
    vollständig. Erst danach läuft Wasser in die Seitentasche und wenige Liter
    sammeln sich im Bodenbereich.
-   Die Umwälzpumpe versorgt die Sprüharme; die Wasserstrahlen lösen erste
+   Eine Wasserweiche versorgt den unteren und oberen Sprüharm abwechselnd;
+   die Wasserstrahlen lösen erste
    Speisereste. Das Geschirr steht nicht in einer gefüllten Wanne.
 2. **Schmutzwasser abpumpen:** Wasser und feine Schmutzanteile verlassen die
    Maschine. Das Sieb hält gröbere Speisereste zurück.
@@ -84,6 +85,17 @@ Dargestellt wird ein **beispielhafter Geschirrspüler mit seitlichem
 Wärmetauscher und Kondensationstrocknung**. Nicht jedes Gerät besitzt diese
 Wassertasche; andere Geräte nutzen etwa automatische Türöffnung, einen
 Luftstrom oder Zeolith zur Unterstützung der Trocknung.
+
+Das Modell zeigt **Wechselsprühen**: Eine Wasserweiche leitet das Wasser der
+Umwälzpumpe abwechselnd zum unteren und oberen Sprüharm. Nur der versorgte
+Arm sprüht und dreht sich; der andere bleibt in seiner erreichten Stellung.
+Auch die animierten Wasserwege wechseln mit der aktiven Zone. Das Prinzip
+ermöglicht ausreichenden Sprühdruck mit weniger gleichzeitig umgewälztem
+Wasser. Nicht alle Geschirrspüler arbeiten so: Je nach Bauart und Programm
+können mehrere Arme gleichzeitig oder ganze Armgruppen im Wechsel laufen.
+Die vier Demo-Sekunden je Zone veranschaulichen das Umschalten und sind keine
+Schaltzeit eines bestimmten Geräts. Umschaltvorgänge sind vereinfacht;
+Ventilbewegung, Druckabbau und mechanischer Nachlauf werden nicht berechnet.
 
 Ein kompletter Durchlauf dauert bei 1× ungefähr **3½ Minuten**. Zeitabläufe,
 Temperaturen und Mengen sind didaktische Modellwerte, keine Messdaten eines

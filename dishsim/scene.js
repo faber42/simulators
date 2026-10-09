@@ -150,8 +150,6 @@ export class DishwasherScene {
     this.createBasket(3.42, .12, 2, 2.42, 1.96);
     this.createSprayArm(.96, 1.11, 0);
     this.createSprayArm(2.50, .96, 1);
-    // Return riser feeds the upper rotating spray arm.
-    pipe(body, [[0, .6, -1.14], [0, 2.47, -1.14], [0, 2.48, 0]], .052, m.dark, false);
   }
 
   createBasket(y, lip, level, width = 2.4, depth = 2.13) {
@@ -260,9 +258,14 @@ export class DishwasherScene {
     this.heater = cylinder(group, m.heat, .235, .235, .17, [-.50, .23, .24]); this.heater.rotation.z = Math.PI / 2;
     const pumpFeet = box(group, m.graphite, [.63, .09, .51], [-.62, .015, .24]); pumpFeet.castShadow = true;
     const drainPump = cylinder(group, m.graphite, .12, .12, .28, [.75, .18, .55]); drainPump.rotation.z = Math.PI / 2;
+    // The pump feeds one diverter junction; only its selected arm branch carries flow.
+    const junction = [0,.28,-.8];
+    cylinder(group, m.graphite, .105, .105, .14, junction);
+    cylinder(group, m.steel, .088, .088, .025, [0,.36,-.8]);
     const paths = [
-      { kind: 'circulating', points: [[.36,.28,.45],[-.32,.23,.3],[-.63,.23,.22],[-.69,.20,-.5],[0,.24,-1.02],[0,.76,-1.02],[0,.84,0]], radius: .057 },
-      { kind: 'circulating', points: [[0,.65,-1.10],[0,1.1,-1.10],[0,2.38,-1.10],[0,2.45,0]], radius: .047 },
+      { kind: 'circulating', points: [[.36,.28,.45],[-.32,.23,.3],[-.63,.23,.22],[-.69,.20,-.5],junction], radius: .057 },
+      { kind: 'sprayLower', points: [junction,[.08,.55,-.68],[0,.84,0],[0,.92,0]], radius: .052 },
+      { kind: 'sprayUpper', points: [junction,[0,.65,-1.10],[0,1.1,-1.10],[0,2.38,-1.10],[0,2.45,0]], radius: .047 },
       { kind: 'drain', points: [[.38,.22,.5],[.79,.17,.57],[1.22,.13,.49],[1.58,.13,.16],[1.63,.2,-1.24]], radius: .05 },
       { kind: 'supply', points: [[-1.82,.02,-1.46],[-1.8,.15,-1.01],[-1.59,.3,-.98],[-1.59,.71,-.98]], radius: .045 },
       { kind: 'pocketOutlet', points: [[-1.59,.61,.77],[-1.61,.34,.83],[-1.08,.26,.80],[-.45,.32,.66],[.35,.48,.40]], radius: .043 },
@@ -271,7 +274,7 @@ export class DishwasherScene {
     paths.forEach(({ kind, points, radius }) => {
       const { curve } = pipe(group, points, radius, kind === 'drain' ? m.drain : m.blue);
       const particles = new THREE.InstancedMesh(new THREE.SphereGeometry(radius * .67, 6, 4), new THREE.MeshBasicMaterial({ color: waterColor(20), transparent: true, opacity: .95, depthWrite: false }), 20);
-      group.add(particles); this.flowPaths.push({ kind, curve, particles });
+      group.add(particles); this.flowPaths.push({ kind, curve, particles, intensity: 0 });
     });
   }
 
@@ -506,17 +509,28 @@ export class DishwasherScene {
     this.dispenserLid.rotation.y=state.detergentCompartmentOpen || state.detergentReleased ? 1.45 : 0;
     const tabletAmount=clamp(state.detergentTablet ?? (state.detergentReleased ? 0 : 1));
     this.tablet.scale.setScalar(Math.max(.001,tabletAmount)); this.tablet.visible=tabletAmount>.025;
-    this.arms.forEach(arm=>this.updateSprayArm(arm,spray,state.sprayTime ?? visualTime,visualTime));
-    this.flowPaths.forEach(({kind,curve,particles})=>{
-      particles.material.color.set(kind==='circulating'||kind==='drain'?washColor:kind==='pocketOutlet'?pocketColor:inletColor);
+    this.arms.forEach(arm=>{
+      const intensity=clamp((arm.index===0?state.sprayLower:state.sprayUpper)??0);
+      const armTime=(arm.index===0?state.sprayTimeLower:state.sprayTimeUpper)??0;
+      this.updateSprayArm(arm,intensity,armTime,armTime);
+    });
+    this.anchorPoints.spray.y=this.arms[state.activeSprayArm==='upper'?1:0].group.position.y+.03;
+    this.flowPaths.forEach(path=>{
+      const {kind,curve,particles}=path;
+      const washRoute=['circulating','sprayLower','sprayUpper','drain'].includes(kind);
+      particles.material.color.set(washRoute?washColor:kind==='pocketOutlet'?pocketColor:inletColor);
       const active=clamp(kind==='circulating' ? (state.circulating ?? spray)
         : kind==='supply' ? state.pocketFilling
         : kind==='pocketOutlet' ? state.pocketRelease
         : kind==='directFill' ? (state.fill && state.phase?.id==='final-rinse')
         : state[kind] ?? 0);
+      path.intensity=active;
       particles.visible=active>.015;
+      if(!particles.visible) return;
+      const flowTime=kind==='sprayLower' ? (state.sprayTimeLower??0)
+        : kind==='sprayUpper' ? (state.sprayTimeUpper??0) : visualTime;
       for(let i=0;i<particles.count;i++) {
-        const t=(i/particles.count+visualTime*(kind==='drain'?.4:.26))%1;
+        const t=(i/particles.count+flowTime*(kind==='drain'?.4:.26))%1;
         DUMMY.position.copy(curve.getPoint(t));DUMMY.quaternion.identity();DUMMY.scale.setScalar(.45+active*.55);DUMMY.updateMatrix();particles.setMatrixAt(i,DUMMY.matrix);
       }
       particles.instanceMatrix.needsUpdate=true;
@@ -532,6 +546,7 @@ export class DishwasherScene {
 
   updateSprayArm(arm,spray,sprayTime,time) {
     const {group,nozzles,geometry,streams,jetBodies,drops,index}=arm;
+    arm.intensity=spray;
     group.rotation.y=(index?-1:1)*sprayTime*2.6;
     streams.visible=jetBodies.visible=drops.visible=spray>.02;arm.material.opacity=.25+spray*.48;
     const a=geometry.attributes.position.array;let p=0,d=0,jet=0;
@@ -623,6 +638,8 @@ export class DishwasherScene {
       theme:this.theme,background:`#${this.scene.background.getHexString()}`,
       floor:hex(this.floor.material),plinth:hex(this.plinth.material),grid:hex(this.grid.material),
       door:{open:this.doorOpen,angle:this.doorAngle},
+      arms:this.arms.map(arm=>({zone:arm.index===0?'lower':'upper',intensity:arm.intensity??0,angle:arm.group.rotation.y,jetsVisible:arm.streams.visible&&arm.jetBodies.visible,dropsVisible:arm.drops.visible})),
+      flowRoutes:this.flowPaths.map(path=>({kind:path.kind,intensity:path.intensity,active:path.particles.visible})),
       housing:{
         door:{transparent:this.doorMaterial.transparent,opacity:this.doorMaterial.opacity,depthWrite:this.doorMaterial.depthWrite},
         shell:this.shellMaterials.map(material=>({transparent:material.transparent,opacity:material.opacity,depthWrite:material.depthWrite})),

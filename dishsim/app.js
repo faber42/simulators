@@ -1,4 +1,4 @@
-import { Cycle, PHASES, TOTAL_DURATION } from './cycle.mjs';
+import { Cycle, PHASES, TOTAL_DURATION, SPRAY_ARM_INTERVAL } from './cycle.mjs';
 import { waterColor } from './water-color.mjs';
 
 const $ = id => document.getElementById(id);
@@ -34,11 +34,11 @@ const chapters = [
   endTime: chapter.end ? PHASES.find(phase => phase.id === chapter.end).start : Infinity }));
 
 const componentDetails = {
-  pump: { label: 'Umwälzpumpe', title: 'Eine Füllung, viele Runden', text: 'Die Umwälzpumpe saugt Wasser aus dem Sumpf durch das Sieb an. Sie erzeugt den Druck für die rotierenden Sprüharme. Das abtropfende Wasser sammelt sich unten und wird erneut verwendet.', view: 'filter' },
+  pump: { label: 'Umwälzpumpe', title: 'Eine Füllung, viele Runden', text: 'Die Umwälzpumpe saugt Wasser aus dem Sumpf durch das Sieb an. Eine Wasserweiche verteilt es abwechselnd zum unteren und zum oberen Sprüharm. Das abtropfende Wasser sammelt sich unten und wird erneut verwendet.', view: 'filter' },
   drain: { label: 'Ablaufpumpe', title: 'Hier verlässt die Füllung das Gerät', text: 'Diese eigene Pumpe fördert verbrauchtes Wasser aus dem Sumpf in den Ablaufschlauch. Sie läuft bei den Wasserwechseln und am Ende der Trocknung für das Kondensat.', view: 'filter' },
   heater: { label: 'Heizung', title: 'Die Wärme kommt aus der Heizung', text: 'Eine elektrische Heizung erwärmt das umgewälzte Wasser. Die Wassertasche gewinnt zusätzlich Wärme zurück. Während der Kondensationstrocknung ist die Heizung aus; dann arbeitet die im Geschirr gespeicherte Restwärme.', view: 'filter' },
   pocket: { label: 'Wassertasche', title: 'Ein Wärmetauscher an der Seite', text: 'Frischwasser bleibt hier vom Spülwasser getrennt. Während der Hauptwäsche nimmt es Wärme aus dem Spülraum auf und wird später zum Zwischenspülen verwendet. Eine kalte neue Füllung kühlt anschließend die Wand für die Trocknung.', view: 'pocket' },
-  spray: { label: 'Sprüharme', title: 'Wasserdruck macht die Drehung', text: 'Die Umwälzpumpe versorgt die Sprüharme. Schräg gerichtete Düsen treiben sie durch Rückstoß an. Die Strahlen treffen das Geschirr aus wechselnden Richtungen; das Wasser fällt zurück zum Sieb.', view: 'overview' },
+  spray: { label: 'Sprüharme', title: 'Oben und unten wechseln sich ab', text: `Die Wasserweiche leitet das Pumpenwasser jeweils zu einem Sprüharm. Dessen schräge Düsen treiben ihn durch Rückstoß an; der andere Arm ruht. Das konzentriert den Wasserstrom auf eine Zone. Unser Modell schaltet alle ${SPRAY_ARM_INTERVAL} Demo-Sekunden um. Echte Schaltzeiten und Armgruppen hängen von Gerät und Programm ab.`, view: 'overview' },
   filter: { label: 'Sieb & Ablauf', title: 'Zwei Pumpen, zwei Aufgaben', text: 'Das Sieb hält grobe Speisereste zurück. Die Umwälzpumpe schickt gefiltertes Wasser wieder zu den Düsen; die separate Ablaufpumpe entfernt die gebrauchte Füllung. Grobe Reste im Sieb müssen nach dem Spülen von Hand entfernt werden.', view: 'filter' },
   detergent: { label: 'Reiniger', title: 'Die Klappe öffnet zur Hauptwäsche', text: 'Der Reiniger bleibt beim Vorspülen noch im Dosierfach. Erst in der Hauptwäsche öffnet die Klappe und der Tab löst sich auf. Klarspüler wird separat und in kleiner Menge im letzten Spülgang dosiert.', view: 'overview' },
   drying: { label: 'Kühle Seitenwand', title: 'Hier wird Dampf wieder zu Wasser', text: 'Das heiße Klarspülen erwärmt Teller und Tassen. Danach verdunstet der Wasserfilm mit der gespeicherten Wärme. An der kälteren Edelstahlwand kondensiert die Feuchtigkeit und läuft nach unten. Die animierten Nebelpunkte machen den eigentlich unsichtbaren Wasserdampf sichtbar.', view: 'drying' },
@@ -47,7 +47,7 @@ const componentDetails = {
 const insights = {
   'close-door': ['ZUERST DIE TÜR SCHLIESSEN', 'Erst geschlossen, dann Wasser.', 'Die Tür schließt vollständig, bevor Wasser in die Seitentasche läuft. Wasserzulauf und Pumpen bleiben während der Türbewegung aus.'],
   fill: ['DER WASSERWEG', 'Kein Wasser bis zum Rand.', 'Nur unten steht eine kleine Menge Wasser. Die seitliche Tasche führt Frischwasser in den Pumpensumpf. Die Körbe bleiben oberhalb des Wasserspiegels.'],
-  prewash: ['BEWEGUNG DURCH RÜCKSTOSS', 'Die Düsen drehen den Arm.', 'Die Pumpe setzt das Wasser unter Druck. Schräg gerichtete Düsen erzeugen den Rückstoß für die Drehung. Lose Speisereste lösen sich und landen im Sieb.'],
+  prewash: ['WECHSELSPRÜHEN', 'Erst unten, dann oben.', 'Eine Wasserweiche versorgt die Sprüharme abwechselnd. Nur der aktive Arm sprüht und dreht sich durch den Rückstoß seiner Düsen. So genügt ein kleinerer Wasserstrom bei ausreichendem Sprühdruck. Lose Speisereste landen im Sieb.'],
   'drain-prewash': ['WASSERWECHSEL', 'Schmutzwasser muss raus.', 'Jetzt arbeitet die Ablaufpumpe. Die Sprüharme stehen. Das Sieb hält grobe Reste zurück, während Schmutzwasser und feine Bestandteile in den Abfluss gelangen.'],
   'main-fill': ['EINE FRISCHE FÜLLUNG', 'Wenig Wasser, oft im Kreis.', 'Für die Hauptwäsche kommt frisches Wasser in die Maschine. Es wird gleich immer wieder umgewälzt. Die Reinigerklappe ist noch geschlossen.'],
   wash: ['WÄRME WEITER NUTZEN', 'Nebenan wird Wasser vorgewärmt.', 'Die Heizung erwärmt das Spülwasser auf 55 °C. Frischwasser in der Seitentasche nimmt Wärme durch die Wand auf und wartet auf den nächsten Spülgang. Die beiden Füllungen vermischen sich nicht.'],
@@ -123,6 +123,8 @@ function updateUI() {
   $('water-meter').style.width = `${Math.max(0, (temperature - 15) / 55) * 100}%`;
   $('annotation-pocket').textContent = s.pocketLevel > .02 ? `Wassertasche · ${Math.round(s.pocketTemp)} °C` : 'Wassertasche';
   $('annotation-drying').textContent = `Seitenwand · ${Math.round(s.wallTemp)} °C`;
+  const sprayZone = s.activeSprayArm === 'lower' ? 'unten' : s.activeSprayArm === 'upper' ? 'oben' : null;
+  $('annotation-spray').textContent = sprayZone ? `Sprüharme · ${sprayZone} aktiv` : 'Sprüharme';
   $('clean-meter').style.width = `${(1 - s.soil) * 100}%`;
   $('wet-meter').style.width = `${s.wetness * 100}%`;
   const waterKind = s.waterSoil > .2 ? 'Schmutzwasser' : s.detergent > .1 ? 'Lauge' : 'Klares Wasser';
@@ -138,7 +140,7 @@ function updateUI() {
   if (s.doorClosing) flows.push('Tür schließt');
   if (s.doorOpening) flows.push('Tür öffnet');
   if (s.fill) flows.push(s.pocketFilling && !s.pocketRelease ? 'Wassertasche füllt' : 'Wasserzulauf');
-  if (s.circulating) flows.push('Umwälzpumpe an');
+  if (s.circulating) flows.push(`Umwälzpumpe → ${sprayZone}`);
   if (s.drain) flows.push('Ablaufpumpe an');
   if (s.drying && !s.drain) flows.push('Restwärme trocknet');
   if (s.pocketRelease && !s.fill) flows.push('Tasche entleert');

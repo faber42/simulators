@@ -17,6 +17,8 @@ const ramp = (value, start = 0, end = 1) => clamp((value - start) / (end - start
 const mix = (a, b, p) => a + (b - a) * p;
 const smooth = p => p * p * (3 - 2 * p);
 export const DOOR_MOTION_DURATION = 1;
+// Illustrative demonstration timing, not a specification for a real appliance.
+export const SPRAY_ARM_INTERVAL = 4;
 
 const definitions = [
   ['close-door', 'Tür schließen', DOOR_MOTION_DURATION, 0,
@@ -26,8 +28,8 @@ const definitions = [
     'Frischwasser nimmt den Weg durch die seitliche Wassertasche in den Pumpensumpf.',
     'Nur der Bodenbereich wird gefüllt. Die Körbe stehen nicht unter Wasser: Eine kleine Wassermenge wird später immer wieder umgewälzt.'],
   ['prewash', 'Vorspülen', 18, 12,
-    'Die Sprüharme lösen lose Speisereste mit Wasser; die Reinigerklappe bleibt geschlossen.',
-    'Die Umwälzpumpe drückt Wasser in die Arme. Schräg gerichtete Düsen erzeugen den Rückstoß, der die Arme dreht. Das Sieb hält grobe Reste zurück.'],
+    'Unterer und oberer Sprüharm lösen abwechselnd lose Speisereste; die Reinigerklappe bleibt geschlossen.',
+    'Eine Wasserweiche leitet das Wasser der Umwälzpumpe abwechselnd zum unteren und oberen Arm. Nur der versorgte Arm sprüht und dreht sich durch den Rückstoß seiner Düsen. Das Sieb hält grobe Reste zurück.'],
   ['drain-prewash', 'Vorspülwasser abpumpen', 7, 2,
     'Die Ablaufpumpe entfernt das erste schmutzige Wasser.',
     'Umwälzpumpe und Ablaufpumpe haben verschiedene Aufgaben. Grobe Teilchen bleiben im Sieb; Schmutzwasser und feine Bestandteile gelangen zum Abfluss.'],
@@ -96,11 +98,39 @@ const spraySchedule = [
   { id: 'final-rinse', intensity: .9, rampStart: .2, rampEnd: .25 },
 ].map(entry => ({ ...entry, phase: PHASES.find(phase => phase.id === entry.id) }));
 
-function integratedSprayTime(time) {
-  return spraySchedule.reduce((total, { phase, intensity, rampStart, rampEnd }) => {
-    const p = clamp((time - phase.start) / phase.duration);
-    return total + phase.duration * intensity * (rampStart === undefined ? p : rampIntegral(p, rampStart, rampEnd));
-  }, 0);
+function sampleSpray(time) {
+  const state = { spray: 0, sprayLower: 0, sprayUpper: 0,
+    sprayTimeLower: 0, sprayTimeUpper: 0, activeSprayArm: null };
+  for (const { phase, intensity, rampStart, rampEnd } of spraySchedule) {
+    const start = phase.start + phase.duration * (rampStart ?? 0);
+    const end = Math.min(time, phase.end);
+    const integral = absoluteTime => {
+      const p = clamp((absoluteTime - phase.start) / phase.duration);
+      return phase.duration * intensity * (rampStart === undefined ? p : rampIntegral(p, rampStart, rampEnd));
+    };
+    // Integrate each supplied interval separately. The inactive arm keeps its
+    // angle, including across phase boundaries, seeks and playback changes.
+    for (let index = 0; start + index * SPRAY_ARM_INTERVAL < end; index++) {
+      const lower = index % 2 === 0;
+      const slotStart = start + index * SPRAY_ARM_INTERVAL;
+      const slotEnd = Math.min(end, start + (index + 1) * SPRAY_ARM_INTERVAL);
+      state[lower ? 'sprayTimeLower' : 'sprayTimeUpper'] += integral(slotEnd) - integral(slotStart);
+    }
+    if (time >= start && time < phase.end) {
+      const p = (time - phase.start) / phase.duration;
+      state.spray = intensity * (rampStart === undefined ? 1 : ramp(p, rampStart, rampEnd));
+      if (state.spray > 0) {
+        // Comparing absolute boundaries avoids rounding a nominal switch time
+        // down to the preceding interval after subtracting a fractional start.
+        let index = 0;
+        while (time >= start + (index + 1) * SPRAY_ARM_INTERVAL) index++;
+        state.activeSprayArm = index % 2 === 0 ? 'lower' : 'upper';
+        state[state.activeSprayArm === 'lower' ? 'sprayLower' : 'sprayUpper'] = state.spray;
+      }
+    }
+  }
+  state.sprayTime = state.sprayTimeLower + state.sprayTimeUpper;
+  return state;
 }
 
 const initial = Object.freeze({
@@ -144,6 +174,8 @@ const endpointStates = ends.reduce((states, end) => [...states, Object.freeze({ 
  * spray/evaporation/condensation/heatRecovery are animation intensities, 0..1.
  * sprayTime is the exact cumulative integral of spray intensity in demo seconds;
  * multiply by an angular speed to obtain seek-stable spray-arm orientation.
+ * sprayLower/Upper split the supply between alternating arms, with separate
+ * sprayTimeLower/Upper integrals. activeSprayArm is 'lower', 'upper' or null.
  * pocketFilling and pocketRelease distinguish supply from reservoir discharge.
  * doorOpen is 0 when closed and 1 when open; close-door and open-door use the
  * same smooth motion in reverse and never run hydraulics or heating.
@@ -166,8 +198,8 @@ export function sampleCycle(requestedTime = 0, requestedCoolingElapsed = 0) {
     time, total: TOTAL_DURATION, progress: time / TOTAL_DURATION,
     phase, phaseIndex, phaseProgress: p,
     minutesElapsed: mix(phase.minutesStart, phase.minutesEnd, p), programMinutes: PROGRAM_MINUTES,
-    spray: 0, drain: false, fill: false, drying: phase.id === 'dry', complete: phase.id === 'complete',
-    sprayTime: integratedSprayTime(time),
+    ...sampleSpray(time),
+    drain: false, fill: false, drying: phase.id === 'dry', complete: phase.id === 'complete',
     coolingElapsed, cooling: phase.id === 'complete' && coolingElapsed < COOLING_DURATION,
     doorOpen: phase.id === 'complete' ? 1 : 0,
     doorClosing: phase.id === 'close-door', doorOpening: phase.id === 'open-door',
@@ -196,12 +228,10 @@ export function sampleCycle(requestedTime = 0, requestedCoolingElapsed = 0) {
       state.waterSoil = 0;
       break;
     case 'prewash':
-      state.spray = .72;
       state.wetness = ramp(p, 0, .14);
       break;
     case 'wash': {
       const dissolve = ramp(p, .04, .3);
-      state.spray = 1;
       state.heater = p < .38;
       state.waterTemp = mix(before.waterTemp, 55, ramp(p, 0, .38));
       state.dishTemp = mix(before.dishTemp, 54, ramp(p, 0, .58));
@@ -224,7 +254,6 @@ export function sampleCycle(requestedTime = 0, requestedCoolingElapsed = 0) {
       state.pocketLevel = 1 - state.waterLevel;
       state.pocketRelease = p < .22;
       state.waterTemp = mix(before.waterTemp, 42, ramp(p, 0, .22)) - 2 * ramp(p, .22, 1);
-      state.spray = .82 * ramp(p, .22, .27);
       state.soil = mix(before.soil, 0, ramp(p, .25, .9));
       state.waterSoil = mix(before.waterSoil, .002, ramp(p, 0, .16)) + .04 * ramp(p, .25, .9);
       break;
@@ -234,7 +263,6 @@ export function sampleCycle(requestedTime = 0, requestedCoolingElapsed = 0) {
       state.waterUsed = before.waterUsed + 3 * ramp(p, 0, .2);
       state.waterLevel = ramp(p, 0, .2);
       state.waterTemp = p < .2 ? mix(before.waterTemp, 25, p / .2) : mix(25, 65, ramp(p, .2, .8));
-      state.spray = .9 * ramp(p, .2, .25);
       state.heater = p >= .2 && p < .8;
       state.rinseAid = ramp(p, .32, .45);
       state.rinseAidActive = p >= .32 && p < .45;

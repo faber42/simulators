@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PHASES, TOTAL_DURATION, PROGRAM_MINUTES, COOLING_DURATION, DOOR_MOTION_DURATION, sampleCycle, Cycle } from './cycle.mjs';
+import { PHASES, TOTAL_DURATION, PROGRAM_MINUTES, COOLING_DURATION, DOOR_MOTION_DURATION, SPRAY_ARM_INTERVAL, sampleCycle, Cycle } from './cycle.mjs';
 
 const at = (id, fraction = .5) => {
   const phase = PHASES.find(item => item.id === id);
@@ -20,7 +20,7 @@ test('the timeline covers the whole programme and selects exact boundaries', () 
 
 test('water stays in the sump; pumping, chemistry and hygiene states are bounded', () => {
   const fractions = ['waterLevel', 'soil', 'waterSoil', 'wetness', 'detergent', 'detergentTablet', 'rinseAid',
-    'pocketLevel', 'filterSoil', 'spray', 'evaporation', 'condensation', 'heatRecovery', 'doorOpen'];
+    'pocketLevel', 'filterSoil', 'spray', 'sprayLower', 'sprayUpper', 'evaporation', 'condensation', 'heatRecovery', 'doorOpen'];
   let previous = sampleCycle(0);
   for (let time = 0; time <= TOTAL_DURATION; time += .1) {
     const state = sampleCycle(time);
@@ -151,6 +151,94 @@ test('spray rotation integrates intensity continuously and freezes when the arms
   cycle.seek(TOTAL_DURATION);
   cycle.seek(PHASES.find(phase => phase.id === 'wash').start + 10);
   assert.equal(cycle.state.sprayTime, pausedAngle);
+});
+
+test('the water diverter supplies only one arm and reaches both baskets in every spraying phase', () => {
+  const supplied = new Map();
+  for (let tick = 0; tick <= TOTAL_DURATION * 100; tick++) {
+    const state = sampleCycle(tick / 100);
+    assert.equal(state.sprayLower + state.sprayUpper, state.spray);
+    assert.equal(state.sprayTimeLower + state.sprayTimeUpper, state.sprayTime);
+    assert.ok(state.sprayLower === 0 || state.sprayUpper === 0, `both arms supplied at ${state.time}`);
+    if (state.spray > 0) {
+      assert.equal(state.activeSprayArm, state.sprayLower > 0 ? 'lower' : 'upper');
+      if (!supplied.has(state.phase.id)) supplied.set(state.phase.id, new Set());
+      supplied.get(state.phase.id).add(state.activeSprayArm);
+    } else {
+      assert.equal(state.activeSprayArm, null);
+    }
+  }
+  assert.deepEqual([...supplied.keys()], ['prewash', 'wash', 'rinse', 'final-rinse']);
+  for (const [id, arms] of supplied) assert.deepEqual(arms, new Set(['lower', 'upper']), id);
+});
+
+test('alternation starts with actual spraying, preserves angles at every switch and freezes the inactive arm', () => {
+  for (const [id, fraction] of [['prewash', 0], ['wash', 0], ['rinse', .22], ['final-rinse', .2]]) {
+    const phase = PHASES.find(item => item.id === id);
+    const start = phase.start + phase.duration * fraction;
+    assert.equal(sampleCycle(start + .01).activeSprayArm, 'lower', id);
+    if (fraction) {
+      assert.equal(sampleCycle(start - .01).activeSprayArm, null);
+      assert.equal(sampleCycle(start - .01).sprayTimeLower, sampleCycle(phase.start).sprayTimeLower);
+      assert.equal(sampleCycle(start - .01).sprayTimeUpper, sampleCycle(phase.start).sprayTimeUpper);
+    }
+    for (let index = 0; start + index * SPRAY_ARM_INTERVAL < phase.end; index++) {
+      const boundary = start + index * SPRAY_ARM_INTERVAL;
+      const end = Math.min(phase.end, boundary + SPRAY_ARM_INTERVAL);
+      const arm = index % 2 === 0 ? 'lower' : 'upper';
+      const frozen = arm === 'lower' ? 'sprayTimeUpper' : 'sprayTimeLower';
+      const moving = arm === 'lower' ? 'sprayTimeLower' : 'sprayTimeUpper';
+      const early = sampleCycle(boundary + (end - boundary) * .1);
+      const late = sampleCycle(boundary + (end - boundary) * .9);
+      assert.equal(early.activeSprayArm, arm);
+      assert.equal(late.activeSprayArm, arm);
+      assert.equal(early[frozen], late[frozen], `${id}: inactive ${frozen} moved`);
+      assert.ok(late[moving] > early[moving]);
+      if (index) {
+        assert.equal(sampleCycle(boundary).activeSprayArm, arm, `${id}: late switch at ${boundary}`);
+        for (const key of ['sprayTimeLower', 'sprayTimeUpper']) {
+          const delta = sampleCycle(boundary + 1e-6)[key] - sampleCycle(boundary - 1e-6)[key];
+          assert.ok(delta >= 0 && delta < 3e-6, `${id}: ${key} jumped at ${boundary}`);
+        }
+      }
+    }
+  }
+});
+
+test('each arm has the correct integrated rotation including ramps, with no history or speed dependence', () => {
+  const numeric = { lower: 0, upper: 0 };
+  const step = .01;
+  for (let tick = 1; tick <= TOTAL_DURATION / step; tick++) {
+    const state = sampleCycle(tick * step);
+    const midpoint = sampleCycle((tick - .5) * step);
+    for (const arm of ['lower', 'upper']) {
+      const suffix = arm === 'lower' ? 'Lower' : 'Upper';
+      numeric[arm] += midpoint[`spray${suffix}`] * step;
+      assert.ok(Math.abs(state[`sprayTime${suffix}`] - numeric[arm]) < .011,
+        `wrong ${arm} spray integral at ${state.time}`);
+    }
+  }
+  const phase = PHASES.find(item => item.id === 'wash');
+  const cycle = new Cycle();
+  cycle.seek(phase.start + SPRAY_ARM_INTERVAL - .5);
+  cycle.play();
+  cycle.advance(1);
+  assert.equal(cycle.state.activeSprayArm, 'upper');
+  assert.deepEqual(cycle.state, sampleCycle(phase.start + SPRAY_ARM_INTERVAL + .5));
+  cycle.pause();
+  const paused = cycle.state;
+  cycle.advance(10);
+  assert.deepEqual(cycle.state, paused);
+  cycle.seek(TOTAL_DURATION);
+  cycle.seek(paused.time);
+  assert.deepEqual(cycle.state, paused);
+  cycle.play();
+  cycle.advance(SPRAY_ARM_INTERVAL * 3);
+  assert.deepEqual(cycle.state, sampleCycle(paused.time + SPRAY_ARM_INTERVAL * 3));
+  cycle.reset();
+  assert.equal(cycle.state.activeSprayArm, null);
+  assert.equal(cycle.state.sprayTimeLower, 0);
+  assert.equal(cycle.state.sprayTimeUpper, 0);
 });
 
 test('water, pumps and heater wait for a fully closed door and remain off while opening', () => {
