@@ -1,8 +1,9 @@
-import { Cycle, DRINKS } from './cycle.mjs';
+import { DRINKS } from './cycle.mjs';
+import { MachineSession } from './session.mjs';
 import { getBrewMechanics } from './brew-mechanics.mjs';
 
 const $ = id => document.getElementById(id);
-const cycle = new Cycle('latte');
+const cycle = new MachineSession('latte');
 let scene, currentView = 'overview', cutaway = true, labels = true, exploded = false;
 let selectedComponent = null, last = performance.now(), uiClock = 0;
 let mechanicStop = null;
@@ -18,7 +19,6 @@ const components = {
   pump: { label:'Pumpe', title:'Die Pumpe sorgt für Druck.', text:'Die Pumpe fördert Wasser aus dem Tank zur Heizung und weiter zur Brühgruppe oder zum Dampfweg. Der tatsächliche Brühdruck hängt auch vom Widerstand des Kaffeepucks ab. Die Modellanzeige ist kein Messwert dieses Geräts.', view:'water' },
   milk: { label:'LatteGo', title:'Dampf nimmt Milch und Luft mit.', text:'Der Dampfstrom saugt Milch aus dem Behälter durch den Kanal zwischen seinen beiden Teilen an. Luft wird beigemischt; kleine Blasen bilden Schaum. Die erwärmte Milch läuft durch einen eigenen Auslass in die Tasse.', view:'milk' },
   waste: { label:'Tresterbehälter', title:'Der Puck fällt nach unten.', text:'Nach dem Brühen wird der Druck abgebaut. Die Mechanik öffnet, hebt den feuchten Kaffeepuck aus der Kammer und streift ihn in den Tresterbehälter. Restwasser geht getrennt davon in die Tropfschale.', view:'brew' },
-  wiper: {label:'Drahtbügel',title:'Der Bügel streift den Puck ab.',text:'Zuerst hebt das untere Sieb den Puck über den Becherrand. Dann fährt der U-förmige Drahtbügel knapp über diese Fläche, berührt den Puck seitlich und schiebt ihn über die Kante. Erst danach fällt der Puck nach unten. Der Bügel kehrt in seine Parkstellung zurück.',view:'brew'},
   lowerSieve: {label:'Unteres Sieb / Kolben',title:'Die Bodenfläche wird zum Auswerfer.',text:'Beim Brühen trägt das untere Sieb den verdichteten Kaffee. Nach dem Öffnen hebt sein Kolben den ganzen Puck bis über den Becherrand. Die freie Fläche liegt dann direkt unter dem Abstreifbügel.',view:'brew'},
   linkage: {label:'Kurbel & Gelenke',title:'Drehung wird zur Kammerbewegung.',text:'Motor, Schnecke und Getriebe bleiben im Gehäuse. Die Kupplung dreht die Kurbel der Brühgruppe. Gelenkhebel übertragen die Kraft auf den geführten Kammerträger. Das dargestellte Gestänge ist zur Erklärung vereinfacht.',view:'brew'},
 };
@@ -34,7 +34,7 @@ const insights = {
   depressurize:['VOR DEM ÖFFNEN','Erst den Druck abbauen.','Die Pumpe stoppt. Der Druck im Brühraum wird abgebaut und Restwasser in die Tropfschale abgeleitet. Erst danach öffnet die Mechanik.'],
   eject:['DER TRESTER','Was übrig bleibt, fällt heraus.','Der verbrauchte Kaffee ist zu einem feuchten Puck gepresst. Die Mechanik hebt ihn heraus und streift ihn in den separaten Tresterbehälter.'],
   return:['DIE RUHEPOSITION','Bereit für die nächste Bohne.','Der Motor fährt die leere Brühkammer unter den Mahlwerkschacht zurück. In der Tasse bleibt das Getränk, unten der gebrauchte Kaffeepuck.'],
-  complete:['DER KREIS SCHLIESST SICH','Dein Kaffee ist fertig.','Bohnen sind gemahlen, Wasser und Milch dosiert, der Kaffeepuck ausgeworfen. Für einen neuen Durchlauf kannst du den Ablauf zurücksetzen oder erneut starten.'],
+  complete:['DER KREIS SCHLIESST SICH','Dein Kaffee ist fertig.','„Noch einen Kaffee“ startet die nächste Tasse mit dem verbleibenden Wasser. Die Kaffeepucks sammeln sich unten. Erst „Zurücksetzen“ füllt den Tank und leert den Tresterbehälter.'],
 };
 let chapters = [];
 function buildChapters() {
@@ -82,17 +82,17 @@ function setExploded(value){
 }
 function insertGroup(){if(exploded)setExploded(false);}
 function focusComponent(id,move=true){selectedComponent=id;const c=components[id];$('component-title').textContent=c.title;$('component-text').textContent=c.text;$('component-info').hidden=false;if(move)setView(c.view);}
-function togglePlay(){if(!scene)return;mechanicStop=null;insertGroup();if(cycle.playing)cycle.pause();else{if(cycle.state.complete)cycle.reset();setCutaway(true);cycle.play();}draw();}
+function togglePlay(){if(!scene||cycle.state.waterEmpty)return;mechanicStop=null;insertGroup();if(cycle.playing)cycle.pause();else{setCutaway(true);cycle.play();}draw();}
 function reset(){mechanicStop=null;cycle.reset();insertGroup();draw();}
 function demonstrateMechanism(part){
-  if(!scene)return;
+  if(!scene||cycle.state.waterEmpty)return;
   insertGroup();cycle.pause();setView('brew');
   const closing=cycle.phases.find(p=>p.id==='compress'),eject=cycle.phases.find(p=>p.id==='eject');
   const clips={travel:[closing.start,closing.start+closing.duration*.45],compress:[closing.start+closing.duration*.45,closing.end],lift:[eject.start,eject.start+eject.duration*.43],wipe:[eject.start+eject.duration*.43,eject.end]};
   const [start,end]=clips[part];cycle.seek(start+.001);mechanicStop=end;cycle.speed=.5;$('speed').value='0.5';cycle.play();draw();
 }
 function updateUI(){
-  const s=cycle.state, ready=s.time===0&&!cycle.playing;
+  const s=cycle.state, ready=s.time===0&&!cycle.playing&&!s.waterEmpty;
   const hasMilk=DRINKS[cycle.drink].hasMilk;
   const index=Math.max(0,chapters.findLastIndex(c=>s.time>=c.start));
   $('phase-number').textContent=ready?'BEREIT FÜR DEN ERSTEN KAFFEE':s.complete?'DER KAFFEE IST FERTIG':`SCHRITT ${String(index+1).padStart(2,'0')} / 06`;
@@ -104,6 +104,15 @@ function updateUI(){
   $('pressure-meter').style.width=`${Math.max(0,Math.min(100,s.pressure/9*100))}%`;
   $('milk-value').textContent=`${Math.round((s.milkMl||0)+(s.foamMl||0))} ml`;
   $('coffee-value').textContent=`${Math.round(s.coffeeMl||0)} ml`;
+  $('tank-volume').textContent=`${Math.ceil(s.tankRemainingMl)} / ${s.tankCapacityMl} ml`;
+  $('tank-fill').style.width=`${s.tankLevel*100}%`;
+  $('tank-gauge').setAttribute('aria-valuemax',s.tankCapacityMl);
+  $('tank-gauge').setAttribute('aria-valuenow',Math.round(s.tankRemainingMl));
+  $('puck-value').textContent=`${s.storedPucks} ${s.storedPucks===1?'Puck':'Pucks'}`;
+  $('water-alert').hidden=!s.waterEmpty;
+  $('reset').classList.toggle('reset-attention',s.waterEmpty);
+  $('play').disabled=!scene||s.waterEmpty;$('timeline').disabled=s.waterEmpty;
+  document.querySelectorAll('[data-mechanism],[data-drink],#phase-list button').forEach(b=>{b.disabled=s.waterEmpty;});
   const [kicker,title,explanation]=ready?(hasMilk?['DAS ZUSAMMENSPIEL','Drei Wege. Eine Tasse.','Das Mahlwerk liefert Kaffeemehl. Pumpe und Heizung liefern heißes Wasser. Das Milchsystem macht den Schaum. Erst in der Tasse kommt alles zusammen.']:['DER ESPRESSO','Bohnen, Wasser und Druck.','Das Mahlwerk liefert frischen Kaffee. Die Brühgruppe verdichtet ihn, die Pumpe drückt heißes Wasser hindurch. Das Milchsystem bleibt bei diesem Getränk aus.']):(insights[s.phase.id]||insights.complete);
   $('insight-kicker').textContent=kicker;$('insight-title').textContent=title;$('insight-text').textContent=explanation;
   const mechanics=getBrewMechanics(s);$('mechanics-status').textContent=mechanics.label;
@@ -113,25 +122,32 @@ function updateUI(){
     const detail=details[mechanics.stage];if(detail){$('insight-title').textContent=detail[0];$('insight-text').textContent=detail[1];}
   }
   let flow=ready?(hasMilk?'Bohnen, Wasser und Milch sind bereit.':'Bohnen und Wasser sind bereit.'):s.complete?'Ausgabe beendet · Brühgruppe in Ruheposition':s.grind?'Mahlwerk → offene Brühkammer':s.milkFlow?'Tank → Heizung → LatteGo → Tasse':s.brewFlow?'Heizung → Kaffeepuck → Kaffeeauslauf':s.phase.id==='extract'?'Druckaufbau · Kaffee füllt den Auslauf':s.preinfusion?'Heißwasser benetzt den Kaffeepuck':s.phase.id==='bloom'?'Pumpe steht · Kaffee quillt':s.draining?'Restwasser → Tropfschale':s.phase.id==='heat'?'Heizung erreicht die Arbeitstemperatur':s.phase.id==='condition'?'Umstellen auf Brühtemperatur':s.phase.id==='eject'?'Brühkammer → Tresterbehälter':'Antrieb bewegt die Brühgruppe';
-  if(exploded)flow='Serviceansicht · Tank vorgezogen, Brühgruppe rechts';
+  if(s.waterEmpty)flow='Wassertank leer · Maschine angehalten';
+  else if(exploded)flow='Serviceansicht · Tank vorgezogen, Brühgruppe rechts';
   else if(!cycle.playing&&!ready&&!s.complete)flow=`Pause · ${flow}`;
   $('flow-text').textContent=flow;$('status-dot').classList.toggle('running',cycle.playing);
   $('play-icon').textContent=cycle.playing?'Ⅱ':s.complete?'↻':'▶';
-  $('play-text').textContent=cycle.playing?'Pause':s.complete?'Noch einen Kaffee':s.time>0?'Weiter zubereiten':'Kaffee zubereiten';
-  $('play').setAttribute('aria-label',cycle.playing?'Zubereitung pausieren':s.complete?'Neue Zubereitung starten':'Zubereitung starten oder fortsetzen');
+  $('play-text').textContent=s.waterEmpty?'Wassertank leer':cycle.playing?'Pause':s.complete?'Noch einen Kaffee':s.time>0?'Weiter zubereiten':'Kaffee zubereiten';
+  $('play').setAttribute('aria-label',s.waterEmpty?'Wassertank leer – bitte zurücksetzen':cycle.playing?'Zubereitung pausieren':s.complete?'Neue Zubereitung starten':'Zubereitung starten oder fortsetzen');
   $('elapsed').textContent=formatTime(s.time);$('timeline').value=s.time;$('timeline').style.setProperty('--progress',`${s.progress*100}%`);
   $('timeline').setAttribute('aria-valuetext',`${s.phase.title}, ${formatTime(s.time)} von ${formatTime(cycle.duration)}`);
-  $('timeline-status').textContent=ready?'BEREIT':`${s.phase.title.toUpperCase()}${!cycle.playing&&!s.complete?' · PAUSIERT':''}`;
+  $('timeline-status').textContent=s.waterEmpty?'WASSERTANK LEER · ANGEHALTEN':ready?'BEREIT':`${s.phase.title.toUpperCase()}${!cycle.playing&&!s.complete?' · PAUSIERT':''}`;
   $('timeline-percent').textContent=`${Math.round(s.progress*100)} %`;
-  const announcement=ready?'Bereit':s.phase.title;
+  if(s.waterEmpty){
+    $('phase-number').textContent='WASSER AUFGEBRAUCHT';$('phase-title').textContent='Wassertank leer.';
+    $('phase-description').textContent='Die Maschine hält an. Klicke auf „Zurücksetzen“, um mit vollem Tank und leerem Tresterbehälter neu zu beginnen.';
+    $('insight-kicker').textContent='BIS ZUM ZURÜCKSETZEN';$('insight-title').textContent='Der bisherige Stand bleibt erhalten.';
+    $('insight-text').textContent='Die bereits gesammelten Pucks bleiben im Behälter. Das angefangene Getränk bleibt in der Tasse; die Mechanik und alle Flüssigkeitsströme stehen still.';
+  }
+  const announcement=s.waterEmpty?'Wassertank leer. Bitte zurücksetzen.':ready?'Bereit':s.phase.title;
   if($('phase-announcement').textContent!==announcement)$('phase-announcement').textContent=announcement;
   [...$('phase-list').children].forEach((b,i)=>{b.classList.toggle('active',index===i);if(index===i)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');});
 }
-const labelsByView={overview:['hopper','grinder','brew','milk','tank'],brew:['drive','wiper','lowerSieve','linkage'],milk:['milk','heater'],water:['tank','pump','heater','brew']};
+const labelsByView={overview:['hopper','grinder','brew','milk','tank'],brew:['drive','lowerSieve','linkage'],milk:['milk','heater'],water:['tank','pump','heater','brew']};
 function updateAnnotations(){
   if(!scene)return;
   const anchors=scene.getAnnotations(), canvas=$('scene'),w=canvas.clientWidth,h=canvas.clientHeight,placed=[];
-  const offsets={hopper:[0,-24],grinder:[-55,-12],brew:[65,0],drive:[-85,-40],tank:[65,-20],heater:[-60,15],milk:[-30,20],waste:[60,25],pump:[-55,15],wiper:[75,-20],lowerSieve:[65,45],linkage:[-85,35]};
+  const offsets={hopper:[0,-24],grinder:[-55,-12],brew:[65,0],drive:[-85,-40],tank:[65,-20],heater:[-60,15],milk:[-30,20],waste:[60,25],pump:[-55,15],lowerSieve:[65,45],linkage:[-85,35]};
   for(const [id,c] of Object.entries(components)){
     const b=$(`label-${id}`),a=anchors[id];
     leaders[id].style.display='none';
@@ -160,6 +176,7 @@ $('close-component').addEventListener('click',()=>{selectedComponent=null;$('com
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
 document.querySelectorAll('[data-mechanism]').forEach(b=>b.addEventListener('click',()=>demonstrateMechanism(b.dataset.mechanism)));
 document.querySelectorAll('[data-drink]').forEach(b=>b.addEventListener('click',()=>{
+  if(cycle.state.waterEmpty)return;
   mechanicStop=null;insertGroup();cycle.setDrink(b.dataset.drink);buildChapters();
   document.querySelectorAll('[data-drink]').forEach(x=>{const active=x===b;x.classList.toggle('active',active);x.setAttribute('aria-pressed',active);});
   $('transport-note').textContent=cycle.drink==='espresso'?'Nur Bohnen und heißes Wasser.':'Milch zuerst, dann Kaffee.';draw();
@@ -177,6 +194,6 @@ try{
   const {CoffeeScene}=await import('./scene.js');scene=new CoffeeScene($('scene'));scene.setTheme(theme.matches?'dark':'light');scene.setCutaway(cutaway);
   $('loader').hidden=true;$('play').disabled=false;draw();
   window.COFFEESIM=Object.freeze({snapshot:()=>({...cycle.state,playing:cycle.playing,speed:cycle.speed,drink:cycle.drink,view:currentView,cutaway,exploded,labels,scene:scene.inspect()}),seek:t=>{mechanicStop=null;insertGroup();cycle.seek(t);draw();},play:()=>{if(!cycle.playing)togglePlay();},pause:()=>{mechanicStop=null;cycle.pause();draw();},reset,view:setView});
-  function frame(now){const dt=Math.min(.1,(now-last)/1000);last=now;if(!document.hidden)cycle.update(dt);if(mechanicStop!==null&&cycle.time>=mechanicStop){cycle.seek(mechanicStop);cycle.pause();mechanicStop=null;}scene.update(cycle.state,dt);updateAnnotations();uiClock+=dt;if(uiClock>.09){updateUI();uiClock=0;}requestAnimationFrame(frame);}requestAnimationFrame(frame);
+  function frame(now){const dt=Math.min(.1,(now-last)/1000);last=now;if(!document.hidden)cycle.update(dt);if(cycle.state.waterEmpty)mechanicStop=null;if(mechanicStop!==null&&cycle.time>=mechanicStop){cycle.seek(mechanicStop);cycle.pause();mechanicStop=null;}scene.update(cycle.state,dt);updateAnnotations();uiClock+=dt;if(uiClock>.09){updateUI();uiClock=0;}requestAnimationFrame(frame);}requestAnimationFrame(frame);
   addEventListener('pagehide',()=>scene.dispose(),{once:true});
 }catch(error){console.error(error);$('loader').hidden=true;$('scene-error').hidden=false;$('scene-error').textContent='Die 3D-Ansicht konnte nicht gestartet werden. Bitte die Seite über den lokalen Simulator-Server öffnen und WebGL im Browser aktivieren. '+error.message;}

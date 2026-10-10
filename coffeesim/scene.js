@@ -1,5 +1,5 @@
 import * as THREE from '../pinsim/three.module.min.js';
-import { getBrewMechanics } from './brew-mechanics.mjs';
+import { BREW_GEOMETRY, getBrewMechanics } from './brew-mechanics.mjs';
 import { LAYOUT, brewPoint, servicePose } from './layout.mjs';
 
 // Illustrative cutaway. +y is up and the dispensing face points towards +z.
@@ -177,12 +177,14 @@ export class CoffeeScene {
       for (let z = 1.14; z <= 1.78; z += .13) cylinder(body, m.black, .021, .021, .004, [x, .386, z], 10);
     }
     // Open top waste drawer, directly beneath the brew group.
-    this.waste = new THREE.Group(); this.waste.position.set(...brewPoint(.07,-.93,.08));this.waste.scale.x=-1;body.add(this.waste);
+    this.waste = new THREE.Group(); this.waste.position.set(...brewPoint(.07,-1.02,.08));this.waste.scale.x=-1;body.add(this.waste);
+    this.wasteSkin = m.frame.clone();
     box(this.waste, m.charcoal, [1.02, .085, .85], [0, 0, 0]);
-    [[-.49, .17, 0], [.49, .17, 0]].forEach(p => box(this.waste, m.frame, [.045, .38, .85], p));
-    [[0, .17, -.41], [0, .17, .41]].forEach(p => box(this.waste, m.frame, [1.02, .38, .045], p));
-    this.spentPuck = cylinder(this.waste, m.grounds, .278, .278, .105, [-.07, .16, .04], 36);
-    this.spentPuck.rotation.set(.10, 0, -.12); this.spentPuck.visible = false;
+    [[-.49, .30, 0], [.49, .30, 0]].forEach(p => box(this.waste, this.wasteSkin, [.045, .60, .85], p));
+    [[0, .30, -.41], [0, .30, .41]].forEach(p => box(this.waste, this.wasteSkin, [1.02, .60, .045], p));
+    this.spentMaterials = ['#39271f', '#493025'].map(color => { const mat=m.grounds.clone();mat.color.set(color);return mat; });
+    this.spentPuck = cylinder(this.waste, this.spentMaterials[0], .278, .278, .105, [-.07, .10, .04], 36);
+    this.spentPuck.visible = false; this.storedPuckMeshes = [this.spentPuck];
   }
 
   makeDisplayTexture() {
@@ -343,7 +345,6 @@ export class CoffeeScene {
     this.wiperCamPin=sphere(g,m.chrome,.033,[0,0,0]);
     this.ejectedPuck=cylinder(g,this.doseMaterial,.278,.278,.105,[0,.53,.60]);this.ejectedPuck.visible=false;
     this.ejectedGrains=this.grainTop.clone();this.ejectedGrains.position.y=.055;this.ejectedPuck.add(this.ejectedGrains);
-    this.spentPuck.material=this.doseMaterial;
   }
 
   makeGear(parent, radius, pos, material, teeth = 18) {
@@ -523,7 +524,7 @@ export class CoffeeScene {
     this.housingEdges.visible=this.view!=='brew'||!this.cutaway;
     this.housing.forEach(({ mat, opacity }) => { mat.transparent = this.cutaway || mat === this.displayMat; mat.opacity = this.cutaway ? opacity : 1; mat.depthWrite = !this.cutaway; mat.needsUpdate = true; });
     this.mat.clearBrew.opacity = this.cutaway ? .25 : .92;
-    for(const [mat,opacity] of [[this.brewSkin,.42],[this.funnelMaterial,.40]]){
+    for(const [mat,opacity] of [[this.brewSkin,.42],[this.funnelMaterial,.40],[this.wasteSkin,.32]]){
       mat.transparent=this.cutaway;mat.opacity=this.cutaway?opacity:1;mat.depthWrite=!this.cutaway;mat.needsUpdate=true;
     }
     this.machine.traverse(object => {
@@ -585,11 +586,12 @@ export class CoffeeScene {
     const puckHeight=mechanics.doseHeight,ejectLift=mechanics.pistonLift;
     this.lowerPiston.position.y = -.106 + ejectLift;
     this.lowerStem.position.y = -.194 + ejectLift / 2; this.lowerStem.scale.y = 1 + ejectLift / .15;
-    this.dose.visible=this.grainTop.visible=mechanics.puckLocation==='chamber'&&puckHeight>.001;
+    const currentPuckVisible = !state.currentPuckDeposited;
+    this.dose.visible=this.grainTop.visible=currentPuckVisible&&mechanics.puckLocation==='chamber'&&puckHeight>.001;
     this.dose.scale.y=Math.max(.001,puckHeight);this.dose.position.y=-.085+puckHeight/2+ejectLift;
     this.grainTop.position.y=-.082+puckHeight+ejectLift;
     this.doseMaterial.color.set(state.puckWetness > .25 ? '#39271f' : '#71442a');
-    this.groundFall.visible = this.fallingBeans.visible = Boolean(state.grind) && !this.exploded;
+    this.groundFall.visible = this.fallingBeans.visible = currentPuckVisible && Boolean(state.grind) && !this.exploded;
     if (state.grind) {
       for (let i = 0; i < this.groundFall.count; i++) {
         const f = (i / this.groundFall.count + t * 1.7) % 1;
@@ -602,14 +604,27 @@ export class CoffeeScene {
       }
       this.fallingBeans.instanceMatrix.needsUpdate = true;
     }
-    this.ejectedPuck.visible=['sweeping','falling'].includes(mechanics.puckLocation);
+    this.ejectedPuck.visible=currentPuckVisible&&['sweeping','falling'].includes(mechanics.puckLocation);
     if (this.ejectedPuck.visible) {
       this.ejectedPuck.position.set(...mechanics.puckPosition);
       const fall=mechanics.puckLocation==='falling'?clamp((state.ejectProgress-.66)/.19):0;
-      this.ejectedPuck.rotation.z=-fall*.12;this.ejectedPuck.rotation.x=fall*.10;
+      // A small tumble settles flat exactly at the top of the existing stack.
+      const tilt=Math.sin(fall*Math.PI)*.025;
+      this.ejectedPuck.rotation.z=-tilt;this.ejectedPuck.rotation.x=tilt;
     }
-    this.spentPuck.visible = Boolean(state.wastePuck);
-    this.tankWater.scale.y = Math.max(.01, clamp(state.tankLevel ?? 1) * 2.31); this.tankWater.position.y = .85 + this.tankWater.scale.y / 2;
+    const storedPucks = Math.max(0, Math.floor(Number(state.storedPucks ?? (state.wastePuck ? 1 : 0)) || 0));
+    while(this.storedPuckMeshes.length<storedPucks){
+      const puck=this.spentPuck.clone();
+      puck.material=this.spentMaterials[this.storedPuckMeshes.length%this.spentMaterials.length];
+      this.waste.add(puck);this.storedPuckMeshes.push(puck);
+    }
+    this.storedPuckMeshes.forEach((puck,index)=>{
+      puck.visible=index<storedPucks;
+      puck.position.set(-.07,.10+index*BREW_GEOMETRY.puckSpacing,.04);
+    });
+    const tankLevel = clamp(state.tankLevel ?? 1);
+    this.tankWater.visible=tankLevel>0;
+    this.tankWater.scale.y=tankLevel*2.31;this.tankWater.position.y=.85+this.tankWater.scale.y/2;
     const carafeLevel = clamp(state.carafeLevel ?? 1); this.carafeMilk.scale.y = Math.max(.01, carafeLevel * 1.00); this.carafeMilk.position.y = .035 + carafeLevel * .50;
     this.mat.heat.emissiveIntensity = .035 + clamp(((state.heaterTemp || 20) - 20) / 120) * .72;
     this.mat.heat.color.set(state.heaterTemp > 110 ? '#ef9a4f' : '#be865e');
@@ -689,6 +704,7 @@ export class CoffeeScene {
       cutaway: this.cutaway, exploded: this.exploded, explodeAmount: this.explodeAmount, view: this.view,
       phase: this.state.phase?.id,mechanics:this.mechanics, groundFall: this.groundFall.visible, chamberY: this.chamber.position.y,
       doseVisible: this.dose.visible, ejectedPuck: this.ejectedPuck.visible, wastePuck: this.spentPuck.visible,
+      storedPucks:this.storedPuckMeshes.filter(puck=>puck.visible).length,tankWaterVisible:this.tankWater.visible,tankWaterHeight:this.tankWater.scale.y,
       cup: { milk: this.cupMilk.visible, coffee: this.cupCoffee.visible, foam: this.cupFoam.visible },
       routes: this.flowPaths.map(r => ({ kind: r.kind, active: r.active })),
       brewX:this.brewUnit.position.x,motorX:this.drive.position.x,tankX:LAYOUT.tankX,tankPull:this.tank.position.z,materials:this.housing.map(h=>({opacity:h.mat.opacity,transparent:h.mat.transparent}))

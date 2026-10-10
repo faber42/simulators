@@ -43,8 +43,8 @@ zum Brühmodus. Ein Latte-Durchlauf dauert 110 Demo-Sekunden, Espresso 84.
 | Bedienelement | Wirkung |
 |---|---|
 | Kaffee zubereiten / Pause | Starten, pausieren und fortsetzen |
-| ↺ | Leere Tasse und Anfangszustand wiederherstellen |
-| Getränk | Latte macchiato oder Espresso wählen; setzt den Ablauf zurück |
+| ↺ / Zurücksetzen | Tank füllen, Tresterbehälter leeren und Ablauf neu beginnen |
+| Getränk | Latte macchiato oder Espresso wählen; Restwasser und gesammelte Pucks bleiben erhalten |
 | Tempo | 0,5×, 1×, 2× oder 4× |
 | Zeitleiste / sechs Kapitel | Beliebigen Zeitpunkt oder Schritt ansehen |
 | Gesamtansicht / Brühgruppe / Milchsystem / Wasserweg | Kamera ausrichten |
@@ -62,6 +62,21 @@ Brühgruppe wieder eingesetzt. Die Serviceansicht ist eine didaktische
 Trennung der Baugruppen und keine Anleitung, die echte Maschine im Betrieb
 zu öffnen. Tastenkürzel respektieren fokussierte Bedienelemente und Dialoge.
 Heller und dunkler Modus folgen der Systemeinstellung.
+
+Der ausdrücklich gekennzeichnete **Demo-Tank fasst 300 ml**, damit der
+sinkende Wasserstand nach wenigen Bezügen sichtbar wird. Das ist nicht die
+Tankkapazität des realen Geräts. Dampf entnimmt weniger Wasser pro Sekunde
+als die Kaffeeextraktion; Vorbrühen und Temperaturwechsel verbrauchen
+ebenfalls Wasser. Ein Espresso benötigt im Modell 56 ml, ein Latte 102 ml.
+Bei leerem Tank hält die Maschine am erreichten Zeitpunkt an. Erst
+„Zurücksetzen“ gibt einen neuen Durchlauf frei.
+
+„Noch einen Kaffee“ behält den Restwasserstand und die feuchten Pucks im
+Tresterbehälter bei. Jeder neue Puck fällt auf den vorhandenen Stapel.
+Zurückspulen füllt kein Wasser nach, entfernt keine Pucks und zählt beim
+erneuten Abspielen desselben Abschnitts weder Wasser noch Pucks doppelt.
+Diese Vorräte gelten für die geöffnete Sitzung; ein Neuladen der Seite
+startet die Simulation neu.
 
 ## Fachliche Einordnung
 
@@ -105,6 +120,7 @@ beim Einsetzen läuft die Reihenfolge umgekehrt.
 ## Technik und Prüfung
 
 - `cycle.mjs`: deterministisches, zeitabhängiges Ablaufmodell ohne WebGL.
+- `session.mjs`: dauerhafter Wasservorrat und Puckzähler, Tankstopp und Reset.
 - `brew-mechanics.mjs`: Kammer, Verdichtung, unterer Kolben, Drahtbügel und
   Puckbahn als jederzeit vor- und zurückspulbares Bewegungsmodell.
 - `layout.mjs`: Einbaupositionen, Spiegelung und Reihenfolge der Entnahme.
@@ -113,7 +129,9 @@ beim Einsetzen läuft die Reihenfolge umgekehrt.
 - `node --test coffeesim/*.test.mjs`:
   Ablauf, Grenzen, Pause, Mengen, Espresso, konsistentes Vor-/Zurückspringen,
   Siebkontakt, Bügelkontakt, Randfreiheit, Reichweite der Gelenkhebel sowie
-  Gehäusefreiraum und die rechte Entnahme anhand der tatsächlichen 3D-Geometrie.
+  Gehäusefreiraum und die rechte Entnahme anhand der tatsächlichen 3D-Geometrie,
+  mehrere Bezüge bis zum Tankstopp, Ressourcenerhalt beim Zurückspulen sowie
+  Stapelhöhen, Kollisionsfreiheit und Übergang vom fallenden zum abgelegten Puck.
 - Browserdiagnose: `COFFEESIM.snapshot()`, `seek(sekunden)`, `play()`,
   `pause()`, `reset()` und `view('overview'|'brew'|'milk'|'water')`.
 

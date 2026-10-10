@@ -16,12 +16,14 @@ export const BREW_GEOMETRY = Object.freeze({
   chamberRadius: .334, puckRadius: .278,
   liftHeight: .412, wiperY: .50, wiperParkZ: 1.05,
   wiperContactZ: .878, wiperEndZ: .18,
-  binY: -.77, binZ: .12,
+  binY: -.92, binZ: .12, puckSpacing: .111,
 });
 
 /** All output depends only on the supplied cycle sample: seeking is reversible. */
 export function getBrewMechanics(state) {
   const g = BREW_GEOMETRY;
+  const previousPucks = Math.max(0, Math.floor(Number(state.priorPucks) || 0));
+  const landingY = g.binY + previousPucks * g.puckSpacing;
   const eject = clamp(state.ejectProgress);
   const compress = clamp(state.compression);
   const phase = state.phase.id;
@@ -86,13 +88,15 @@ export function getBrewMechanics(state) {
   if (afterBrewing && hasDose) {
     if (eject >= .85) {
       puckLocation = 'bin';
-      puckPosition = [0, g.binY, g.binZ];
+      puckPosition = [0, landingY, g.binZ];
     } else if (eject >= .66) {
       const fall = ramp(eject, .66, .85);
       puckLocation = 'falling';
-      // First fall below the projecting square rim. Drifting forward sooner
-      // would carry the puck back into that rim despite a clear sweep endpoint.
-      puckPosition = [0, mix(raisedPuckY, g.binY, fall * fall), mix(sweepEndZ, g.binZ, between(fall, .37, 1))];
+      // Clear the entire chamber before drifting towards the drawer. The drop
+      // shortens as the stack grows, so clearance must follow height, not time.
+      const clearY = g.fillY + .085 - .38 / 2 - g.compressedDoseHeight / 2 - .025;
+      const driftStart = Math.sqrt(clamp((raisedPuckY - clearY) / (raisedPuckY - landingY)));
+      puckPosition = [0, mix(raisedPuckY, landingY, fall * fall), mix(sweepEndZ, g.binZ, between(fall, driftStart, 1))];
     } else if (eject >= .47) {
       puckLocation = 'sweeping';
       puckPosition = [0, raisedPuckY, wiperZ - g.puckRadius];
