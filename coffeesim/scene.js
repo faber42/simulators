@@ -212,9 +212,10 @@ export class CoffeeScene {
     const glass = m.glass.clone(); glass.opacity = .26;
     this.hopper = new THREE.Group();this.hopper.position.set(...HOPPER_GEOMETRY.origin);body.add(this.hopper);
     rounded(this.hopper, glass, [2.24, .40, 1.60], [0, 0, 0], .13);
-    rounded(this.hopper, m.charcoal, [2.29, .055, 1.66], [0, .230, 0], .025);
+    this.hopperLidMaterial = m.charcoal.clone();
+    rounded(this.hopper, this.hopperLidMaterial, [2.29, .055, 1.66], [0, .230, 0], .025);
     rounded(this.hopper, glass, [2.21, .035, 1.60], [0, .265, 0], .012);
-    box(this.hopper, m.charcoal, [.70, .05, .55], [0, .299, 0]);
+    box(this.hopper, this.hopperLidMaterial, [.70, .05, .55], [0, .299, 0]);
     this.beans = new THREE.InstancedMesh(new THREE.SphereGeometry(.068, 10, 7), m.bean, HOPPER_GEOMETRY.capacity);
     const seam = new THREE.CatmullRomCurve3(Array.from({length:13},(_,i)=>{
       const z=(i/12-.5)*.14;
@@ -542,7 +543,7 @@ export class CoffeeScene {
     this.housingEdges.visible=this.view!=='brew'||!this.cutaway;
     this.housing.forEach(({ mat, opacity }) => { mat.transparent = this.cutaway || mat === this.displayMat; mat.opacity = this.cutaway ? opacity : 1; mat.depthWrite = !this.cutaway; mat.needsUpdate = true; });
     this.mat.clearBrew.opacity = this.cutaway ? .25 : .92;
-    for(const [mat,opacity] of [[this.brewSkin,.42],[this.funnelMaterial,.40],[this.wasteSkin,.32]]){
+    for(const [mat,opacity] of [[this.brewSkin,.42],[this.funnelMaterial,.40],[this.wasteSkin,.32],[this.hopperLidMaterial,.16]]){
       mat.transparent=this.cutaway;mat.opacity=this.cutaway?opacity:1;mat.depthWrite=!this.cutaway;mat.needsUpdate=true;
     }
     this.machine.traverse(object => {
