@@ -43,8 +43,8 @@ zum Brühmodus. Ein Latte-Durchlauf dauert 110 Demo-Sekunden, Espresso 84.
 | Bedienelement | Wirkung |
 |---|---|
 | Kaffee zubereiten / Pause | Starten, pausieren und fortsetzen |
-| ↺ / Zurücksetzen | Tank füllen, Tresterbehälter leeren und Ablauf neu beginnen |
-| Getränk | Latte macchiato oder Espresso wählen; Restwasser und gesammelte Pucks bleiben erhalten |
+| ↺ / Zurücksetzen | Wasser und Bohnen auffüllen, Tresterbehälter leeren und Ablauf neu beginnen |
+| Getränk | Latte macchiato oder Espresso wählen; Restwasser, Bohnen und gesammelte Pucks bleiben erhalten |
 | Tempo | 0,5×, 1×, 2× oder 4× |
 | Zeitleiste / sechs Kapitel | Beliebigen Zeitpunkt oder Schritt ansehen |
 | Gesamtansicht / Brühgruppe / Milchsystem / Wasserweg | Kamera ausrichten |
@@ -71,10 +71,19 @@ ebenfalls Wasser. Ein Espresso benötigt im Modell 56 ml, ein Latte 102 ml.
 Bei leerem Tank hält die Maschine am erreichten Zeitpunkt an. Erst
 „Zurücksetzen“ gibt einen neuen Durchlauf frei.
 
-„Noch einen Kaffee“ behält den Restwasserstand und die feuchten Pucks im
-Tresterbehälter bei. Jeder neue Puck fällt auf den vorhandenen Stapel.
-Zurückspulen füllt kein Wasser nach, entfernt keine Pucks und zählt beim
-erneuten Abspielen desselben Abschnitts weder Wasser noch Pucks doppelt.
+Der **Demo-Bohnenbehälter fasst 60 g**; pro Bezug werden während der
+Mahlphase kontinuierlich 9 g verbraucht. Beim Mahlen rüttelt der Behälter
+leicht, und die Bohnen rutschen zum Mahlwerkeinlauf nach. Ihre Größe bleibt
+gleich, während Anzahl und Füllhöhe sinken. Diese Bewegung ist zur Erklärung
+vergrößert; die Mengen sind keine realen Behälterspezifikationen.
+Reichen die Bohnen nicht mehr für die Dosis, stoppt der Ablauf beim
+Leerlaufen. Eine exakt vollständig gemahlene letzte Dosis wird noch fertig
+gebrüht; für den nächsten Bezug muss zurückgesetzt werden.
+
+„Noch einen Kaffee“ behält den Wasser- und Bohnenvorrat bei. Die feuchten
+Pucks bleiben im Tresterbehälter. Jeder neue Puck fällt auf den vorhandenen Stapel.
+Zurückspulen füllt weder Wasser noch Bohnen nach, entfernt keine Pucks und
+zählt beim erneuten Abspielen desselben Abschnitts keine Ressource doppelt.
 Diese Vorräte gelten für die geöffnete Sitzung; ein Neuladen der Seite
 startet die Simulation neu.
 
@@ -120,7 +129,9 @@ beim Einsetzen läuft die Reihenfolge umgekehrt.
 ## Technik und Prüfung
 
 - `cycle.mjs`: deterministisches, zeitabhängiges Ablaufmodell ohne WebGL.
-- `session.mjs`: dauerhafter Wasservorrat und Puckzähler, Tankstopp und Reset.
+- `session.mjs`: dauerhafte Wasser- und Bohnenvorräte, Puckzähler, Leerstand und Reset.
+- `bean-hopper.mjs`: gleich große Bohnen, sinkender Vorrat, Nachrutschen und
+  ausschließlich zeitabhängige Behältervibration.
 - `brew-mechanics.mjs`: Kammer, Verdichtung, unterer Kolben, Drahtbügel und
   Puckbahn als jederzeit vor- und zurückspulbares Bewegungsmodell.
 - `layout.mjs`: Einbaupositionen, Spiegelung und Reihenfolge der Entnahme.
@@ -132,6 +143,8 @@ beim Einsetzen läuft die Reihenfolge umgekehrt.
   Gehäusefreiraum und die rechte Entnahme anhand der tatsächlichen 3D-Geometrie,
   mehrere Bezüge bis zum Tankstopp, Ressourcenerhalt beim Zurückspulen sowie
   Stapelhöhen, Kollisionsfreiheit und Übergang vom fallenden zum abgelegten Puck.
+  Die Bohnenprüfungen decken Verbrauch, Leerstand, exakte letzte Dosis,
+  Füllhöhe, Einlauf, ruhende Pause und Wiederherstellung beim Reset ab.
 - Browserdiagnose: `COFFEESIM.snapshot()`, `seek(sekunden)`, `play()`,
   `pause()`, `reset()` und `view('overview'|'brew'|'milk'|'water')`.
 

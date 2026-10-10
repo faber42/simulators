@@ -1,5 +1,6 @@
 import * as THREE from '../pinsim/three.module.min.js';
 import { BREW_GEOMETRY, getBrewMechanics } from './brew-mechanics.mjs';
+import { HOPPER_GEOMETRY, getHopperState, getBeanPose } from './bean-hopper.mjs';
 import { LAYOUT, brewPoint, servicePose } from './layout.mjs';
 
 // Illustrative cutaway. +y is up and the dispensing face points towards +z.
@@ -209,20 +210,37 @@ export class CoffeeScene {
   makeHopper() {
     const m = this.mat, body = this.machine;
     const glass = m.glass.clone(); glass.opacity = .26;
-    rounded(body, glass, [2.24, .40, 1.60], [0, 3.97, -.30], .13);
-    rounded(body, m.charcoal, [2.29, .055, 1.66], [0, 4.20, -.30], .025);
-    rounded(body, glass, [2.21, .035, 1.60], [0, 4.235, -.30], .012);
-    box(body, m.charcoal, [.70, .05, .55], [0, 4.269, -.30]);
-    this.beans = new THREE.InstancedMesh(new THREE.SphereGeometry(.068, 10, 7), m.bean, 145);
-    this.beanGrooves = new THREE.InstancedMesh(new THREE.BoxGeometry(.009, .045, .09), m.seam, 145);
-    for (let i = 0; i < 145; i++) {
-      dummy.position.set((rand(i * 11) - .5) * 1.91, 3.855 + rand(i * 7) * .22, -.30 + (rand(i * 19) - .5) * 1.33);
-      dummy.rotation.set(rand(i * 3) * 2, rand(i * 13) * TAU, rand(i * 29) * 2);
-      dummy.scale.set(.79, .64, 1.35); dummy.updateMatrix(); this.beans.setMatrixAt(i, dummy.matrix);
-      dummy.scale.set(1, 1, 1); dummy.updateMatrix(); this.beanGrooves.setMatrixAt(i, dummy.matrix);
-    }
-    body.add(this.beans, this.beanGrooves);
+    this.hopper = new THREE.Group();this.hopper.position.set(...HOPPER_GEOMETRY.origin);body.add(this.hopper);
+    rounded(this.hopper, glass, [2.24, .40, 1.60], [0, 0, 0], .13);
+    rounded(this.hopper, m.charcoal, [2.29, .055, 1.66], [0, .230, 0], .025);
+    rounded(this.hopper, glass, [2.21, .035, 1.60], [0, .265, 0], .012);
+    box(this.hopper, m.charcoal, [.70, .05, .55], [0, .299, 0]);
+    this.beans = new THREE.InstancedMesh(new THREE.SphereGeometry(.068, 10, 7), m.bean, HOPPER_GEOMETRY.capacity);
+    const seam = new THREE.CatmullRomCurve3(Array.from({length:13},(_,i)=>{
+      const z=(i/12-.5)*.14;
+      return v(Math.sin(i/12*Math.PI*2)*.002,.04352*Math.sqrt(1-(z/.0918)**2)+.0008,z);
+    }));
+    this.beanGrooves = new THREE.InstancedMesh(new THREE.TubeGeometry(seam,12,.0028,4,false),m.seam,HOPPER_GEOMETRY.capacity);
+    this.beans.boundingSphere=new THREE.Sphere(v(.10,-.05,-.17),1.5);
+    this.beanGrooves.boundingSphere=this.beans.boundingSphere.clone();
+    this.hopper.add(this.beans, this.beanGrooves);
+    this.updateHopper({});
     this.beanThroat = cylinder(body, m.glass, .36, .18, .18, [.10,3.76,-.47], 36, true);
+  }
+
+  updateHopper(state) {
+    const hopper=getHopperState(state);this.hopperState=hopper;
+    this.hopper.position.set(...HOPPER_GEOMETRY.origin).add(v(...hopper.position));
+    this.hopper.rotation.set(...hopper.rotation);
+    this.beans.count=this.beanGrooves.count=hopper.count;
+    this.beans.visible=this.beanGrooves.visible=hopper.count>0;
+    for(let i=0;i<hopper.count;i++){
+      const pose=getBeanPose(i,hopper);
+      dummy.position.set(...pose.position);dummy.rotation.set(...pose.rotation);
+      dummy.scale.set(...HOPPER_GEOMETRY.beanScale);dummy.updateMatrix();this.beans.setMatrixAt(i,dummy.matrix);
+      dummy.scale.set(1,1,1);dummy.updateMatrix();this.beanGrooves.setMatrixAt(i,dummy.matrix);
+    }
+    this.beans.instanceMatrix.needsUpdate=true;this.beanGrooves.instanceMatrix.needsUpdate=true;
   }
 
   makeGrinder() {
@@ -556,6 +574,7 @@ export class CoffeeScene {
 
   update(state = {}, dt = 1 / 60) {
     this.state = state; const t = Number(state.time) || 0, k = 1 - Math.exp(-clamp(Number(dt) || 0, 0, .15) * 8);
+    this.updateHopper(state);
     this.updateCamera(k); this.explodeAmount = mix(this.explodeAmount, this.exploded ? 1 : 0, k);
     if (Math.abs(this.explodeAmount - (this.exploded ? 1 : 0)) < 1e-4) this.explodeAmount = this.exploded ? 1 : 0;
     const service=servicePose(this.explodeAmount);
@@ -591,7 +610,7 @@ export class CoffeeScene {
     this.dose.scale.y=Math.max(.001,puckHeight);this.dose.position.y=-.085+puckHeight/2+ejectLift;
     this.grainTop.position.y=-.082+puckHeight+ejectLift;
     this.doseMaterial.color.set(state.puckWetness > .25 ? '#39271f' : '#71442a');
-    this.groundFall.visible = this.fallingBeans.visible = currentPuckVisible && Boolean(state.grind) && !this.exploded;
+    this.groundFall.visible = this.fallingBeans.visible = currentPuckVisible && Boolean(state.grind) && this.hopperState.count>0 && !state.resourceEmpty && !this.exploded;
     if (state.grind) {
       for (let i = 0; i < this.groundFall.count; i++) {
         const f = (i / this.groundFall.count + t * 1.7) % 1;
@@ -600,7 +619,7 @@ export class CoffeeScene {
       this.groundFall.instanceMatrix.needsUpdate = true;
       for (let i = 0; i < this.fallingBeans.count; i++) {
         const f = (i / this.fallingBeans.count + t * .72) % 1;
-        dummy.position.set(LAYOUT.grinder[0]+(rand(i*11)-.5)*.16,3.88-f*.40,LAYOUT.grinder[2]+(rand(i*17)-.5)*.16); dummy.rotation.set(i, i + f * 3, i); dummy.scale.set(.75, .67, 1.2); dummy.updateMatrix(); this.fallingBeans.setMatrixAt(i, dummy.matrix);
+        dummy.position.set(LAYOUT.grinder[0]+(rand(i*11)-.5)*.16,3.73-f*.38,LAYOUT.grinder[2]+(rand(i*17)-.5)*.16); dummy.rotation.set(i, i + f * 3, i); dummy.scale.set(.75, .67, 1.2); dummy.updateMatrix(); this.fallingBeans.setMatrixAt(i, dummy.matrix);
       }
       this.fallingBeans.instanceMatrix.needsUpdate = true;
     }
@@ -705,6 +724,7 @@ export class CoffeeScene {
       phase: this.state.phase?.id,mechanics:this.mechanics, groundFall: this.groundFall.visible, chamberY: this.chamber.position.y,
       doseVisible: this.dose.visible, ejectedPuck: this.ejectedPuck.visible, wastePuck: this.spentPuck.visible,
       storedPucks:this.storedPuckMeshes.filter(puck=>puck.visible).length,tankWaterVisible:this.tankWater.visible,tankWaterHeight:this.tankWater.scale.y,
+      beanCount:this.beans.count,beanLevel:this.hopperState.level,hopperPosition:this.hopper.position.toArray(),hopperRotation:this.hopper.rotation.toArray().slice(0,3),
       cup: { milk: this.cupMilk.visible, coffee: this.cupCoffee.visible, foam: this.cupFoam.visible },
       routes: this.flowPaths.map(r => ({ kind: r.kind, active: r.active })),
       brewX:this.brewUnit.position.x,motorX:this.drive.position.x,tankX:LAYOUT.tankX,tankPull:this.tank.position.z,materials:this.housing.map(h=>({opacity:h.mat.opacity,transparent:h.mat.transparent}))

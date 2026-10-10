@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getPhases, getState } from './cycle.mjs';
-import { DEMO_TANK_CAPACITY_ML, MachineSession } from './session.mjs';
+import { DEMO_BEAN_CAPACITY_G, DEMO_TANK_CAPACITY_ML, MachineSession } from './session.mjs';
 
 const close = (actual, expected, tolerance = 1e-8) => {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected}`);
@@ -239,4 +239,210 @@ test('reset alone clears all resources and paused or invalid updates consume not
   assert.deepEqual(session.state, initial);
   assert.equal(session.speed, 2);
   assert.equal(session.playing, false);
+});
+
+test('beans are consumed continuously during grinding and stop changing afterward', () => {
+  const session = new MachineSession();
+  assert.equal(DEMO_BEAN_CAPACITY_G, 60);
+  assert.equal(session.state.beanCapacityG, 60);
+  assert.equal(session.state.beansRemainingG, 60);
+  assert.equal(session.state.beanLevel, 1);
+  assert.equal(session.state.beansUsedG, 0);
+  assert.equal(session.state.beansEmpty, false);
+  assert.equal(session.state.resourceEmpty, false);
+  for (const [time, usedG] of [[2.5, 2.25], [5, 4.5], [10, 9], [50, 9], [110, 9]]) {
+    session.seek(time);
+    close(session.state.beansUsedG, usedG);
+    close(session.state.beansRemainingG, 60 - usedG);
+    close(session.state.beanLevel, (60 - usedG) / 60);
+  }
+});
+
+test('new drinks and recipe changes retain previously consumed beans', () => {
+  const session = new MachineSession('espresso');
+  finish(session);
+  close(session.state.beansRemainingG, 51);
+  session.play();
+  assert.equal(session.state.beansUsedG, 0);
+  close(session.state.beansRemainingG, 51);
+  session.update(5);
+  close(session.state.beansRemainingG, 46.5);
+  session.setDrink('cappuccino');
+  assert.equal(session.state.beansUsedG, 0);
+  close(session.state.beansRemainingG, 46.5);
+  session.seek(5);
+  close(session.state.beansRemainingG, 42);
+  finish(session);
+  close(session.state.beansRemainingG, 37.5);
+  assert.equal(session.state.storedPucks, 2);
+});
+
+test('rewinding and repeated mechanism clips never refund or double-charge beans', () => {
+  const session = new MachineSession();
+  session.seek(5);
+  session.seek(1);
+  close(session.state.beansUsedG, 4.5);
+  close(session.state.beansRemainingG, 55.5);
+  session.seek(5);
+  close(session.state.beansRemainingG, 55.5);
+  session.seek(10);
+  close(session.state.beansRemainingG, 51);
+  session.seek(session.duration);
+  for (const part of ['compress', 'eject', 'compress', 'eject']) {
+    session.seek(timeAt(part, 0));
+    session.seek(timeAt(part, 1));
+    close(session.state.beansRemainingG, 51);
+    close(session.state.beansUsedG, 9);
+    assert.equal(session.state.storedPucks, 1);
+  }
+});
+
+test('an incomplete dose stops at exact bean exhaustion before any water or puck', () => {
+  const session = new MachineSession('latte', { beanCapacityG: 4.5 });
+  session.seek(session.duration);
+  close(session.time, 5);
+  assert.equal(session.state.phase.id, 'grind');
+  close(session.state.groundAmount, .5);
+  close(session.state.beansUsedG, 4.5);
+  assert.equal(session.state.beansRemainingG, 0);
+  assert.equal(session.state.beanLevel, 0);
+  assert.equal(session.state.beansEmpty, true);
+  assert.equal(session.state.resourceEmpty, true);
+  assert.equal(session.state.waterEmpty, false);
+  assert.equal(session.state.tankRemainingMl, 300);
+  assert.equal(session.state.waterUsedMl, 0);
+  assert.equal(session.state.storedPucks, 0);
+  assert.equal(session.state.coffeeMl, 0);
+  assert.equal(session.state.milkMl, 0);
+  assert.equal(session.playing, false);
+});
+
+test('bean exhaustion latches every API path and only reset replenishes resources', () => {
+  const session = new MachineSession('espresso', { beanCapacityG: 12 });
+  const initial = session.state;
+  finish(session);
+  finish(session);
+  const empty = session.state;
+  assert.equal(empty.beansEmpty, true);
+  assert.equal(empty.storedPucks, 1);
+  close(empty.tankRemainingMl, 244);
+  for (const key of ['grind', 'pump', 'steam', 'milkFlow', 'brewFlow', 'heater', 'preinfusion', 'draining']) {
+    assert.equal(empty[key], false, key);
+  }
+  assert.equal(empty.pressure, 0);
+  for (const action of [
+    () => session.play(),
+    () => session.update(1000),
+    () => session.seek(0),
+    () => session.seek(session.duration),
+    () => session.seek(timeAt('eject', .9, 'espresso')),
+    () => session.setDrink('latte'),
+    () => session.pause().play(),
+  ]) {
+    action();
+    assert.deepEqual(session.state, empty);
+    assert.equal(session.playing, false);
+  }
+  session.reset();
+  assert.deepEqual(session.state, initial);
+});
+
+test('the last exact dose finishes brewing and only the next start latches empty beans', () => {
+  const session = new MachineSession('espresso', { beanCapacityG: 9 });
+  session.seek(10);
+  assert.equal(session.state.beansRemainingG, 0);
+  assert.equal(session.state.beansEmpty, false);
+  assert.equal(session.state.resourceEmpty, false);
+  session.play().update(1000);
+  assert.equal(session.state.complete, true);
+  close(session.state.coffeeMl, 40);
+  assert.equal(session.state.storedPucks, 1);
+  assert.equal(session.state.beansEmpty, false);
+  // Looking back at the same, already paid-for dose is still allowed.
+  session.seek(0).play().update(1000);
+  assert.equal(session.state.complete, true);
+  assert.equal(session.state.beansEmpty, false);
+  assert.equal(session.state.storedPucks, 1);
+  session.play();
+  assert.equal(session.time, 0);
+  assert.equal(session.playing, false);
+  assert.equal(session.state.beansEmpty, true);
+  assert.equal(session.state.resourceEmpty, true);
+  close(session.state.tankRemainingMl, 244);
+  assert.equal(session.state.storedPucks, 1);
+});
+
+test('a new recipe cannot bypass the empty hopper after an exactly finished dose', () => {
+  const session = new MachineSession('espresso', { beanCapacityG: 9 });
+  finish(session);
+  session.setDrink('latte');
+  assert.equal(session.state.beansEmpty, false);
+  assert.equal(session.state.beansRemainingG, 0);
+  session.seek(session.duration);
+  assert.equal(session.time, 0);
+  assert.equal(session.state.beansEmpty, true);
+  assert.equal(session.state.waterUsedMl, 0);
+  assert.equal(session.state.beansUsedG, 0);
+  close(session.state.tankRemainingMl, 244);
+  assert.equal(session.state.storedPucks, 1);
+});
+
+test('several exact full doses complete before the following beanless start', () => {
+  const session = new MachineSession('espresso', { beanCapacityG: 27 });
+  for (let count = 1; count <= 3; count++) {
+    finish(session);
+    assert.equal(session.state.complete, true);
+    assert.equal(session.state.beansEmpty, false);
+    assert.equal(session.state.storedPucks, count);
+    close(session.state.beansRemainingG, 27 - count * 9);
+  }
+  finish(session);
+  assert.equal(session.state.beansEmpty, true);
+  assert.equal(session.time, 0);
+  assert.equal(session.state.storedPucks, 3);
+  close(session.state.tankRemainingMl, 132);
+});
+
+test('partial final doses stop identically for large updates, fine steps and seeks', () => {
+  const sessions = Array.from({ length: 3 }, () => new MachineSession('espresso', { beanCapacityG: 15 }));
+  for (const session of sessions) finish(session);
+  const [large, steps, seek] = sessions;
+  finish(large);
+  steps.play();
+  while (steps.playing) steps.update(.013);
+  seek.setDrink('espresso').seek(seek.duration);
+  for (const session of sessions) {
+    close(session.time, 10 * 6 / 9);
+    close(session.state.beansUsedG, 6);
+    assert.equal(session.state.beansEmpty, true);
+    assert.equal(session.state.beansRemainingG, 0);
+    assert.equal(session.state.storedPucks, 1);
+    close(session.state.tankRemainingMl, 244);
+  }
+});
+
+test('rewinding before a failed grinding seek preserves the exact remaining dose', () => {
+  const session = new MachineSession('latte', { beanCapacityG: 4.5 });
+  session.seek(2.5);
+  close(session.state.beansRemainingG, 2.25);
+  session.seek(0).seek(session.duration);
+  close(session.time, 5);
+  close(session.state.beansUsedG, 4.5);
+  assert.equal(session.state.beansEmpty, true);
+  assert.equal(session.state.tankRemainingMl, 300);
+});
+
+test('the earliest depleted resource controls the stop without charging later phases', () => {
+  const beansFirst = new MachineSession('espresso', { beanCapacityG: 4.5, tankCapacityMl: 1 });
+  finish(beansFirst);
+  assert.equal(beansFirst.state.beansEmpty, true);
+  assert.equal(beansFirst.state.waterEmpty, false);
+  assert.equal(beansFirst.state.tankRemainingMl, 1);
+  const waterFirst = new MachineSession('espresso', { beanCapacityG: 9, tankCapacityMl: 8 });
+  finish(waterFirst);
+  assert.equal(waterFirst.state.beansEmpty, false);
+  assert.equal(waterFirst.state.waterEmpty, true);
+  assert.equal(waterFirst.state.resourceEmpty, true);
+  assert.equal(waterFirst.state.beansRemainingG, 0);
+  close(waterFirst.state.beansUsedG, 9);
 });
