@@ -1,10 +1,10 @@
 import * as THREE from '../pinsim/three.module.min.js';
+import { getBrewMechanics } from './brew-mechanics.mjs';
 
 // Illustrative cutaway. +y is up and the dispensing face points towards +z.
 const TAU = Math.PI * 2;
 const clamp = (n, a = 0, b = 1) => Math.max(a, Math.min(b, n));
 const mix = (a, b, t) => a + (b - a) * t;
-const smooth = n => { const t = clamp(n); return t * t * (3 - 2 * t); };
 const rand = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 const v = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const dummy = new THREE.Object3D();
@@ -36,6 +36,23 @@ function rod(parent, mat, a, b, r = .025) {
   const av = v(...a), bv = v(...b), direction = bv.clone().sub(av);
   const mesh = cylinder(parent, mat, r, r, direction.length(), av.add(bv).multiplyScalar(.5).toArray(), 12);
   mesh.quaternion.setFromUnitVectors(up, direction.normalize()); return mesh;
+}
+function setRod(mesh, a, b) {
+  const start = v(...a), end = v(...b), direction = end.clone().sub(start);
+  mesh.position.copy(start.add(end).multiplyScalar(.5));
+  mesh.quaternion.setFromUnitVectors(up, direction.clone().normalize());
+  mesh.scale.y = direction.length();
+}
+function sidePlate(parent, material, x) {
+  // Molded side profile in the y/z plane, with a real opening through it.
+  const outline = [[.84,-.35],[-.50,-.35],[-.48,1.30],[-.12,1.30],[.08,.87],[.35,.66],[.86,.62]];
+  const shape = new THREE.Shape();
+  outline.forEach(([z,y],i)=>i?shape.lineTo(-z,y):shape.moveTo(-z,y));shape.closePath();
+  const hole = new THREE.Path();
+  hole.moveTo(-.64,-.18);hole.lineTo(.31,-.18);hole.lineTo(.30,.57);hole.lineTo(.13,.68);hole.lineTo(-.17,.40);hole.lineTo(-.65,.36);hole.closePath();shape.holes.push(hole);
+  const geometry = new THREE.ExtrudeGeometry(shape,{depth:.074,bevelEnabled:true,bevelSegments:2,steps:1,bevelSize:.013,bevelThickness:.009});
+  geometry.translate(0,0,-.037);geometry.rotateY(Math.PI/2);
+  const mesh = new THREE.Mesh(geometry,material);mesh.position.x=x;parent.add(mesh);return mesh;
 }
 function torus(parent, mat, radius, tube, p, axis = 'y') {
   const mesh = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 10, 48), mat);
@@ -75,8 +92,9 @@ export class CoffeeScene {
     this.makeBrewGroup(); this.makeDrive(); this.makeHydraulics(); this.makeMilk(); this.makeCup(); this.makeFlows();
     this.anchorPoints = {
       hopper: v(-.05, 4.05, -.34), grinder: v(.27, 3.15, -.26), brew: v(.36, 1.97, .20),
-      drive: v(.97, 1.78, -.59), heater: v(-.71, 1.95, -.55), tank: v(-1.06, 2.82, -.75),
-      milk: v(-.90, 1.92, 1.69), waste: v(.40, .53, .36), pump: v(-.72, .75, -.65)
+      drive: v(1.04, 1.57, -.40), heater: v(-.71, 1.95, -.55), tank: v(-1.06, 2.82, -.75),
+      milk: v(-.90, 1.92, 1.69), waste: v(.40, .53, .36), pump: v(-.72, .75, -.65),
+      wiper:v(.31,1.89,1.09), lowerSieve:v(.31,1.46,.64), linkage:v(.97,1.55,.20)
     };
     this.bindControls(); this.setCutaway(true); this.resize(); this.updateCamera(1); this.update({}, 0);
   }
@@ -127,11 +145,12 @@ export class CoffeeScene {
     rounded(body, shell, [2.54, 3.58, .11], [0, 1.95, -1.65], .20);
     rounded(body, shell, [2.55, .18, 2.97], [0, 3.75, -.13], .05);
     rounded(body, shell, [2.56, .32, 3.2], [0, .16, -.02], .13);
-    // Slim permanent edges preserve the appliance silhouette in X-ray mode.
+    // Preserve the appliance silhouette; hide foreground edges in the detail view.
+    this.housingEdges=new THREE.Group();body.add(this.housingEdges);
     [-1.26, 1.26].forEach(x => {
-      rod(body, m.charcoal, [x, .28, -1.59], [x, 3.56, -1.59], .036);
-      rod(body, m.chrome, [x, .26, 1.29], [x, 2.79, 1.29], .035);
-      rod(body, m.charcoal, [x, 3.73, -1.53], [x, 3.73, 1.28], .036);
+      rod(this.housingEdges, m.charcoal, [x, .28, -1.59], [x, 3.56, -1.59], .036);
+      rod(this.housingEdges, m.chrome, [x, .26, 1.29], [x, 2.79, 1.29], .035);
+      rod(this.housingEdges, m.charcoal, [x, 3.73, -1.53], [x, 3.73, 1.28], .036);
       for (let i = 0; i < 8; i++) {
         const vent = box(body, shell, [.013, .09, .19], [x + Math.sign(x) * .059, 3.33, -.96 + i * .25]);
         vent.rotation.x = .42;
@@ -161,8 +180,8 @@ export class CoffeeScene {
     box(this.waste, m.charcoal, [1.02, .085, .85], [0, 0, 0]);
     [[-.49, .17, 0], [.49, .17, 0]].forEach(p => box(this.waste, m.frame, [.045, .38, .85], p));
     [[0, .17, -.41], [0, .17, .41]].forEach(p => box(this.waste, m.frame, [1.02, .38, .045], p));
-    this.spentPuck = cylinder(this.waste, m.grounds, .255, .255, .11, [.03, .12, .04], 36);
-    this.spentPuck.rotation.z = -.12; this.spentPuck.visible = false;
+    this.spentPuck = cylinder(this.waste, m.grounds, .278, .278, .105, [-.07, .16, .04], 36);
+    this.spentPuck.rotation.set(.10, 0, -.12); this.spentPuck.visible = false;
   }
 
   makeDisplayTexture() {
@@ -230,27 +249,48 @@ export class CoffeeScene {
     const m = this.mat;
     this.brewUnit = new THREE.Group(); this.brewUnit.position.set(.31, 1.39, .04); this.machine.add(this.brewUnit);
     const g = this.brewUnit;
-    // Molded removable black frame, yellow service latch, and stationary upper seal.
-    rounded(g, m.black, [1.04, .13, 1.34], [0, -.35, .20], .04);
-    [-.48, .48].forEach(x => {
-      rod(g, m.frame, [x, -.30, .78], [x, .72, -.13], .072);
-      rod(g, m.black, [x, .72, -.13], [x, 1.21, -.27], .073);
-      rod(g, m.black, [x, -.29, -.35], [x, 1.21, -.27], .07);
-      for (let i = 0; i < 4; i++) rod(g, m.black, [x, -.12 + i * .27, -.34], [x, -.04 + i * .27, .23 - i * .12], .035);
+    // Two broad molded cheeks, open inspection windows and reinforcing ribs.
+    // Their skin becomes translucent in cutaway, while the molded edges remain.
+    this.brewSkin = m.black.clone();
+    // Open base frame: the spent puck must fall through, not through a plate.
+    [-.50,.50].forEach(x=>rounded(g,m.black,[.10,.13,1.43],[x,-.35,.18],.025));
+    [-.49,.85].forEach(z=>rounded(g,m.black,[1.0,.13,.09],[0,-.35,z],.02));
+    [-.50,.50].forEach(x=>{
+      sidePlate(g,this.brewSkin,x);
+      rod(g,m.black,[x,-.27,.80],[x,.51,.80],.04);
+      rod(g,m.black,[x,.58,.75],[x,.69,.25],.05);
+      rod(g,m.black,[x,.69,.25],[x,1.26,-.18],.047);
+      rod(g,m.black,[x,-.27,-.46],[x,1.26,-.46],.045);
+      for(let i=0;i<5;i++)box(g,m.frame,[.096,.035,.22],[x,.76+i*.095,-.34]);
+      // A fixed L-shaped guide makes the carriage path legible.
+      pipe(g,m.steel,[[x*.93,.08,.65],[x*.93,.08,-.12],[x*.93,.72,-.12]],.017);
+      for(const [y,z] of [[-.24,.72],[-.24,-.39],[1.20,-.38],[.54,.65]])
+        cylinder(g,m.steel,.029,.029,.085,[x,y,z],12).rotation.z=Math.PI/2;
     });
-    rod(g, m.black, [-.49, 1.20, -.27], [.49, 1.20, -.27], .064);
-    rod(g, m.black, [-.49, .83, -.22], [.49, .83, -.22], .055);
+    rounded(g,m.black,[1.12,.14,.47],[0,1.26,-.27],.04);
+    for(let i=0;i<5;i++)box(g,m.frame,[.07,.17,.48],[-.40+i*.20,1.25,-.27]);
+    rounded(g,m.black,[1.05,.10,.14],[0,.73,-.30],.025);
     this.piston = new THREE.Group(); this.piston.position.set(0, .99, -.12); g.add(this.piston);
     cylinder(this.piston, m.charcoal, .32, .30, .34, [0, 0, 0]);
-    cylinder(this.piston, m.steel, .272, .272, .026, [0, -.178, 0]);
+    cylinder(this.piston, m.steel, .272, .272, .026, [0, -.165, 0]);
     torus(this.piston, m.red, .306, .031, [0, -.10, 0]);
     for (let x = -.16; x <= .16; x += .08) for (let z = -.16; z <= .16; z += .08) {
-      if (x * x + z * z < .042) cylinder(this.piston, m.black, .009, .009, .03, [x, -.19, z], 6);
+      if (x * x + z * z < .042) cylinder(this.piston, m.black, .009, .009, .001, [x, -.1785, z], 6);
     }
     rod(g, m.chrome, [0, 1.20, -.12], [0, 1.44, -.12], .032);
     this.chamber = new THREE.Group(); this.chamber.position.set(0, .15, .60); g.add(this.chamber);
-    cylinder(this.chamber, m.clearBrew, .33, .295, .41, [0, .10, 0], 48, true);
-    torus(this.chamber, m.charcoal, .334, .032, [0, .309, 0]);
+    cylinder(this.chamber, m.clearBrew, .33, .295, .38, [0, .085, 0], 48, true);
+    // Square loading mouth like the reference unit, with a round chamber below.
+    const funnelPositions=[];
+    const top=[[-.43,.297,-.37],[.43,.297,-.37],[.43,.297,.37],[-.43,.297,.37]];
+    const bottom=[[-.29,.07,-.29],[.29,.07,-.29],[.29,.07,.29],[-.29,.07,.29]];
+    for(let i=0;i<4;i++){const j=(i+1)%4;funnelPositions.push(...top[i],...bottom[i],...top[j],...top[j],...bottom[i],...bottom[j]);}
+    const funnelGeo=new THREE.BufferGeometry();funnelGeo.setAttribute('position',new THREE.Float32BufferAttribute(funnelPositions,3));funnelGeo.computeVertexNormals();
+    this.funnelMaterial=m.black.clone();this.funnelMaterial.side=THREE.DoubleSide;
+    this.chamber.add(new THREE.Mesh(funnelGeo,this.funnelMaterial));
+    [-.43,.43].forEach(x=>box(this.chamber,m.black,[.055,.025,.795],[x,.297,0]));
+    [-.37,.37].forEach(z=>box(this.chamber,m.black,[.805,.025,.055],[0,.297,z]));
+    torus(this.chamber,m.steel,.294,.009,[0,.073,0]);
     this.lowerPiston = cylinder(this.chamber, m.steel, .292, .285, .041, [0, -.106, 0]);
     this.lowerStem = cylinder(this.chamber, m.yellow, .10, .10, .15, [0, -.194, 0]);
     this.doseMaterial = m.grounds.clone();
@@ -261,16 +301,47 @@ export class CoffeeScene {
       const a = i * 2.39996, r = Math.sqrt(rand(i * 7)) * .267;
       dummy.position.set(Math.cos(a) * r, 0, Math.sin(a) * r); dummy.rotation.set(0, 0, 0); dummy.scale.set(1.0, .5 + rand(i), 1.0); dummy.updateMatrix(); this.grainTop.setMatrixAt(i, dummy.matrix);
     }
-    this.brewGear = this.makeGear(g, .255, [ .48, .16, -.38], m.yellow, 15);
-    const latch = rounded(g, m.yellow, [.16, .25, .12], [.52, .72, .12], .035); latch.rotation.z = -.12;
-    box(g, m.black, [.048, .08, .13], [.528, .745, .12]);
-    cylinder(g, m.yellow, .075, .075, .09, [.53, -.16, .15], 24).rotation.z = Math.PI / 2;
+    // The coupling axis is across the removable unit, aligned with the chassis.
+    this.brewAxle=new THREE.Group();this.brewAxle.position.set(.565,-.08,.10);this.brewAxle.rotation.y=Math.PI/2;g.add(this.brewAxle);
+    this.brewGear=this.makeGear(this.brewAxle,.265,[0,0,0],m.yellow,18);
+    this.crankPin=sphere(g,m.chrome,.046,[.64,.05,.10]);
+    this.linkA=cylinder(g,m.yellow,.030,.030,1,[0,0,0],12);
+    this.linkB=cylinder(g,m.yellow,.030,.030,1,[0,0,0],12);
+    this.elbow=sphere(g,m.chrome,.043,[0,0,0]);
+    this.follower=sphere(g,m.yellow,.049,[.64,.07,.60]);
+    this.carriage=box(this.chamber,m.frame,[1.02,.09,.14],[0,-.08,0]);
+    rod(this.chamber,m.chrome,[.49,-.08,0],[.65,-.08,0],.035);
+    [-.46,.46].forEach(x=>cylinder(this.chamber,m.yellow,.038,.038,.07,[x,-.08,0],20).rotation.z=Math.PI/2);
+    const latch = rounded(g, m.yellow, [.14, .28, .23], [.56, .59, .60], .03); latch.rotation.x = -.18;
+    box(g, m.black, [.15, .06, .09], [.575, .64, .60]);
+    cylinder(g, m.yellow, .089, .089, .09, [.57, -.08, .10], 8).rotation.z = Math.PI / 2;
     const label = new THREE.Mesh(new THREE.PlaneGeometry(.25, .10), new THREE.MeshBasicMaterial({ map: textTexture(['PUSH'], '#273135', '#f3efe4') }));
-    label.position.set(.345, .70, .22); g.add(label);
-    this.linkage = new THREE.Group(); g.add(this.linkage);
-    rod(this.linkage, m.yellow, [.43, .13, -.20], [.43, -.20, .19], .045);
-    cylinder(g, m.glass, .063, .063, .17, [-.48, .16, .19], 20);
-    this.ejectedPuck = cylinder(this.machine, m.grounds, .278, .278, .09, [.31, 1.5, .17]); this.ejectedPuck.visible = false;
+    label.position.set(.28,.52,.842);g.add(label);
+    // Cream-colored elbow fitting is a characteristic separate water connector.
+    const fitting=m.milk.clone();fitting.color.set('#e4dfc7');
+    cylinder(g,fitting,.083,.083,.27,[-.54,.12,.21],24);
+    cylinder(g,fitting,.061,.061,.18,[-.47,.14,.21],24).rotation.z=Math.PI/2;
+    torus(g,fitting,.071,.017,[-.54,.255,.21]);
+    // A real U-shaped wire: crossbar at sieve level, two side arms on guides.
+    this.wiper=new THREE.Group();g.add(this.wiper);
+    rod(g,m.chrome,[-.59,-.08,.10],[.65,-.08,.10],.047);
+    this.wiperCam=new THREE.Group();this.wiperCam.position.set(-.59,-.08,.10);g.add(this.wiperCam);
+    cylinder(this.wiperCam,m.yellow,.14,.14,.025,[0,0,0],32).rotation.z=Math.PI/2;
+    rod(this.wiper,m.chrome,[-.59,.37,.24],[-.49,.37,.24],.026);
+    rod(this.wiper,m.chrome,[-.49,.50,0],[.49,.50,0],.021);
+    [-.49,.49].forEach(x=>{
+      rod(this.wiper,m.chrome,[x,.50,0],[x,.42,.19],.021);
+      rod(this.wiper,m.chrome,[x,.42,.19],[x,.37,.24],.021);
+      sphere(this.wiper,m.yellow,.035,[x,.37,.24]);
+      rod(g,m.frame,[x,.37,.37],[x,.37,1.29],.019);
+    });
+    this.wiperActuator=cylinder(g,m.yellow,.018,.018,1,[0,0,0],12);
+    this.wiperActuatorB=cylinder(g,m.yellow,.018,.018,1,[0,0,0],12);
+    this.wiperElbow=sphere(g,m.chrome,.030,[0,0,0]);
+    this.wiperCamPin=sphere(g,m.chrome,.033,[0,0,0]);
+    this.ejectedPuck=cylinder(g,this.doseMaterial,.278,.278,.105,[0,.53,.60]);this.ejectedPuck.visible=false;
+    this.ejectedGrains=this.grainTop.clone();this.ejectedGrains.position.y=.055;this.ejectedPuck.add(this.ejectedGrains);
+    this.spentPuck.material=this.doseMaterial;
   }
 
   makeGear(parent, radius, pos, material, teeth = 18) {
@@ -289,17 +360,25 @@ export class CoffeeScene {
 
   makeDrive() {
     const m = this.mat;
-    this.drive = new THREE.Group(); this.drive.position.set(.86, 1.57, -.73); this.machine.add(this.drive);
-    // Motor, reduction gear and coupling stay attached to the chassis in service view.
-    const motor = cylinder(this.drive, m.steel, .23, .23, .40, [.01, .32, -.20]); motor.rotation.x = Math.PI / 2;
-    cylinder(this.drive, m.charcoal, .23, .23, .10, [.01, .32, -.43]).rotation.x = Math.PI / 2;
-    box(this.drive, m.black, [.53, .62, .12], [0, 0, -.11]);
-    this.driveGear = this.makeGear(this.drive, .255, [-.07, -.02, .12], m.steel, 18);
-    this.pinion = this.makeGear(this.drive, .105, [.04, .32, .12], m.yellow, 10);
-    cylinder(this.drive, m.chrome, .075, .075, .28, [-.07, -.02, .29]).rotation.x = Math.PI / 2;
-    box(this.drive, m.yellow, [.16, .055, .08], [-.07, -.02, .44]);
-    box(this.machine, m.frame, [.13, 1.02, .15], [1.09, 1.71, -.95]);
-    [-.20, .20].forEach(y => sphere(this.drive, m.chrome, .027, [.20, y, -.024]));
+    this.drive = new THREE.Group(); this.drive.position.set(1.04, 1.31, .14); this.machine.add(this.drive);
+    // Motor along z, worm above the reduction wheel, output/coupling along x.
+    // End cap and metal body have disjoint axial extents: no coincident mantles.
+    const motor=cylinder(this.drive,m.steel,.22,.22,.38,[0,.34,-.58]);motor.rotation.x=Math.PI/2;
+    const cap=cylinder(this.drive,m.charcoal,.211,.211,.10,[0,.34,-.832]);cap.rotation.x=Math.PI/2;
+    cylinder(this.drive,m.charcoal,.225,.225,.033,[0,.34,-.365]).rotation.x=Math.PI/2;
+    cylinder(this.drive,m.chrome,.034,.034,.64,[0,.34,-.03]).rotation.x=Math.PI/2;
+    this.worm=new THREE.Group();this.worm.position.set(0,.34,.02);this.drive.add(this.worm);
+    const helix=[];for(let i=0;i<=120;i++){const t=i/120;helix.push([Math.cos(t*TAU*5)*.055,Math.sin(t*TAU*5)*.055,-.10+t*.26]);}
+    pipe(this.worm,m.chrome,helix,.014);
+    const axle=new THREE.Group();axle.rotation.y=Math.PI/2;this.drive.add(axle);
+    this.driveGear=this.makeGear(axle,.278,[0,0,0],m.steel,20);
+    this.driveMarker=box(this.driveGear,m.yellow,[.044,.10,.08],[0,.21,.01]);
+    this.coupling=new THREE.Group();this.drive.add(this.coupling);
+    cylinder(this.coupling,m.chrome,.055,.055,.235,[-.135,0,0],24).rotation.z=Math.PI/2;
+    cylinder(this.coupling,m.yellow,.084,.084,.075,[-.238,0,0],8).rotation.z=Math.PI/2;
+    box(this.drive,m.black,[.09,.82,.77],[.16,.13,-.21]);
+    [-.21,.49].forEach(y=>sphere(this.drive,m.chrome,.031,[.212,y,-.46]));
+    box(this.drive,m.frame,[.34,.07,.48],[0,.055,-.60]);
   }
 
   makeHydraulics() {
@@ -430,14 +509,19 @@ export class CoffeeScene {
       water: { theta: -1.35, phi: 1.17, radius: 6.1, target: [-.52, 1.91, -.49] },
     };
     const selected = views[name] || views.overview; this.view = name in views ? name : 'overview';
+    this.housingEdges.visible=this.view!=='brew'||!this.cutaway;
     this.orbitGoal = { theta: selected.theta, phi: selected.phi, radius: selected.radius }; this.targetGoal.set(...selected.target);
-    if (this.exploded) { this.targetGoal.x += .78; this.orbitGoal.radius = Math.max(this.orbitGoal.radius, 8.2); }
+    if (this.exploded) { this.targetGoal.x -= 1.0; this.orbitGoal.theta=.15; this.orbitGoal.radius = Math.max(this.orbitGoal.radius, 8.8); }
   }
 
   setCutaway(enabled) {
     this.cutaway = Boolean(enabled);
+    this.housingEdges.visible=this.view!=='brew'||!this.cutaway;
     this.housing.forEach(({ mat, opacity }) => { mat.transparent = this.cutaway || mat === this.displayMat; mat.opacity = this.cutaway ? opacity : 1; mat.depthWrite = !this.cutaway; mat.needsUpdate = true; });
     this.mat.clearBrew.opacity = this.cutaway ? .25 : .92;
+    for(const [mat,opacity] of [[this.brewSkin,.42],[this.funnelMaterial,.40]]){
+      mat.transparent=this.cutaway;mat.opacity=this.cutaway?opacity:1;mat.depthWrite=!this.cutaway;mat.needsUpdate=true;
+    }
     this.machine.traverse(object => {
       if (!object.isMesh) return;
       const materials = Array.isArray(object.material) ? object.material : [object.material];
@@ -469,23 +553,36 @@ export class CoffeeScene {
     this.state = state; const t = Number(state.time) || 0, k = 1 - Math.exp(-clamp(Number(dt) || 0, 0, .15) * 8);
     this.updateCamera(k); this.explodeAmount = mix(this.explodeAmount, this.exploded ? 1 : 0, k);
     if (Math.abs(this.explodeAmount - (this.exploded ? 1 : 0)) < 1e-4) this.explodeAmount = this.exploded ? 1 : 0;
-    this.brewUnit.position.x = .31 + this.explodeAmount * 1.94;
-    const compression = clamp(state.compression || 0), eject = clamp(state.ejectProgress || 0), ejecting = state.phase?.id === 'eject';
-    // First move the front loading cup under the rear upper piston, then raise
-    // it. The separate falling dose never passes through the fixed piston.
-    const slide = smooth(compression / .56), lift = smooth((compression - .40) / .60);
-    this.chamber.position.set(0, .15 + lift * .636, .60 - slide * .72);
-    this.chamber.rotation.x = -compression * .09;
-    this.linkage.rotation.x = -compression * .46;
-    this.brewGear.rotation.z = state.driveAngle || 0; this.driveGear.rotation.z = state.driveAngle || 0; this.pinion.rotation.z = -(state.driveAngle || 0) * 2.5;
+    this.brewUnit.position.x = .31 - this.explodeAmount * 2.90;
+    this.brewSkin.opacity=this.cutaway?mix(.42,.96,this.explodeAmount):1;
+    this.funnelMaterial.opacity=this.cutaway?mix(.40,.86,this.explodeAmount):1;
+    const mechanics=getBrewMechanics({time:0,compression:0,ejectProgress:0,groundAmount:0,driveAngle:0,phase:{id:'grind'},...state});
+    this.mechanics=mechanics;
+    this.chamber.position.set(0,mechanics.chamberY,mechanics.chamberZ);
+    const angle=mechanics.driveAngle;
+    this.brewGear.rotation.z=-angle;this.driveGear.rotation.z=-angle;this.coupling.rotation.x=-angle;this.wiperCam.rotation.x=-angle;this.worm.rotation.z=angle*20;
+    const crank=[.65,-.08+.13*Math.cos(angle),.10-.13*Math.sin(angle)];
+    const follower=[.65,mechanics.chamberY-.08,mechanics.chamberZ];
+    // Two constant-length articulated links visibly connect crank to carriage.
+    const linkPair=(a,b,length,first,second,joint)=>{
+      const dy=b[1]-a[1],dz=b[2]-a[2],d=Math.max(.0001,Math.hypot(dy,dz));
+      const offset=Math.sqrt(Math.max(0,length*length-d*d/4));
+      const elbow=[a[0],(a[1]+b[1])/2+dz/d*offset,(a[2]+b[2])/2-dy/d*offset];
+      setRod(first,a,elbow);setRod(second,elbow,b);joint.position.set(...elbow);
+    };
+    linkPair(crank,follower,.57,this.linkA,this.linkB,this.elbow);
+    this.crankPin.position.set(...crank);this.follower.position.set(...follower);
+    this.wiper.position.z=mechanics.wiperZ;
+    const cam=[-.59,-.08+.10*Math.cos(angle),.10-.10*Math.sin(angle)];
+    const wireSlider=[-.59,.37,mechanics.wiperZ+.24];
+    this.wiperCamPin.position.set(...cam);linkPair(cam,wireSlider,.75,this.wiperActuator,this.wiperActuatorB,this.wiperElbow);
     this.burr.rotation.y = state.grinderAngle ?? (state.grind ? t * 12 : 0);
-    const doseAmount = clamp(state.groundAmount || 0), puckHeight = mix(.25, .105, Math.max(lift, clamp(state.puckWetness || 0))) * doseAmount;
-    const ejectLift = ejecting ? smooth((eject - .16) / .22) * (1 - smooth((eject - .70) / .30)) * .39 : 0;
+    const puckHeight=mechanics.doseHeight,ejectLift=mechanics.pistonLift;
     this.lowerPiston.position.y = -.106 + ejectLift;
     this.lowerStem.position.y = -.194 + ejectLift / 2; this.lowerStem.scale.y = 1 + ejectLift / .15;
-    this.dose.visible = this.grainTop.visible = doseAmount > .005 && !(ejecting && eject > .38);
-    this.dose.scale.y = Math.max(.001, puckHeight); this.dose.position.y = -.08 + puckHeight / 2 + ejectLift;
-    this.grainTop.position.y = -.077 + puckHeight + ejectLift;
+    this.dose.visible=this.grainTop.visible=mechanics.puckLocation==='chamber'&&puckHeight>.001;
+    this.dose.scale.y=Math.max(.001,puckHeight);this.dose.position.y=-.085+puckHeight/2+ejectLift;
+    this.grainTop.position.y=-.082+puckHeight+ejectLift;
     this.doseMaterial.color.set(state.puckWetness > .25 ? '#39271f' : '#71442a');
     this.groundFall.visible = this.fallingBeans.visible = Boolean(state.grind) && !this.exploded;
     if (state.grind) {
@@ -500,14 +597,11 @@ export class CoffeeScene {
       }
       this.fallingBeans.instanceMatrix.needsUpdate = true;
     }
-    this.ejectedPuck.visible = ejecting && eject > .38 && eject < .85;
+    this.ejectedPuck.visible=['sweeping','falling'].includes(mechanics.puckLocation);
     if (this.ejectedPuck.visible) {
-      const f = clamp((eject - .38) / .47);
-      const sweep = clamp(f / .60), fall = clamp((f - .60) / .40);
-      // The lower piston first presents the cake above the rim. It is swept
-      // clear of the chamber before gravity drops it into the separate bin.
-      this.ejectedPuck.position.set(.31 + this.explodeAmount * 1.94 + Math.sin(f * Math.PI) * .15, 1.91 + Math.sin(sweep * Math.PI) * .045 - fall * fall * 1.29, .64 - sweep * .68 + fall * .16);
-      this.ejectedPuck.rotation.z = f * .9; this.ejectedPuck.rotation.x = f * .3;
+      this.ejectedPuck.position.set(...mechanics.puckPosition);
+      const fall=mechanics.puckLocation==='falling'?clamp((state.ejectProgress-.66)/.19):0;
+      this.ejectedPuck.rotation.z=-fall*.12;this.ejectedPuck.rotation.x=fall*.10;
     }
     this.spentPuck.visible = Boolean(state.wastePuck);
     this.tankWater.scale.y = Math.max(.01, clamp(state.tankLevel ?? 1) * 2.31); this.tankWater.position.y = .85 + this.tankWater.scale.y / 2;
@@ -575,7 +669,10 @@ export class CoffeeScene {
     if (!this.labels) return {};
     this.machine.updateMatrixWorld(true); const result = {};
     for (const [id, anchor] of Object.entries(this.anchorPoints)) {
-      const point = anchor.clone(); if (id === 'brew') point.x += this.explodeAmount * 1.94;
+      const point = anchor.clone(); if (id === 'brew') point.x -= this.explodeAmount * 2.90;
+      if(id==='wiper')point.copy(this.brewUnit.position).add(v(0,.50,this.mechanics.wiperZ));
+      if(id==='lowerSieve')point.copy(this.brewUnit.position).add(v(0,this.mechanics.chamberY-.085+this.mechanics.pistonLift,this.mechanics.chamberZ));
+      if(id==='linkage')point.copy(this.brewUnit.position).add(this.elbow.position);
       point.project(this.camera); result[id] = { x: (point.x * .5 + .5) * this.width, y: (-point.y * .5 + .5) * this.height, visible: point.z > -1 && point.z < 1 && Math.abs(point.x) < 1 && Math.abs(point.y) < 1 };
     }
     return result;
@@ -584,7 +681,7 @@ export class CoffeeScene {
   inspect() {
     return {
       cutaway: this.cutaway, exploded: this.exploded, explodeAmount: this.explodeAmount, view: this.view,
-      phase: this.state.phase?.id, groundFall: this.groundFall.visible, chamberY: this.chamber.position.y,
+      phase: this.state.phase?.id,mechanics:this.mechanics, groundFall: this.groundFall.visible, chamberY: this.chamber.position.y,
       doseVisible: this.dose.visible, ejectedPuck: this.ejectedPuck.visible, wastePuck: this.spentPuck.visible,
       cup: { milk: this.cupMilk.visible, coffee: this.cupCoffee.visible, foam: this.cupFoam.visible },
       routes: this.flowPaths.map(r => ({ kind: r.kind, active: r.active })),

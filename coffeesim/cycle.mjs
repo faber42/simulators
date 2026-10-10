@@ -71,7 +71,7 @@ function buildPhases(config) {
       'Die Pumpe stoppt. Der Restdruck wird abgebaut und Restwasser gelangt in die Tropfschale.',
       'Erst nach dem Druckabbau öffnet die Mechanik die Brühkammer. Tropfschale und Tresterbehälter erfüllen verschiedene Aufgaben.'],
     ['eject', 'Kaffeepuck auswerfen', 9,
-      'Der äußere Antrieb öffnet die Brühgruppe. Der gebrauchte Kaffeepuck wird herausgeschoben und fällt in den Tresterbehälter.',
+      'Der äußere Antrieb öffnet die Brühgruppe. Das untere Sieb hebt den Puck über den Rand; ein Drahtbügel streift ihn in den Tresterbehälter.',
       'Der feste Trester landet im separaten Sammelbehälter unter der Brühgruppe. Restwasser sammelt sich in der Tropfschale.'],
     ['return', 'In Grundstellung fahren', 5,
       'Die Antriebsmechanik fährt zurück. Die leere Brühkammer steht wieder unter dem Mahlwerkschacht bereit.',

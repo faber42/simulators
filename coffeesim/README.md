@@ -30,7 +30,9 @@ Es gibt keinen Build-Schritt und keine zusätzlichen Abhängigkeiten oder CDN-Au
    und den Kaffeeauslauf in die Tasse.
 6. Die Pumpe stoppt, der Druck wird abgebaut. Restwasser geht zur
    Tropfschale. Danach öffnet die Mechanik, hebt den verbrauchten Puck aus
-   der Kammer und streift ihn in den separaten Tresterbehälter ab.
+   der Kammer. Das untere Sieb hebt ihn über den Becherrand; ein U-förmiger
+   Drahtbügel fährt über die Siebfläche und streift ihn nach hinten ab.
+   Erst nach dem vollständigen Abstreifen fällt er in den Tresterbehälter.
 7. Die leere Kammer fährt in ihre Grundstellung zurück.
 
 Der Espresso-Modus überspringt Milchbereitung und den Wechsel vom Dampf-
@@ -50,6 +52,7 @@ zum Brühmodus. Ein Latte-Durchlauf dauert 110 Demo-Sekunden, Espresso 84.
 | Durchblick | Gehäuse von allen Seiten durchsichtig oder geschlossen zeigen |
 | Bauteile | Anklickbare Erklärungen im 3D-Bild ein- oder ausblenden |
 | Brühgruppe heraus | Serviceansicht mit getrennter Brühgruppe und Antrieb; pausiert den Ablauf |
+| Einzelschritte in der Brühgruppenansicht | Kammer fahren, Verdichten, Puck anheben oder Abstreifen mit 0,5× abspielen; hält am Schrittende an |
 | i | Modellgrenzen und Quellen |
 | Leertaste / R / 1–4 | Pause / Reset / Kameraansichten |
 
@@ -83,13 +86,24 @@ in Wirklichkeit unsichtbar. Schaumvolumen enthält Luft und entspricht
 nicht derselben Menge entnommener Milch. Reinigungs- und Einschaltspülungen
 werden nicht modelliert.
 
+Die Brühgruppe orientiert sich an den kantigen Seitenwangen, dem eckigen
+Einfülltrichter, dem oberen Kolben mit rotem Dichtring und den gelben
+Bedienelementen der Referenzfotos. Der sichtbare Kraftweg führt vom
+Gehäusemotor über Schnecke, Getriebe und Kupplung zu Kurbel und Gelenkhebeln.
+Führungen und Gestänge sind zur Erklärung vereinfacht. Der Drahtbügel wartet,
+bis das untere Sieb den Puck freigegeben hat; nach dem Abstreifen kehren
+Sieb und Bügel in ihre Grundstellung zurück.
+
 ## Technik und Prüfung
 
 - `cycle.mjs`: deterministisches, zeitabhängiges Ablaufmodell ohne WebGL.
+- `brew-mechanics.mjs`: Kammer, Verdichtung, unterer Kolben, Drahtbügel und
+  Puckbahn als jederzeit vor- und zurückspulbares Bewegungsmodell.
 - `scene.js`: prozedurale Geometrien, Kamerasteuerung und Flussanimationen.
 - `app.js`, `index.html`, `style.css`: Bedienung und deutsche Erklärungen.
-- `node --test coffeesim/cycle.test.mjs`: Ablauf, Grenzen, Pause, Mengen,
-  Espresso und konsistentes Vor-/Zurückspringen.
+- `node --test coffeesim/cycle.test.mjs coffeesim/brew-mechanics.test.mjs`:
+  Ablauf, Grenzen, Pause, Mengen, Espresso, konsistentes Vor-/Zurückspringen,
+  Siebkontakt, Bügelkontakt, Randfreiheit und Reichweite der Gelenkhebel.
 - Browserdiagnose: `COFFEESIM.snapshot()`, `seek(sekunden)`, `play()`,
   `pause()`, `reset()` und `view('overview'|'brew'|'milk'|'water')`.
 
