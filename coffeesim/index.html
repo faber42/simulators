@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#eeeae2">
+  <title>CoffeeLab · Ein Kaffee. Von innen.</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="../" class="back" aria-label="Zur Simulatorübersicht">↗ <span>Simulatoren</span></a>
+    <a class="brand" href="./" aria-label="CoffeeLab Startseite"><span class="brand-mark">◒</span> COFFEE<span class="brand-light">LAB</span></a>
+    <span class="edition">DIE TECHNIK HINTER DEM ALLTAG <b>02 / KAFFEE</b></span>
+  </header>
+  <main class="workspace">
+    <section class="stage" aria-label="Drehbares 3D-Schnittmodell des Kaffeevollautomaten">
+      <div class="stage-heading"><span class="eyebrow">ANGELEHNT AN PHILIPS 5400 · LATTEGO</span><h1>Ein Kaffee.<br><em>Von innen.</em></h1><p>Von der ganzen Bohne bis zum letzten Tropfen.</p></div>
+      <canvas id="scene" tabindex="0" aria-label="3D-Kaffeevollautomat. Zum Drehen ziehen, zum Zoomen scrollen."></canvas>
+      <div id="annotations" class="annotations"></div>
+      <div class="view-tools">
+        <button id="cutaway" class="tool active" aria-pressed="true" title="Gehäuse durchsichtig anzeigen">◫ <span>Durchblick</span></button>
+        <button id="labels" class="tool active" aria-pressed="true">⊙ <span>Bauteile</span></button>
+        <button id="explode" class="tool" aria-pressed="false" title="Brühgruppe herausziehen und Antriebskupplung betrachten">↗ <span>Brühgruppe heraus</span></button>
+      </div>
+      <div class="stage-bottom">
+        <div class="view-presets" role="group" aria-label="Kameraperspektive"><button data-view="overview" class="active" aria-pressed="true">Gesamtansicht</button><button data-view="brew" aria-pressed="false">Brühgruppe</button><button data-view="milk" aria-pressed="false">Milchsystem</button><button data-view="water" aria-pressed="false">Wasserweg</button></div>
+        <div class="stage-caption"><span>Ziehen: drehen <i>·</i> Scrollen: zoomen</span><span id="view-note">Frei drehbares Schnittmodell</span></div>
+      </div>
+      <div id="loader" role="status">Das Innenleben wird aufgebaut …</div>
+      <div id="scene-error" role="alert" hidden></div>
+    </section>
+    <aside class="inspector" aria-label="Getränk und Erklärung des Brühvorgangs">
+      <div class="program-label"><span class="eyebrow">DEIN GETRÄNK</span><button id="about" class="info-button" aria-label="Informationen und Quellen">i</button></div>
+      <div class="drink-picker" role="group" aria-label="Getränk auswählen"><button data-drink="latte" class="active" aria-pressed="true"><span aria-hidden="true">▤</span>Latte macchiato</button><button data-drink="espresso" aria-pressed="false"><span aria-hidden="true">▰</span>Espresso</button></div>
+      <div class="phase-heading"><span class="eyebrow" id="phase-number">BEREIT FÜR DEN ERSTEN KAFFEE</span><h2 id="phase-title">Was steckt<br>in deiner Tasse?</h2><p id="phase-description">Starte den Automaten. Sieh zu, wie Mahlwerk, Brühgruppe und Milchsystem zusammenarbeiten.</p></div>
+      <div class="metrics" aria-label="Illustrative Modellwerte"><div><span>Heizung</span><strong id="temperature">20<small> °C</small></strong><div class="meter"><i id="temperature-meter"></i></div></div><div><span>Brühdruck</span><strong id="pressure">0<small> bar</small></strong><div class="meter blue"><i id="pressure-meter"></i></div></div></div>
+      <div class="flow-state"><span class="status-dot" id="status-dot"></span><span id="flow-text">Bohnen, Wasser und Milch sind bereit.</span></div>
+      <div class="insight"><span class="eyebrow" id="insight-kicker">DAS ZUSAMMENSPIEL</span><h3 id="insight-title">Drei Wege. Eine Tasse.</h3><p id="insight-text">Das Mahlwerk liefert Kaffeemehl. Pumpe und Heizung liefern heißes Wasser. Das Milchsystem macht den Schaum. Erst in der Tasse kommt alles zusammen.</p></div>
+      <div class="component-info" id="component-info" hidden><button id="close-component" aria-label="Bauteilerklärung schließen">×</button><span class="eyebrow">BAUTEIL IM FOKUS</span><h3 id="component-title"></h3><p id="component-text"></p></div>
+      <div class="cup-summary"><span>IN DER TASSE</span><div><span><i class="dot cream"></i>Milch & Schaum <b id="milk-value">0 ml</b></span><span><i class="dot coffee"></i>Kaffee <b id="coffee-value">0 ml</b></span></div></div>
+      <p class="model-note">Anschauliches Funktionsmodell · Zeiten, Mengen und Messwerte sind vereinfacht.</p>
+    </aside>
+    <section class="console" aria-label="Steuerung des Brühvorgangs">
+      <div class="transport"><button id="play" class="play-button" disabled><span id="play-icon" aria-hidden="true">▶</span><span id="play-text">Kaffee zubereiten</span></button><button id="reset" class="reset-button" title="Ablauf zurücksetzen" aria-label="Ablauf zurücksetzen">↺</button><div class="time-display"><strong id="elapsed">00:00</strong><span>/ <span id="total">02:00</span></span></div><div class="speed-control"><label for="speed">Tempo</label><select id="speed"><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></div><span class="transport-note" id="transport-note">Milch zuerst, dann Kaffee.</span></div>
+      <div class="timeline-meta"><span id="timeline-status">BEREIT</span><span id="timeline-percent">0 %</span></div>
+      <input id="timeline" class="timeline" type="range" min="0" max="120" step="0.1" value="0" aria-label="Zeitpunkt im Brühvorgang">
+      <nav id="phase-list" class="phase-list" aria-label="Zu einem Schritt springen"></nav>
+    </section>
+  </main>
+  <footer class="page-footer"><span>FARBEN DER WEGE</span><span><i class="dot water"></i>Frischwasser</span><span><i class="dot hot"></i>Heißwasser</span><span><i class="dot steam"></i>Dampf</span><span><i class="dot cream"></i>Milch</span><span><i class="dot coffee"></i>Kaffee</span><span class="keyboard-hint">Leertaste: Pause <i>·</i> R: Neustart <i>·</i> 1–4: Ansicht</span></footer>
+  <dialog id="about-dialog" aria-labelledby="about-title"><button id="close-about" class="dialog-close" aria-label="Informationen schließen">×</button><span class="eyebrow">MODELL & QUELLEN</span><h2 id="about-title">Verstehen, was innen passiert.</h2><p>CoffeeLab ist ein vereinfachtes Funktionsmodell, dessen äußere Gestaltung sich an der Philips 5400 Series mit LatteGo orientiert. Die Bauteile sind zur Erklärung auseinandergerückt; das Modell ist keine maßgetreue Konstruktionszeichnung.</p><p>Die Brühgruppe ist herausnehmbar. Ihr Antriebsmotor und die Heizung sitzen im Gerät. Heißes Brühwasser wird durch den verdichteten Kaffee gepumpt. Philips nennt 90–98 °C für die Kaffeezubereitung: Es wird dabei nicht gekocht. Die höhere angezeigte Heiztemperatur in der Milchphase steht für den Dampfbetrieb.</p><p>LatteGo mischt angesaugte Milch mit Luft und Dampf. Der Milchkanal liegt zwischen den beiden Teilen des Behälters. Der hier gezeigte Latte macchiato erhält erst Milch und Schaum, anschließend Kaffee. Getränkerezept, Mengen und Geräteeinstellungen können Reihenfolge und Dauer verändern.</p><p>Zeiten, Druck und Mengen sind illustrative Modellwerte. Leitungen, bewegte Teilchen, Kolbenbewegungen und Schaum sind vergrößert und vereinfacht. Dampf selbst ist unsichtbar. Spülprogramme beim Ein- und Ausschalten werden nicht gezeigt.</p><ul id="sources"><li><a href="https://www.documents.philips.com/assets/20220207/b59bacc1f77f41b48f54ae350118d1e2.pdf" target="_blank" rel="noopener">Philips 5400 · Produktdatenblatt und Brühtemperatur</a></li><li><a href="https://www.atarserviss.lv/image/files/Philips/Philips%205400/EP5447-90-1.pdf" target="_blank" rel="noopener">Philips-Servicehandbuch · Getriebe, Heizung und LatteGo (beim Serviceanbieter)</a></li><li><a href="https://www.usa.philips.com/c-t/XC000004216/i-cannot-insert-the-brew-group-into-my-philips-espresso-machine" target="_blank" rel="noopener">Philips Support · Brühgruppe und Zahnrad im Gehäuse</a></li></ul><button id="about-done" class="play-button">Verstanden</button></dialog>
+  <span id="phase-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
+
