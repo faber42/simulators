@@ -51,7 +51,7 @@ zum Brühmodus. Ein Latte-Durchlauf dauert 110 Demo-Sekunden, Espresso 84.
 | Ziehen / Mausrad | Rundherum drehen / zoomen |
 | Durchblick | Gehäuse von allen Seiten durchsichtig oder geschlossen zeigen |
 | Bauteile | Anklickbare Erklärungen im 3D-Bild ein- oder ausblenden |
-| Brühgruppe heraus | Serviceansicht mit getrennter Brühgruppe und Antrieb; pausiert den Ablauf |
+| Brühgruppe heraus | Pausiert; zieht den rechten Tank vor und die Brühgruppe nach rechts vom fest eingebauten Antrieb ab |
 | Einzelschritte in der Brühgruppenansicht | Kammer fahren, Verdichten, Puck anheben oder Abstreifen mit 0,5× abspielen; hält am Schrittende an |
 | i | Modellgrenzen und Quellen |
 | Leertaste / R / 1–4 | Pause / Reset / Kameraansichten |
@@ -94,16 +94,26 @@ Führungen und Gestänge sind zur Erklärung vereinfacht. Der Drahtbügel wartet
 bis das untere Sieb den Puck freigegeben hat; nach dem Abstreifen kehren
 Sieb und Bügel in ihre Grundstellung zurück.
 
+Von der Gerätefront aus gesehen sitzt der Wassertank rechts. Brühgruppe und
+Antrieb sind als zusammengehöriges Paar gespiegelt: Der Motor bleibt links,
+die Gruppe wird nach rechts entnommen. Kammer, Bügel und seine Führungen
+liegen während des gesamten Brühzyklus hinter der geschlossenen Front.
+Mahltrichter, Tresterbehälter, Anschlüsse und Kameras folgen dieser Anordnung.
+In der Serviceansicht fährt zuerst der Tank nach vorne aus dem Entnahmeweg;
+beim Einsetzen läuft die Reihenfolge umgekehrt.
+
 ## Technik und Prüfung
 
 - `cycle.mjs`: deterministisches, zeitabhängiges Ablaufmodell ohne WebGL.
 - `brew-mechanics.mjs`: Kammer, Verdichtung, unterer Kolben, Drahtbügel und
   Puckbahn als jederzeit vor- und zurückspulbares Bewegungsmodell.
+- `layout.mjs`: Einbaupositionen, Spiegelung und Reihenfolge der Entnahme.
 - `scene.js`: prozedurale Geometrien, Kamerasteuerung und Flussanimationen.
 - `app.js`, `index.html`, `style.css`: Bedienung und deutsche Erklärungen.
-- `node --test coffeesim/cycle.test.mjs coffeesim/brew-mechanics.test.mjs`:
+- `node --test coffeesim/*.test.mjs`:
   Ablauf, Grenzen, Pause, Mengen, Espresso, konsistentes Vor-/Zurückspringen,
-  Siebkontakt, Bügelkontakt, Randfreiheit und Reichweite der Gelenkhebel.
+  Siebkontakt, Bügelkontakt, Randfreiheit, Reichweite der Gelenkhebel sowie
+  Gehäusefreiraum und die rechte Entnahme anhand der tatsächlichen 3D-Geometrie.
 - Browserdiagnose: `COFFEESIM.snapshot()`, `seek(sekunden)`, `play()`,
   `pause()`, `reset()` und `view('overview'|'brew'|'milk'|'water')`.
 

@@ -1,5 +1,6 @@
 import * as THREE from '../pinsim/three.module.min.js';
 import { getBrewMechanics } from './brew-mechanics.mjs';
+import { LAYOUT, brewPoint, servicePose } from './layout.mjs';
 
 // Illustrative cutaway. +y is up and the dispensing face points towards +z.
 const TAU = Math.PI * 2;
@@ -91,10 +92,10 @@ export class CoffeeScene {
     this.makeMaterials(); this.makeStage(); this.makeHousing(); this.makeHopper(); this.makeGrinder();
     this.makeBrewGroup(); this.makeDrive(); this.makeHydraulics(); this.makeMilk(); this.makeCup(); this.makeFlows();
     this.anchorPoints = {
-      hopper: v(-.05, 4.05, -.34), grinder: v(.27, 3.15, -.26), brew: v(.36, 1.97, .20),
-      drive: v(1.04, 1.57, -.40), heater: v(-.71, 1.95, -.55), tank: v(-1.06, 2.82, -.75),
-      milk: v(-.90, 1.92, 1.69), waste: v(.40, .53, .36), pump: v(-.72, .75, -.65),
-      wiper:v(.31,1.89,1.09), lowerSieve:v(.31,1.46,.64), linkage:v(.97,1.55,.20)
+      hopper: v(-.05, 4.05, -.34), grinder: v(...LAYOUT.grinder), brew: v(...brewPoint(0,.58,.16)),
+      drive: v(-.63,1.57,-.95), heater: v(-.78,2.60,-1.06), tank: v(.98,2.82,-.75),
+      milk: v(-.90, 1.92, 1.69), waste: v(.10,.53,-.52), pump: v(-.72, .75, -.65),
+      wiper:v(), lowerSieve:v(), linkage:v()
     };
     this.bindControls(); this.setCutaway(true); this.resize(); this.updateCamera(1); this.update({}, 0);
   }
@@ -176,7 +177,7 @@ export class CoffeeScene {
       for (let z = 1.14; z <= 1.78; z += .13) cylinder(body, m.black, .021, .021, .004, [x, .386, z], 10);
     }
     // Open top waste drawer, directly beneath the brew group.
-    this.waste = new THREE.Group(); this.waste.position.set(.38, .46, .12); body.add(this.waste);
+    this.waste = new THREE.Group(); this.waste.position.set(...brewPoint(.07,-.93,.08));this.waste.scale.x=-1;body.add(this.waste);
     box(this.waste, m.charcoal, [1.02, .085, .85], [0, 0, 0]);
     [[-.49, .17, 0], [.49, .17, 0]].forEach(p => box(this.waste, m.frame, [.045, .38, .85], p));
     [[0, .17, -.41], [0, .17, .41]].forEach(p => box(this.waste, m.frame, [1.02, .38, .045], p));
@@ -219,11 +220,11 @@ export class CoffeeScene {
       dummy.scale.set(1, 1, 1); dummy.updateMatrix(); this.beanGrooves.setMatrixAt(i, dummy.matrix);
     }
     body.add(this.beans, this.beanGrooves);
-    this.beanThroat = cylinder(body, m.glass, .45, .18, .30, [.29, 3.61, -.28], 36, true);
+    this.beanThroat = cylinder(body, m.glass, .36, .18, .18, [.10,3.76,-.47], 36, true);
   }
 
   makeGrinder() {
-    const m = this.mat; this.grinder = new THREE.Group(); this.grinder.position.set(.29, 3.10, -.27); this.machine.add(this.grinder);
+    const m = this.mat; this.grinder = new THREE.Group(); this.grinder.position.set(...LAYOUT.grinder); this.machine.add(this.grinder);
     const casing = m.glass.clone(); casing.color.set('#849692'); casing.opacity = .26;
     cylinder(this.grinder, casing, .48, .42, .61, [0, .13, 0], 48, true);
     cylinder(this.grinder, m.frame, .40, .40, .09, [0, -.21, 0]);
@@ -237,9 +238,10 @@ export class CoffeeScene {
     cylinder(this.grinder, m.charcoal, .23, .23, .28, [0, -.43, -.02]);
     for (let i = 0; i < 6; i++) torus(this.grinder, m.frame, .235, .011, [0, -.32 - i * .04, -.02]);
     const funnelMat = m.clearBrew.clone(); funnelMat.opacity = .35;
-    pipe(this.machine, funnelMat, [[.29, 3.00, .12], [.29, 2.91, .36], [.29, 2.82, .64]], .14);
-    cylinder(this.machine, funnelMat, .22, .10, .31, [.29, 2.67, .64], 32, true);
-    torus(this.machine, m.frame, .225, .027, [.29, 2.825, .64]);
+    const [fillX,,fillZ]=brewPoint(0,.15,.60);
+    pipe(this.machine, funnelMat, [[fillX,3.15,-.09],[fillX,3.02,.02],[fillX,2.82,fillZ]], .10);
+    cylinder(this.machine, funnelMat, .18,.09,.31,[fillX,2.67,fillZ],32,true);
+    torus(this.machine,m.frame,.182,.023,[fillX,2.825,fillZ]);
     // The falling dose is visible between the separate grinder and the brew cup.
     this.groundFall = new THREE.InstancedMesh(new THREE.SphereGeometry(.023, 6, 4), m.grounds, 60); this.machine.add(this.groundFall);
     this.fallingBeans = new THREE.InstancedMesh(new THREE.SphereGeometry(.062, 8, 6), m.bean, 12); this.machine.add(this.fallingBeans);
@@ -247,7 +249,7 @@ export class CoffeeScene {
 
   makeBrewGroup() {
     const m = this.mat;
-    this.brewUnit = new THREE.Group(); this.brewUnit.position.set(.31, 1.39, .04); this.machine.add(this.brewUnit);
+    this.brewUnit = new THREE.Group(); this.brewUnit.position.set(...LAYOUT.brew);this.brewUnit.scale.x=-1;this.machine.add(this.brewUnit);
     const g = this.brewUnit;
     // Two broad molded cheeks, open inspection windows and reinforcing ribs.
     // Their skin becomes translucent in cutaway, while the molded edges remain.
@@ -316,7 +318,7 @@ export class CoffeeScene {
     box(g, m.black, [.15, .06, .09], [.575, .64, .60]);
     cylinder(g, m.yellow, .089, .089, .09, [.57, -.08, .10], 8).rotation.z = Math.PI / 2;
     const label = new THREE.Mesh(new THREE.PlaneGeometry(.25, .10), new THREE.MeshBasicMaterial({ map: textTexture(['PUSH'], '#273135', '#f3efe4') }));
-    label.position.set(.28,.52,.842);g.add(label);
+    label.position.set(.28,.52,.842);label.scale.x=-1;g.add(label);
     // Cream-colored elbow fitting is a characteristic separate water connector.
     const fitting=m.milk.clone();fitting.color.set('#e4dfc7');
     cylinder(g,fitting,.083,.083,.27,[-.54,.12,.21],24);
@@ -360,7 +362,7 @@ export class CoffeeScene {
 
   makeDrive() {
     const m = this.mat;
-    this.drive = new THREE.Group(); this.drive.position.set(1.04, 1.31, .14); this.machine.add(this.drive);
+    this.drive = new THREE.Group(); this.drive.position.set(...LAYOUT.drive);this.drive.scale.x=-1;this.machine.add(this.drive);
     // Motor along z, worm above the reduction wheel, output/coupling along x.
     // End cap and metal body have disjoint axial extents: no coincident mantles.
     const motor=cylinder(this.drive,m.steel,.22,.22,.38,[0,.34,-.58]);motor.rotation.x=Math.PI/2;
@@ -383,22 +385,24 @@ export class CoffeeScene {
 
   makeHydraulics() {
     const m = this.mat, body = this.machine;
+    this.tank=new THREE.Group();body.add(this.tank);
+    const tank=this.tank;
     const tankGlass = m.glass.clone(); tankGlass.opacity = .18;
-    rounded(body, tankGlass, [.46, 2.69, 1.72], [-.98, 2.12, -.56], .075);
-    this.tankWater = box(body, m.water, [.37, 1, 1.61], [-.98, 2.03, -.56]);
-    rounded(body, m.charcoal, [.47, .07, 1.73], [-.98, 3.49, -.56], .025);
-    const handle = new THREE.Group(); handle.position.set(-.98, 3.57, -.35); body.add(handle);
+    rounded(tank,tankGlass,[.44,2.69,1.72],[LAYOUT.tankX,2.12,-.56],.075);
+    this.tankWater=box(tank,m.water,[.37,1,1.61],[LAYOUT.tankX,2.03,-.56]);
+    rounded(tank,m.charcoal,[.44,.07,1.73],[LAYOUT.tankX,3.49,-.56],.025);
+    const handle=new THREE.Group();handle.position.set(LAYOUT.tankX,3.57,-.35);tank.add(handle);
     rod(handle, m.frame, [-.17, 0, -.3], [-.17, .10, -.3]); rod(handle, m.frame, [.17, 0, -.3], [.17, .10, -.3]); rod(handle, m.frame, [-.17, .10, -.3], [.17, .10, -.3]);
-    for (let i = 0; i < 4; i++) box(body, m.chrome, [.008, .012, .14], [-1.22, 1.19 + i * .54, .15]);
-    cylinder(body, m.chrome, .16, .16, .45, [-.98, 1.05, -.70]);
-    cylinder(body, m.blue, .17, .17, .06, [-.98, 1.29, -.70]);
+    for(let i=0;i<4;i++)box(tank,m.chrome,[.008,.012,.14],[1.20,1.19+i*.54,.15]);
+    cylinder(tank,m.chrome,.16,.16,.45,[LAYOUT.tankX,1.05,-.70]);
+    cylinder(tank,m.blue,.17,.17,.06,[LAYOUT.tankX,1.29,-.70]);
     // A separate vibration pump and thermoblock, neither is inside the brew unit.
     this.pump = new THREE.Group(); this.pump.position.set(-.64, .78, -.79); body.add(this.pump);
     const pumpCylinder = cylinder(this.pump, m.chrome, .19, .19, .48, [0, 0, 0]); pumpCylinder.rotation.z = Math.PI / 2;
     cylinder(this.pump, m.charcoal, .20, .20, .16, [.20, 0, 0]).rotation.z = Math.PI / 2;
     cylinder(this.pump, m.red, .11, .11, .08, [-.29, 0, 0]).rotation.z = Math.PI / 2;
     box(this.pump, m.black, [.52, .065, .43], [0, -.24, 0]);
-    this.heater = new THREE.Group(); this.heater.position.set(-.52, 1.85, -.81); body.add(this.heater);
+    this.heater = new THREE.Group(); this.heater.position.set(...LAYOUT.heater); body.add(this.heater);
     rounded(this.heater, m.heat, [.66, .81, .30], [0, 0, 0], .075);
     for (let i = 0; i < 5; i++) box(this.heater, m.chrome, [.62, .023, .025], [0, -.27 + i * .13, .171]);
     [[-.23, -.30], [.23, -.30], [-.23, .30], [.23, .30]].forEach(([x, y]) => sphere(this.heater, m.steel, .025, [x, y, .177]));
@@ -407,8 +411,8 @@ export class CoffeeScene {
       const t = i / 50; heatingPipe.push([Math.sin(t * Math.PI * 7) * .22, -.29 + t * .58, .218]);
     }
     pipe(this.heater, m.hot, heatingPipe, .028);
-    this.valve = sphere(body, m.chrome, .105, [-.41, 2.51, -.61]);
-    torus(body, m.yellow, .112, .017, [-.41, 2.51, -.61], 'z');
+    this.valve=sphere(body,m.chrome,.105,LAYOUT.valve);
+    torus(body,m.yellow,.112,.017,LAYOUT.valve,'z');
   }
 
   makeMilk() {
@@ -454,22 +458,22 @@ export class CoffeeScene {
   }
 
   makeFlows() {
-    const m = this.mat;
-    this.flow('supply', [[-.98, .92, -.71], [-1.01, .60, -.76], [-.90, .67, -.80]], m.blue, .031, 9);
-    this.flow('pump', [[-.37, .78, -.80], [-.30, 1.04, -.90], [-.69, 1.28, -.80], [-.65, 1.45, -.63]], m.blue, .035, 13);
-    this.flow('heater', [[-.65, 1.45, -.59], [-.77, 1.61, -.58], [-.30, 1.81, -.58], [-.75, 2.08, -.58], [-.42, 2.26, -.58], [-.41, 2.51, -.61]], m.hot, .033, 15);
-    this.flow('hot', [[-.41, 2.51, -.61], [-.59, 2.27, -.25], [-.60, 1.81, .20], [-.17, 1.55, .23]], m.hot, .028, 13);
-    this.flow('steam', [[-.41, 2.51, -.61], [-.53, 2.74, -.21], [-.85, 2.68, .52], [-.91, 2.49, 1.19], [-.79, 2.20, 1.61]], m.steam, .035, 20);
+    const m = this.mat, inlet=brewPoint(-.54,.12,.21), outlet=brewPoint(0,1.06,-.12);
+    this.flow('supply', [[LAYOUT.tankX,.92,-.71],[.86,.61,-1.05],[-.85,.60,-1.05],[-.90,.67,-.80]], m.blue, .031, 13);
+    this.flow('pump', [[-.37,.78,-.80],[-.49,1.08,-1.43],[-1.09,1.52,-1.47],[-.91,2.10,-1.13]], m.blue, .035, 13);
+    this.flow('heater', [[-.91,2.10,-1.09],[-1.03,2.26,-1.08],[-.56,2.46,-1.08],[-1.01,2.73,-1.08],[-.68,2.91,-1.08],LAYOUT.valve], m.hot, .033, 15);
+    this.flow('hot', [LAYOUT.valve,[-.42,2.87,-1.36],[.59,2.68,-1.31],[.65,1.80,-.61],inlet], m.hot, .028, 13);
+    this.flow('steam', [LAYOUT.valve,[-.84,2.98,-.53],[-.85,2.68,.52],[-.91,2.49,1.19],[-.79,2.20,1.61]], m.steam, .035, 20);
     this.flow('milkUptake', [[.13, .09, .03], [.22, .58, .035], [.22, 1.07, .035], [.15, 1.20, .05]], m.milk, .025, 11, this.carafe);
     this.flow('milkOutlet', [[-.79, 2.17, 1.61], [-.60, 2.16, 1.65], [-.22, 2.10, 1.73]], m.milk, .038, 10);
     this.flow('milkPour', [[-.22, 2.10, 1.73], [-.18, 1.84, 1.71], [-.10, 1.46, 1.66], [-.03, .53, 1.61]], m.milk, .027, 13);
-    this.flow('coffee', [[.31, 2.45, -.08], [.58, 2.60, .10], [.51, 2.73, .67], [.06, 2.68, 1.39]], m.coffee, .029, 16);
+    this.flow('coffee', [outlet,[-.17,2.60,-.55],[-.10,2.73,.67],[.06,2.68,1.39]], m.coffee, .029, 16);
     [-.07, .19].forEach(x => this.flow('coffeePour', [[x, 2.15, 1.43], [x, 1.70, 1.46], [x, .53, 1.51]], m.coffee, .016, 10));
     // The lower inlet feeds the bottom sieve. Water travels upward through the
     // puck; the upper piston collects coffee and feeds the separate outlet.
-    this.flow('infuse', [[-.17, 1.55, .23], [.02, 1.75, .20], [.31, 1.98, -.08], [.31, 2.09, -.08], [.31, 2.20, -.08], [.31, 2.45, -.08]], m.hot, .038, 13);
-    this.flow('drain', [[-.13, 1.64, .24], [-.29, 1.11, .32], [-.32, .51, .70], [-.26, .27, 1.02]], m.drain, .023, 9);
-    this.flow('flush', [[-.41, 2.51, -.61], [-.48, 2.23, -.20], [-.60, 1.44, .27], [-.58, .63, .57], [-.43, .27, 1.04]], m.hot, .024, 15);
+    this.flow('infuse', [inlet,brewPoint(-.29,.36,.16),brewPoint(0,.59,-.12),brewPoint(0,.70,-.12),brewPoint(0,.81,-.12),outlet], m.hot, .038, 13);
+    this.flow('drain', [brewPoint(-.44,.25,.20),[.55,1.11,-.40],[.50,.51,.30],[-.26,.27,1.02]], m.drain, .023, 9);
+    this.flow('flush', [LAYOUT.valve,[-1.05,2.23,-.60],[-1.07,1.44,.10],[-.58,.63,.57],[-.43,.27,1.04]], m.hot, .024, 15);
   }
 
   bindControls() {
@@ -504,14 +508,14 @@ export class CoffeeScene {
   setView(name) {
     const views = {
       overview: { theta: .57, phi: 1.16, radius: 10.25, target: [0, 2.00, .02] },
-      brew: { theta: .90, phi: 1.18, radius: 5.6, target: [.39, 1.98, .08] },
+      brew: { theta: -.90, phi: 1.18, radius: 5.6, target: [.02, 1.98, -.55] },
       milk: { theta: -.49, phi: 1.25, radius: 5.5, target: [-.51, 1.71, 1.44] },
-      water: { theta: -1.35, phi: 1.17, radius: 6.1, target: [-.52, 1.91, -.49] },
+      water: { theta: 1.35, phi: 1.17, radius: 6.8, target: [.42, 2.03, -.59] },
     };
     const selected = views[name] || views.overview; this.view = name in views ? name : 'overview';
     this.housingEdges.visible=this.view!=='brew'||!this.cutaway;
     this.orbitGoal = { theta: selected.theta, phi: selected.phi, radius: selected.radius }; this.targetGoal.set(...selected.target);
-    if (this.exploded) { this.targetGoal.x -= 1.0; this.orbitGoal.theta=.15; this.orbitGoal.radius = Math.max(this.orbitGoal.radius, 8.8); }
+    if (this.exploded) { this.targetGoal.x+=1.12;this.targetGoal.z+=.35;this.orbitGoal.theta=-.20;this.orbitGoal.radius=Math.max(this.orbitGoal.radius,10.6); }
   }
 
   setCutaway(enabled) {
@@ -553,7 +557,8 @@ export class CoffeeScene {
     this.state = state; const t = Number(state.time) || 0, k = 1 - Math.exp(-clamp(Number(dt) || 0, 0, .15) * 8);
     this.updateCamera(k); this.explodeAmount = mix(this.explodeAmount, this.exploded ? 1 : 0, k);
     if (Math.abs(this.explodeAmount - (this.exploded ? 1 : 0)) < 1e-4) this.explodeAmount = this.exploded ? 1 : 0;
-    this.brewUnit.position.x = .31 - this.explodeAmount * 2.90;
+    const service=servicePose(this.explodeAmount);
+    this.brewUnit.position.x=service.brewX;this.tank.position.z=service.tankZ;
     this.brewSkin.opacity=this.cutaway?mix(.42,.96,this.explodeAmount):1;
     this.funnelMaterial.opacity=this.cutaway?mix(.40,.86,this.explodeAmount):1;
     const mechanics=getBrewMechanics({time:0,compression:0,ejectProgress:0,groundAmount:0,driveAngle:0,phase:{id:'grind'},...state});
@@ -588,12 +593,12 @@ export class CoffeeScene {
     if (state.grind) {
       for (let i = 0; i < this.groundFall.count; i++) {
         const f = (i / this.groundFall.count + t * 1.7) % 1;
-        dummy.position.set(.29 + (rand(i * 11) - .5) * .13, 2.52 - f * .77, .64 + (rand(i * 19) - .5) * .15); dummy.rotation.set(0, 0, i); dummy.scale.setScalar(.65 + rand(i) * .85); dummy.updateMatrix(); this.groundFall.setMatrixAt(i, dummy.matrix);
+        dummy.position.set(LAYOUT.brew[0]+(rand(i*11)-.5)*.13,2.52-f*.77,LAYOUT.brew[2]+.60+(rand(i*19)-.5)*.15); dummy.rotation.set(0, 0, i); dummy.scale.setScalar(.65 + rand(i) * .85); dummy.updateMatrix(); this.groundFall.setMatrixAt(i, dummy.matrix);
       }
       this.groundFall.instanceMatrix.needsUpdate = true;
       for (let i = 0; i < this.fallingBeans.count; i++) {
         const f = (i / this.fallingBeans.count + t * .72) % 1;
-        dummy.position.set(.29 + (rand(i * 11) - .5) * .16, 3.81 - f * .46, -.27 + (rand(i * 17) - .5) * .16); dummy.rotation.set(i, i + f * 3, i); dummy.scale.set(.75, .67, 1.2); dummy.updateMatrix(); this.fallingBeans.setMatrixAt(i, dummy.matrix);
+        dummy.position.set(LAYOUT.grinder[0]+(rand(i*11)-.5)*.16,3.88-f*.40,LAYOUT.grinder[2]+(rand(i*17)-.5)*.16); dummy.rotation.set(i, i + f * 3, i); dummy.scale.set(.75, .67, 1.2); dummy.updateMatrix(); this.fallingBeans.setMatrixAt(i, dummy.matrix);
       }
       this.fallingBeans.instanceMatrix.needsUpdate = true;
     }
@@ -649,7 +654,7 @@ export class CoffeeScene {
       drain: state.draining && state.phase?.id !== 'condition', flush: state.draining && state.phase?.id === 'condition',
     };
     for (const route of this.flowPaths) {
-      const disconnected = this.explodeAmount > .15 && ['hot', 'infuse', 'coffee', 'drain'].includes(route.kind);
+      const disconnected = this.explodeAmount > .001 && ['supply','hot','infuse','coffee','drain'].includes(route.kind);
       const pouring = route.kind === 'milkPour' || route.kind === 'coffeePour' || route.kind === 'infuse';
       route.active = Boolean(activity[route.kind]) && !disconnected && !this.exploded;
       route.particles.visible = route.active; route.mesh.visible = !disconnected && (!pouring || route.active);
@@ -669,10 +674,11 @@ export class CoffeeScene {
     if (!this.labels) return {};
     this.machine.updateMatrixWorld(true); const result = {};
     for (const [id, anchor] of Object.entries(this.anchorPoints)) {
-      const point = anchor.clone(); if (id === 'brew') point.x -= this.explodeAmount * 2.90;
-      if(id==='wiper')point.copy(this.brewUnit.position).add(v(0,.50,this.mechanics.wiperZ));
-      if(id==='lowerSieve')point.copy(this.brewUnit.position).add(v(0,this.mechanics.chamberY-.085+this.mechanics.pistonLift,this.mechanics.chamberZ));
-      if(id==='linkage')point.copy(this.brewUnit.position).add(this.elbow.position);
+      const point=anchor.clone();if(id==='brew')this.brewUnit.localToWorld(point.set(0,.58,.16));
+      if(id==='tank')point.z+=this.tank.position.z;
+      if(id==='wiper')this.brewUnit.localToWorld(point.set(0,.50,this.mechanics.wiperZ));
+      if(id==='lowerSieve')this.brewUnit.localToWorld(point.set(0,this.mechanics.chamberY-.085+this.mechanics.pistonLift,this.mechanics.chamberZ));
+      if(id==='linkage')this.brewUnit.localToWorld(point.copy(this.elbow.position));
       point.project(this.camera); result[id] = { x: (point.x * .5 + .5) * this.width, y: (-point.y * .5 + .5) * this.height, visible: point.z > -1 && point.z < 1 && Math.abs(point.x) < 1 && Math.abs(point.y) < 1 };
     }
     return result;
@@ -685,7 +691,7 @@ export class CoffeeScene {
       doseVisible: this.dose.visible, ejectedPuck: this.ejectedPuck.visible, wastePuck: this.spentPuck.visible,
       cup: { milk: this.cupMilk.visible, coffee: this.cupCoffee.visible, foam: this.cupFoam.visible },
       routes: this.flowPaths.map(r => ({ kind: r.kind, active: r.active })),
-      brewX: this.brewUnit.position.x, motorX: this.drive.position.x, materials: this.housing.map(h => ({ opacity: h.mat.opacity, transparent: h.mat.transparent }))
+      brewX:this.brewUnit.position.x,motorX:this.drive.position.x,tankX:LAYOUT.tankX,tankPull:this.tank.position.z,materials:this.housing.map(h=>({opacity:h.mat.opacity,transparent:h.mat.transparent}))
     };
   }
 

@@ -12,9 +12,9 @@ const components = {
   hopper: { label:'Bohnenbehälter', title:'Hier beginnt der Kaffee.', text:'Ganze Bohnen liegen oben im Vorrat. Sie rutschen in das darunterliegende Mahlwerk. Ein getrennter Schacht ist bei der echten Maschine für bereits gemahlenen Kaffee vorgesehen.', view:'overview' },
   grinder: { label:'Keramikmahlwerk', title:'Ein eigenes Mahlwerk.', text:'Ein eigener Motor dreht die Mahlscheiben. Das Kaffeemehl fällt durch einen Schacht in die offene Brühkammer. Das Mahlwerk bleibt im Gerät, wenn die Brühgruppe herausgenommen wird.', view:'brew' },
   brew: { label:'Brühgruppe', title:'Aufnehmen. Verdichten. Brühen.', text:'Die herausnehmbare Mechanik nimmt das Kaffeemehl auf, bewegt die Kammer gegen den Brühkolben und dichtet sie ab. Heißes Wasser durchströmt den Kaffee. Anschließend wird der gebrauchte Puck ausgeworfen. Motor und Heizung sitzen separat im Gehäuse.', view:'brew' },
-  drive: { label:'Motor & Kupplung', title:'Die Kraft kommt von außen.', text:'Der Motor im Gehäuse bewegt über Schnecke und Zahnräder die Antriebsachse. Die eingesetzte Brühgruppe greift in diese Kupplung. „Brühgruppe heraus“ zeigt, wie sich die Gruppe vom fest eingebauten Antrieb trennt.', view:'brew' },
+  drive: { label:'Motor & Kupplung', title:'Die Kraft kommt von außen.', text:'Der Motor links neben der Brühgruppe bewegt über Schnecke und Zahnräder die Antriebsachse. Die Gruppe greift in seine Kupplung. „Brühgruppe heraus“ zieht zuerst den rechten Wassertank vor und nimmt dann die Gruppe nach rechts aus dem Gerät.', view:'brew' },
   heater: { label:'Heizung', title:'Heißwasser oder Dampf.', text:'Ein elektrischer Durchlauferhitzer erhitzt das gepumpte Wasser außerhalb der Brühgruppe. Zum Kaffeebrühen bleibt das Wasser unter dem Siedepunkt. Für das Milchsystem wird Dampf erzeugt und über einen eigenen Weg zu LatteGo geleitet.', view:'water' },
-  tank: { label:'Wassertank', title:'Frischwasser als Vorrat.', text:'Der abnehmbare Tank speichert kaltes Wasser. Von hier fördert die Pumpe Wasser zur Heizung. Der Tank selbst wird nicht beheizt. Der blaue Weg zeigt die Zufuhr; Orange steht für heißes Wasser.', view:'water' },
+  tank: { label:'Wassertank', title:'Frischwasser auf der rechten Seite.', text:'Von vorne gesehen sitzt der abnehmbare Tank rechts. Die Pumpe fördert sein kaltes Wasser zur Heizung. Für die Serviceansicht wird der Tank zuerst nach vorne gezogen; danach kann die Brühgruppe rechts heraus. Blau zeigt die Zufuhr, Orange das heiße Wasser.', view:'water' },
   pump: { label:'Pumpe', title:'Die Pumpe sorgt für Druck.', text:'Die Pumpe fördert Wasser aus dem Tank zur Heizung und weiter zur Brühgruppe oder zum Dampfweg. Der tatsächliche Brühdruck hängt auch vom Widerstand des Kaffeepucks ab. Die Modellanzeige ist kein Messwert dieses Geräts.', view:'water' },
   milk: { label:'LatteGo', title:'Dampf nimmt Milch und Luft mit.', text:'Der Dampfstrom saugt Milch aus dem Behälter durch den Kanal zwischen seinen beiden Teilen an. Luft wird beigemischt; kleine Blasen bilden Schaum. Die erwärmte Milch läuft durch einen eigenen Auslass in die Tasse.', view:'milk' },
   waste: { label:'Tresterbehälter', title:'Der Puck fällt nach unten.', text:'Nach dem Brühen wird der Druck abgebaut. Die Mechanik öffnet, hebt den feuchten Kaffeepuck aus der Kammer und streift ihn in den Tresterbehälter. Restwasser geht getrennt davon in die Tropfschale.', view:'brew' },
@@ -78,7 +78,7 @@ function setExploded(value){
   if(value){mechanicStop=null;cycle.pause();setCutaway(true);setView('brew');focusComponent('drive',false);}
   scene?.setExploded(value);$('explode').classList.toggle('active',value);$('explode').setAttribute('aria-pressed',value);
   $('explode').querySelector('span').textContent=value?'Brühgruppe einsetzen':'Brühgruppe heraus';
-  $('view-note').textContent=value?'Serviceansicht · Ablauf pausiert':'Frei drehbares Schnittmodell';
+  $('view-note').textContent=value?'Serviceansicht · Tank vor, Brühgruppe nach rechts':'Frei drehbares Schnittmodell';
 }
 function insertGroup(){if(exploded)setExploded(false);}
 function focusComponent(id,move=true){selectedComponent=id;const c=components[id];$('component-title').textContent=c.title;$('component-text').textContent=c.text;$('component-info').hidden=false;if(move)setView(c.view);}
@@ -113,7 +113,7 @@ function updateUI(){
     const detail=details[mechanics.stage];if(detail){$('insight-title').textContent=detail[0];$('insight-text').textContent=detail[1];}
   }
   let flow=ready?(hasMilk?'Bohnen, Wasser und Milch sind bereit.':'Bohnen und Wasser sind bereit.'):s.complete?'Ausgabe beendet · Brühgruppe in Ruheposition':s.grind?'Mahlwerk → offene Brühkammer':s.milkFlow?'Tank → Heizung → LatteGo → Tasse':s.brewFlow?'Heizung → Kaffeepuck → Kaffeeauslauf':s.phase.id==='extract'?'Druckaufbau · Kaffee füllt den Auslauf':s.preinfusion?'Heißwasser benetzt den Kaffeepuck':s.phase.id==='bloom'?'Pumpe steht · Kaffee quillt':s.draining?'Restwasser → Tropfschale':s.phase.id==='heat'?'Heizung erreicht die Arbeitstemperatur':s.phase.id==='condition'?'Umstellen auf Brühtemperatur':s.phase.id==='eject'?'Brühkammer → Tresterbehälter':'Antrieb bewegt die Brühgruppe';
-  if(exploded)flow='Serviceansicht · Antrieb und Brühgruppe getrennt';
+  if(exploded)flow='Serviceansicht · Tank vorgezogen, Brühgruppe rechts';
   else if(!cycle.playing&&!ready&&!s.complete)flow=`Pause · ${flow}`;
   $('flow-text').textContent=flow;$('status-dot').classList.toggle('running',cycle.playing);
   $('play-icon').textContent=cycle.playing?'Ⅱ':s.complete?'↻':'▶';
@@ -131,11 +131,12 @@ const labelsByView={overview:['hopper','grinder','brew','milk','tank'],brew:['dr
 function updateAnnotations(){
   if(!scene)return;
   const anchors=scene.getAnnotations(), canvas=$('scene'),w=canvas.clientWidth,h=canvas.clientHeight,placed=[];
-  const offsets={hopper:[0,-24],grinder:[-55,-12],brew:[65,0],drive:[65,-35],tank:[65,-20],heater:[-60,15],milk:[-30,20],waste:[60,25],pump:[-55,15],wiper:[-65,-20],lowerSieve:[-65,45],linkage:[70,35]};
+  const offsets={hopper:[0,-24],grinder:[-55,-12],brew:[65,0],drive:[-85,-40],tank:[65,-20],heater:[-60,15],milk:[-30,20],waste:[60,25],pump:[-55,15],wiper:[75,-20],lowerSieve:[65,45],linkage:[-85,35]};
   for(const [id,c] of Object.entries(components)){
     const b=$(`label-${id}`),a=anchors[id];
     leaders[id].style.display='none';
-    if(!labels||!cutaway||!a||a.visible===false||!labelsByView[currentView].includes(id)){b.hidden=true;continue;}
+    const relevant=labelsByView[currentView].includes(id)||(currentView==='brew'&&exploded&&id==='tank');
+    if(!labels||!cutaway||!a||a.visible===false||!relevant){b.hidden=true;continue;}
     b.hidden=false;b.classList.toggle('active',selectedComponent===id);
     const bw=b.offsetWidth,bh=b.offsetHeight,off=offsets[id];
     let x=Math.max(bw/2+10,Math.min(w-bw/2-10,a.x+off[0])),y=Math.max(15,Math.min(h-105,a.y+off[1]));
